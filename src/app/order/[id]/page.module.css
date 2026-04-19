@@ -1,0 +1,109 @@
+.page {
+  min-height: 100dvh;
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+.content {
+  padding: var(--space-5);
+  max-width: var(--max-width);
+  margin: 0 auto;
+}
+
+.centerContent {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 60vh;
+}
+
+.successHeader {
+  text-align: center;
+  padding: var(--space-10) 0 var(--space-8);
+  animation: fadeInUp var(--duration-slow) var(--ease-out);
+}
+
+.checkmark {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  background: var(--success);
+  color: white;
+  font-size: 1.75rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto var(--space-5);
+  animation: scaleIn var(--duration-normal) var(--ease-spring);
+}
+
+.warningHeader {
+  text-align: center;
+  padding: var(--space-10) 0 var(--space-8);
+  animation: fadeInUp var(--duration-slow) var(--ease-out);
+}
+
+.warningIcon {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  background: var(--warning);
+  color: white;
+  font-size: 1.75rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto var(--space-5);
+}
+
+.cancelledHeader {
+  text-align: center;
+  padding: var(--space-10) 0 var(--space-8);
+}
+
+.cancelledIcon {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  background: var(--error);
+  color: white;
+  font-size: 1.75rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto var(--space-5);
+}
+
+.heading {
+  font-size: 1.5rem;
+  font-weight: 600;
+  margin-bottom: var(--space-2);
+}
+
+.orderNumber {
+  font-size: 0.875rem;
+  color: var(--text-muted);
+  font-family: monospace;
+  letter-spacing: 0.05em;
+}
+
+.detailRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  font-size: 0.875rem;
+  padding: var(--space-2) 0;
+}
+
+.detailRow + .detailRow {
+  border-top: 1px solid var(--border-color);
+}
+
+.address {
+  text-align: right;
+  max-width: 60%;
+  line-height: 1.5;
+}
+
+.actions {
+  padding: var(--space-5) 0;
+}
