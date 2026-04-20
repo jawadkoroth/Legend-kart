@@ -123,11 +123,19 @@ export async function POST(req: NextRequest) {
           customer,
         }, 201);
       } catch (rzpError) {
-        console.error('[RAZORPAY_ORDER_ERROR]', rzpError);
+        const errMessage = rzpError instanceof Error ? rzpError.message : 'Unknown payment error';
+        console.error('[RAZORPAY_ORDER_ERROR]', errMessage, rzpError);
         // Restore stock and cancel order
         await supabase.rpc('restore_stock', { p_product_id: product_id, p_size: size, p_quantity: quantity });
-        await supabase.from('orders').update({ order_status: 'cancelled', cancel_reason: 'Payment gateway error' }).eq('id', order.id);
-        return apiError(500, 'Failed to initialize payment');
+        await supabase.from('orders').update({ order_status: 'cancelled', cancel_reason: `Payment gateway: ${errMessage}` }).eq('id', order.id);
+
+        // Return user-friendly error with debug hint
+        const isConfigError = errMessage.includes('not configured') || errMessage.includes('key');
+        return apiError(500,
+          isConfigError
+            ? 'Payment gateway is not configured. Please try COD or contact support.'
+            : 'Failed to initialize payment. Please try again or use COD.'
+        );
       }
     }
 

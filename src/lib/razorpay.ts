@@ -4,10 +4,21 @@ import crypto from 'crypto';
 let razorpayInstance: Razorpay | null = null;
 
 export function getRazorpay(): Razorpay {
+  const keyId = process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID;
+  const keySecret = process.env.RAZORPAY_KEY_SECRET;
+
+  if (!keyId || !keySecret) {
+    console.error('[RAZORPAY_CONFIG] Missing keys:', {
+      hasKeyId: !!keyId,
+      hasKeySecret: !!keySecret,
+    });
+    throw new Error('Razorpay API keys not configured. Check NEXT_PUBLIC_RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET in environment variables.');
+  }
+
   if (!razorpayInstance) {
     razorpayInstance = new Razorpay({
-      key_id: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID!,
-      key_secret: process.env.RAZORPAY_KEY_SECRET!,
+      key_id: keyId,
+      key_secret: keySecret,
     });
   }
   return razorpayInstance;
@@ -22,9 +33,15 @@ export function verifyPaymentSignature(
   paymentId: string,
   signature: string
 ): boolean {
+  const keySecret = process.env.RAZORPAY_KEY_SECRET;
+  if (!keySecret) {
+    console.error('[RAZORPAY_VERIFY] RAZORPAY_KEY_SECRET not set');
+    return false;
+  }
+
   const body = `${orderId}|${paymentId}`;
   const expectedSignature = crypto
-    .createHmac('sha256', process.env.RAZORPAY_KEY_SECRET!)
+    .createHmac('sha256', keySecret)
     .update(body)
     .digest('hex');
 

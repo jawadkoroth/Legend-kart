@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense } from 'react';
+import Link from 'next/link';
 import styles from './page.module.css';
 
 function CheckoutContent() {
@@ -17,6 +18,7 @@ function CheckoutContent() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<'online' | 'cod'>('online');
+  const [orderError, setOrderError] = useState('');
 
   // Form state
   const [name, setName] = useState('');
@@ -78,12 +80,15 @@ function CheckoutContent() {
     return (
       <div className={styles.page}>
         <div className={styles.header}>
-          <button className={styles.back} onClick={() => router.back()}>← Back</button>
+          <Link href="/" className={styles.back}>← Home</Link>
           <span className={styles.title}>Checkout</span>
           <span />
         </div>
         <div className={styles.errorState}>
           <p>Invalid checkout. Please go back and select a product.</p>
+          <Link href="/" className="btn btn-secondary btn-sm" style={{ marginTop: 'var(--space-4)', width: 'auto' }}>
+            ← Back to Shop
+          </Link>
         </div>
       </div>
     );
@@ -112,6 +117,7 @@ function CheckoutContent() {
     if (submitting || !product) return;
     if (!validate()) return;
     setSubmitting(true);
+    setOrderError('');
 
     try {
       const res = await fetch('/api/orders', {
@@ -137,21 +143,20 @@ function CheckoutContent() {
       const data = await res.json();
 
       if (!data.success) {
-        alert(data.error || 'Failed to place order');
+        console.error('[ORDER_FAILED]', data.error, data.details);
+        setOrderError(data.error || 'Failed to place order. Please try again.');
         setSubmitting(false);
         return;
       }
 
       if (paymentMethod === 'online') {
-        // Open Razorpay checkout
         await openRazorpay(data);
       } else {
-        // COD — redirect to confirmation
         router.push(`/order/${data.order_id}`);
       }
     } catch (err) {
-      console.error('Order failed:', err);
-      alert('Something went wrong. Please try again.');
+      console.error('[ORDER_ERROR]', err);
+      setOrderError('Network error. Please check your connection and try again.');
       setSubmitting(false);
     }
   }
@@ -163,15 +168,30 @@ function CheckoutContent() {
     order_id: string;
     customer: { name: string; phone: string; email?: string };
   }) {
+    // Validate that we have the required Razorpay data
+    if (!orderData.razorpay_order_id || !orderData.key_id) {
+      console.error('[RAZORPAY_INIT] Missing order_id or key_id:', orderData);
+      setOrderError('Payment could not be initialized. Please try COD or contact support.');
+      setSubmitting(false);
+      return;
+    }
+
     // Dynamically load Razorpay SDK
-    if (!(window as unknown as { Razorpay: unknown }).Razorpay) {
-      await new Promise<void>((resolve, reject) => {
-        const script = document.createElement('script');
-        script.src = 'https://checkout.razorpay.com/v1/checkout.js';
-        script.onload = () => resolve();
-        script.onerror = () => reject(new Error('Failed to load Razorpay'));
-        document.body.appendChild(script);
-      });
+    try {
+      if (!(window as unknown as { Razorpay: unknown }).Razorpay) {
+        await new Promise<void>((resolve, reject) => {
+          const script = document.createElement('script');
+          script.src = 'https://checkout.razorpay.com/v1/checkout.js';
+          script.onload = () => resolve();
+          script.onerror = () => reject(new Error('Failed to load payment SDK'));
+          document.body.appendChild(script);
+        });
+      }
+    } catch (err) {
+      console.error('[RAZORPAY_SDK_LOAD]', err);
+      setOrderError('Could not load payment gateway. Please try COD or check your internet connection.');
+      setSubmitting(false);
+      return;
     }
 
     const RazorpayClass = (window as unknown as { Razorpay: new (options: Record<string, unknown>) => { open: () => void } }).Razorpay;
@@ -190,7 +210,6 @@ function CheckoutContent() {
       },
       theme: { color: '#1A1A1A' },
       handler: async function (response: { razorpay_payment_id: string; razorpay_signature: string }) {
-        // Verify payment
         try {
           const verifyRes = await fetch('/api/payments/verify', {
             method: 'POST',
@@ -214,7 +233,6 @@ function CheckoutContent() {
       modal: {
         ondismiss: function () {
           setSubmitting(false);
-          // User closed — redirect to order page for retry
           router.push(`/order/${orderData.order_id}?payment=pending`);
         },
       },
@@ -233,6 +251,15 @@ function CheckoutContent() {
       </div>
 
       <div className={styles.content}>
+        {/* Error Banner */}
+        {orderError && (
+          <div className={styles.errorBanner}>
+            <span>⚠</span>
+            <span>{orderError}</span>
+            <button onClick={() => setOrderError('')} className={styles.errorClose}>✕</button>
+          </div>
+        )}
+
         {/* Order Summary */}
         <div className="card" style={{ marginBottom: 'var(--space-6)' }}>
           <div className={styles.summaryRow}>
@@ -296,13 +323,13 @@ function CheckoutContent() {
           <div className="payment-toggle">
             <button
               className={`payment-option ${paymentMethod === 'cod' ? 'payment-option-selected' : ''}`}
-              onClick={() => setPaymentMethod('cod')}
+              onClick={() => { setPaymentMethod('cod'); setOrderError(''); }}
             >
               💰 COD
             </button>
             <button
               className={`payment-option ${paymentMethod === 'online' ? 'payment-option-selected' : ''}`}
-              onClick={() => setPaymentMethod('online')}
+              onClick={() => { setPaymentMethod('online'); setOrderError(''); }}
             >
               💳 Online
             </button>
