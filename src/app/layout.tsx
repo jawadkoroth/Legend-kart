@@ -1,5 +1,8 @@
 import type { Metadata } from 'next';
 import '@/styles/globals.css';
+import { CartProvider } from '@/lib/cart';
+import Navbar from '@/components/Navbar';
+import FeedbackButton from '@/components/FeedbackButton';
 
 export const metadata: Metadata = {
   title: 'NOIR — Premium Black Fashion',
@@ -29,7 +32,13 @@ export default function RootLayout({
         <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
         <meta name="theme-color" content="#0B0B0B" />
       </head>
-      <body>{children}</body>
+      <body>
+        <CartProvider>
+          <Navbar />
+          {children}
+          <FeedbackButton />
+        </CartProvider>
+      </body>
     </html>
   );
 }

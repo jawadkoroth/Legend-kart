@@ -1,0 +1,231 @@
+'use client';
+
+import { useState, useEffect, use } from 'react';
+import { useRouter } from 'next/navigation';
+import { createClient } from '@/lib/supabase/client';
+
+const ALL_SIZES = ['XS', 'S', 'M', 'L', 'XL', 'XXL'];
+
+interface ProductData {
+  id: string;
+  name: string;
+  slug: string;
+  description: string;
+  price_paise: number;
+  sale_price_paise: number | null;
+  sizes: string[];
+  images: string[];
+  is_active: boolean;
+}
+
+export default function AdminEditProduct({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = use(params);
+  const router = useRouter();
+  const [product, setProduct] = useState<ProductData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const [msg, setMsg] = useState('');
+
+  // Form state
+  const [name, setName] = useState('');
+  const [slug, setSlug] = useState('');
+  const [description, setDescription] = useState('');
+  const [price, setPrice] = useState('');
+  const [salePrice, setSalePrice] = useState('');
+  const [sizes, setSizes] = useState<string[]>([]);
+  const [imageUrls, setImageUrls] = useState('');
+  const [isActive, setIsActive] = useState(true);
+  const [inventory, setInventory] = useState<{ size: string; stock: number }[]>([]);
+
+  useEffect(() => {
+    async function load() {
+      const supabase = createClient();
+      const { data: p } = await supabase.from('products').select('*').eq('id', id).single();
+      if (!p) { setLoading(false); return; }
+
+      setProduct(p);
+      setName(p.name);
+      setSlug(p.slug);
+      setDescription(p.description || '');
+      setPrice((p.price_paise / 100).toString());
+      setSalePrice(p.sale_price_paise ? (p.sale_price_paise / 100).toString() : '');
+      setSizes(p.sizes || []);
+      setImageUrls((p.images || []).join('\n'));
+      setIsActive(p.is_active);
+
+      const { data: inv } = await supabase
+        .from('inventory')
+        .select('size, stock')
+        .eq('product_id', id);
+      setInventory(inv || []);
+      setLoading(false);
+    }
+    load();
+  }, [id]);
+
+  function toggleSize(s: string) {
+    setSizes(prev => prev.includes(s) ? prev.filter(x => x !== s) : [...prev, s]);
+  }
+
+  function getStock(s: string) {
+    return inventory.find(i => i.size === s)?.stock ?? 0;
+  }
+
+  function setStock(s: string, val: number) {
+    setInventory(prev => {
+      const exists = prev.find(i => i.size === s);
+      if (exists) return prev.map(i => i.size === s ? { ...i, stock: val } : i);
+      return [...prev, { size: s, stock: val }];
+    });
+  }
+
+  async function handleSave(e: React.FormEvent) {
+    e.preventDefault();
+    if (!name.trim() || !price) return;
+    setSaving(true);
+    setError('');
+    setMsg('');
+
+    const supabase = createClient();
+    const priceVal = Math.round(parseFloat(price) * 100);
+    const salePriceVal = salePrice ? Math.round(parseFloat(salePrice) * 100) : null;
+    const images = imageUrls.split('\n').map(u => u.trim()).filter(Boolean);
+
+    // Update product
+    const { error: prodErr } = await supabase
+      .from('products')
+      .update({
+        name: name.trim(),
+        slug,
+        description: description.trim(),
+        price_paise: priceVal,
+        sale_price_paise: salePriceVal,
+        sizes,
+        images,
+        is_active: isActive,
+      })
+      .eq('id', id);
+
+    if (prodErr) {
+      setError(prodErr.message);
+      setSaving(false);
+      return;
+    }
+
+    // Update inventory — upsert each size
+    for (const s of sizes) {
+      const stockVal = getStock(s);
+      const { data: existing } = await supabase
+        .from('inventory')
+        .select('id')
+        .eq('product_id', id)
+        .eq('size', s)
+        .single();
+
+      if (existing) {
+        await supabase.from('inventory').update({ stock: stockVal }).eq('product_id', id).eq('size', s);
+      } else {
+        await supabase.from('inventory').insert({ product_id: id, size: s, stock: stockVal });
+      }
+    }
+
+    setMsg('Product updated!');
+    setTimeout(() => setMsg(''), 3000);
+    setSaving(false);
+  }
+
+  if (loading) return <div className="animate-pulse text-muted" style={{ textAlign: 'center', padding: 'var(--space-8)' }}>Loading...</div>;
+  if (!product) return <div style={{ textAlign: 'center', padding: 'var(--space-8)', color: 'var(--text-muted)' }}>Product not found</div>;
+
+  return (
+    <div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-5)' }}>
+        <h1 style={{ fontSize: '1.25rem', fontWeight: 600 }}>Edit Product</h1>
+        <button
+          className={`btn btn-sm ${isActive ? 'btn-success' : 'btn-secondary'}`}
+          onClick={() => setIsActive(!isActive)}
+        >
+          {isActive ? 'Active' : 'Inactive'}
+        </button>
+      </div>
+
+      {error && <div className="warning-banner" style={{ marginBottom: 'var(--space-4)', color: 'var(--error)', borderColor: 'rgba(229,57,53,0.3)', background: 'rgba(229,57,53,0.1)' }}>{error}</div>}
+      {msg && <div className="warning-banner" style={{ marginBottom: 'var(--space-4)', color: 'var(--success)', borderColor: 'rgba(76,175,80,0.3)', background: 'rgba(76,175,80,0.1)' }}>{msg}</div>}
+
+      <form onSubmit={handleSave}>
+        <div className="card" style={{ marginBottom: 'var(--space-4)' }}>
+          <div className="input-group" style={{ marginBottom: 'var(--space-3)' }}>
+            <label className="input-label">Product Name</label>
+            <input className="input-field" value={name} onChange={e => setName(e.target.value)} required />
+          </div>
+          <div className="input-group" style={{ marginBottom: 'var(--space-3)' }}>
+            <label className="input-label">Slug</label>
+            <input className="input-field" value={slug} onChange={e => setSlug(e.target.value)} />
+          </div>
+          <div className="input-group" style={{ marginBottom: 'var(--space-3)' }}>
+            <label className="input-label">Description</label>
+            <textarea className="input-field" value={description} onChange={e => setDescription(e.target.value)} rows={3} style={{ resize: 'vertical', minHeight: '60px' }} />
+          </div>
+          <div className="input-row">
+            <div className="input-group">
+              <label className="input-label">Price (₹)</label>
+              <input className="input-field" type="number" step="0.01" value={price} onChange={e => setPrice(e.target.value)} required />
+            </div>
+            <div className="input-group">
+              <label className="input-label">Sale Price (₹)</label>
+              <input className="input-field" type="number" step="0.01" value={salePrice} onChange={e => setSalePrice(e.target.value)} placeholder="Optional" />
+            </div>
+          </div>
+        </div>
+
+        <div className="card" style={{ marginBottom: 'var(--space-4)' }}>
+          <label className="input-label" style={{ marginBottom: 'var(--space-3)' }}>Sizes & Stock</label>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--space-2)', marginBottom: 'var(--space-4)' }}>
+            {ALL_SIZES.map(s => (
+              <button key={s} type="button" className={`size-btn ${sizes.includes(s) ? 'size-btn-selected' : ''}`} onClick={() => toggleSize(s)}>
+                {s}
+              </button>
+            ))}
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 'var(--space-3)' }}>
+            {sizes.map(s => (
+              <div key={s} className="input-group">
+                <label className="input-label">{s}</label>
+                <input
+                  className="input-field"
+                  type="number"
+                  min="0"
+                  value={getStock(s)}
+                  onChange={e => setStock(s, parseInt(e.target.value) || 0)}
+                />
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="card" style={{ marginBottom: 'var(--space-5)' }}>
+          <div className="input-group">
+            <label className="input-label">Image URLs (one per line)</label>
+            <textarea
+              className="input-field"
+              value={imageUrls}
+              onChange={e => setImageUrls(e.target.value)}
+              rows={3}
+              style={{ resize: 'vertical', minHeight: '60px' }}
+            />
+          </div>
+        </div>
+
+        <div style={{ display: 'flex', gap: 'var(--space-3)' }}>
+          <button className={`btn btn-primary ${saving ? 'btn-loading' : ''}`} type="submit" disabled={saving} style={{ flex: 1 }}>
+            SAVE CHANGES
+          </button>
+          <button className="btn btn-secondary" type="button" onClick={() => router.push('/admin/products')} style={{ flex: 1 }}>
+            CANCEL
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}

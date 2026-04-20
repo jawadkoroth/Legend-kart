@@ -4,12 +4,6 @@ import styles from './page.module.css';
 export default function LandingPage() {
   return (
     <div className={styles.page}>
-      {/* Navbar */}
-      <nav className={styles.navbar}>
-        <span className={styles.logo}>NOIR</span>
-        <Link href="/product/noir-linen-shirt" className={styles.navLink}>Shop</Link>
-      </nav>
-
       {/* Hero Section */}
       <section className={styles.hero}>
         <div className={styles.heroOverlay} />

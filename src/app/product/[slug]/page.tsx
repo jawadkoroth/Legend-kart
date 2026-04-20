@@ -3,6 +3,8 @@
 import { useState, useEffect, useCallback, use } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import useEmblaCarousel from 'embla-carousel-react';
+import { useCart } from '@/lib/cart';
 import styles from './page.module.css';
 
 interface Product {
@@ -23,6 +25,7 @@ interface InventoryItem {
 export default function ProductPage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = use(params);
   const router = useRouter();
+  const { addItem } = useCart();
   const [product, setProduct] = useState<Product | null>(null);
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
   const [selectedSize, setSelectedSize] = useState('');
@@ -32,7 +35,22 @@ export default function ProductPage({ params }: { params: Promise<{ slug: string
   const [couponApplied, setCouponApplied] = useState(false);
   const [showCoupon, setShowCoupon] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [currentSlide, setCurrentSlide] = useState(0);
+  const [addedToCart, setAddedToCart] = useState(false);
+
+  // Embla Carousel
+  const [emblaRef, emblaApi] = useEmblaCarousel({ loop: true, dragFree: false });
+  const [selectedSlide, setSelectedSlide] = useState(0);
+
+  const onSelect = useCallback(() => {
+    if (!emblaApi) return;
+    setSelectedSlide(emblaApi.selectedScrollSnap());
+  }, [emblaApi]);
+
+  useEffect(() => {
+    if (!emblaApi) return;
+    emblaApi.on('select', onSelect);
+    onSelect();
+  }, [emblaApi, onSelect]);
 
   useEffect(() => {
     async function fetchProduct() {
@@ -90,15 +108,35 @@ export default function ProductPage({ params }: { params: Promise<{ slug: string
     }
   }
 
+  function handleAddToCart() {
+    if (!selectedSize || !product) return;
+    const images = getImages();
+    addItem({
+      product_id: product.id,
+      name: product.name,
+      slug: product.slug,
+      size: selectedSize,
+      price_paise: finalPrice,
+      image: images[0],
+    });
+    setAddedToCart(true);
+    setTimeout(() => setAddedToCart(false), 2000);
+  }
+
   function handleBuyNow() {
     if (!selectedSize || !product) return;
-
     const params = new URLSearchParams({
       product_id: product.id,
       size: selectedSize,
       ...(couponApplied && couponCode ? { coupon: couponCode.toUpperCase() } : {}),
     });
     router.push(`/checkout?${params.toString()}`);
+  }
+
+  function getImages() {
+    if (!product) return ['/product-1.png'];
+    const hasImages = product.images && product.images.length > 0 && product.images[0] !== '';
+    return hasImages ? product.images : ['/product-1.png', '/product-2.png', '/product-3.png'];
   }
 
   if (loading) {
@@ -128,53 +166,43 @@ export default function ProductPage({ params }: { params: Promise<{ slug: string
     );
   }
 
-  // Use static images if product has no images in DB
-  const hasImages = product.images && product.images.length > 0 && product.images[0] !== '';
-  const images = hasImages ? product.images : ['/product-1.png', '/product-2.png', '/product-3.png'];
+  const images = getImages();
 
   return (
     <div className={styles.page}>
-      {/* Top Bar */}
-      <div className={styles.topBar}>
-        <Link href="/" className={styles.backLink}>← NOIR</Link>
-      </div>
-
       <div className={styles.desktopLayout}>
-        {/* Image Gallery */}
+        {/* Embla Image Carousel — swipeable */}
         <div className={styles.galleryWrap}>
-          <div className="gallery-container">
-            <div
-              className="gallery-track"
-              style={{ transform: `translateX(-${currentSlide * 100}%)` }}
-            >
+          <div className={styles.emblaViewport} ref={emblaRef}>
+            <div className={styles.emblaContainer}>
               {images.map((img, idx) => (
-                <div key={idx} className="gallery-slide">
+                <div key={idx} className={styles.emblaSlide}>
                   <img src={img} alt={`${product.name} - ${idx + 1}`} />
                 </div>
               ))}
             </div>
-            {images.length > 1 && (
-              <div className="gallery-dots">
-                {images.map((_, idx) => (
-                  <button
-                    key={idx}
-                    className={`gallery-dot ${idx === currentSlide ? 'gallery-dot-active' : ''}`}
-                    onClick={() => setCurrentSlide(idx)}
-                  />
-                ))}
-              </div>
-            )}
           </div>
+          {images.length > 1 && (
+            <div className={styles.dots}>
+              {images.map((_, idx) => (
+                <button
+                  key={idx}
+                  className={`${styles.dot} ${idx === selectedSlide ? styles.dotActive : ''}`}
+                  onClick={() => emblaApi?.scrollTo(idx)}
+                />
+              ))}
+            </div>
+          )}
 
-          {/* Desktop: Thumbnail strip */}
+          {/* Desktop thumbnails */}
           <div className={styles.thumbnails}>
             {images.map((img, idx) => (
               <button
                 key={idx}
-                className={`${styles.thumb} ${idx === currentSlide ? styles.thumbActive : ''}`}
-                onClick={() => setCurrentSlide(idx)}
+                className={`${styles.thumb} ${idx === selectedSlide ? styles.thumbActive : ''}`}
+                onClick={() => emblaApi?.scrollTo(idx)}
               >
-                <img src={img} alt={`Thumbnail ${idx + 1}`} />
+                <img src={img} alt={`Thumb ${idx + 1}`} />
               </button>
             ))}
           </div>
@@ -224,10 +252,7 @@ export default function ProductPage({ params }: { params: Promise<{ slug: string
             {/* Coupon */}
             <div className={styles.section}>
               {!showCoupon ? (
-                <button
-                  className={styles.couponToggle}
-                  onClick={() => setShowCoupon(true)}
-                >
+                <button className={styles.couponToggle} onClick={() => setShowCoupon(true)}>
                   Have a coupon code?
                 </button>
               ) : (
@@ -271,39 +296,48 @@ export default function ProductPage({ params }: { params: Promise<{ slug: string
               <span>↩️ Easy Returns</span>
             </div>
 
-            {/* Desktop CTA */}
+            {/* Desktop CTAs */}
             <div className={styles.desktopCta}>
               <button
-                id="buy-now-btn"
                 className="btn btn-primary"
                 disabled={!selectedSize}
                 onClick={handleBuyNow}
               >
-                {selectedSize
-                  ? `BUY NOW — ${formatPrice(finalPrice)}`
-                  : 'SELECT A SIZE'}
+                {selectedSize ? `BUY NOW — ${formatPrice(finalPrice)}` : 'SELECT A SIZE'}
+              </button>
+              <button
+                className={`btn btn-secondary ${addedToCart ? 'btn-success' : ''}`}
+                disabled={!selectedSize}
+                onClick={handleAddToCart}
+                style={{ marginTop: 'var(--space-3)' }}
+              >
+                {addedToCart ? '✓ ADDED TO CART' : 'ADD TO CART'}
               </button>
             </div>
           </div>
         </div>
       </div>
 
-      {/* Mobile Sticky CTA */}
+      {/* Mobile Sticky CTAs */}
       <div className={styles.mobileCta}>
-        <div className="container">
+        <div className={styles.mobileBtnRow}>
+          <button
+            className={`${styles.mobileCartBtn} ${addedToCart ? styles.mobileCartBtnDone : ''}`}
+            disabled={!selectedSize}
+            onClick={handleAddToCart}
+          >
+            {addedToCart ? '✓' : '🛒'}
+          </button>
           <button
             className="btn btn-primary"
             disabled={!selectedSize}
             onClick={handleBuyNow}
+            style={{ flex: 1 }}
           >
-            {selectedSize
-              ? `BUY NOW — ${formatPrice(finalPrice)}`
-              : 'SELECT A SIZE'}
+            {selectedSize ? `BUY NOW — ${formatPrice(finalPrice)}` : 'SELECT A SIZE'}
           </button>
         </div>
       </div>
-
-      {/* Spacer for mobile sticky */}
       <div className={styles.mobileCtaSpacer} />
     </div>
   );

@@ -1,49 +1,69 @@
 /* =============================================
-   Product Page — Mobile-First + Desktop Side-by-Side
+   Product Page — Embla Carousel + Responsive
    ============================================= */
 
 .page {
-  min-height: 100dvh;
+  min-height: calc(100dvh - 52px);
   padding-bottom: env(safe-area-inset-bottom);
 }
-
-.topBar {
-  position: sticky;
-  top: 0;
-  z-index: 10;
-  padding: var(--space-3) var(--space-5);
-  background: rgba(11, 11, 11, 0.85);
-  backdrop-filter: blur(12px);
-  border-bottom: 1px solid var(--border-color);
-}
-
-.backLink {
-  font-family: var(--font-serif);
-  font-size: 0.875rem;
-  font-weight: 600;
-  letter-spacing: 0.1em;
-  color: var(--text-secondary);
-  transition: color var(--duration-fast);
-}
-.backLink:hover { color: var(--text-primary); }
 
 .desktopLayout {
   display: flex;
   flex-direction: column;
 }
 
-.galleryWrap {
-  width: 100%;
-}
+.galleryWrap { width: 100%; position: relative; }
 
-.thumbnails {
-  display: none; /* hidden on mobile */
+/* Embla */
+.emblaViewport {
+  overflow: hidden;
+  background: var(--bg-secondary);
 }
-
-.heroSkeleton {
-  width: 100%;
+.emblaContainer {
+  display: flex;
+  touch-action: pan-y pinch-zoom;
+}
+.emblaSlide {
+  flex: 0 0 100%;
+  min-width: 0;
   aspect-ratio: 4/5;
 }
+.emblaSlide img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+.dots {
+  position: absolute;
+  bottom: var(--space-4);
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: var(--space-2);
+  z-index: 2;
+}
+.dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.4);
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  transition: all var(--duration-fast) var(--ease-out);
+}
+.dotActive {
+  background: white;
+  width: 18px;
+  border-radius: 3px;
+}
+
+.thumbnails { display: none; }
+
+.heroSkeleton { width: 100%; aspect-ratio: 4/5; }
 
 .content {
   padding: var(--space-5);
@@ -66,10 +86,7 @@
   margin-bottom: var(--space-4);
 }
 
-.price {
-  font-size: 1.375rem;
-  font-weight: 700;
-}
+.price { font-size: 1.375rem; font-weight: 700; }
 
 .originalPrice {
   font-size: 1rem;
@@ -93,9 +110,7 @@
   margin-bottom: var(--space-6);
 }
 
-.section {
-  margin-bottom: var(--space-6);
-}
+.section { margin-bottom: var(--space-6); }
 
 .lowStock {
   font-size: 0.8125rem;
@@ -138,24 +153,49 @@
   border-bottom: 1px solid var(--border-color);
 }
 
-.desktopCta {
-  display: none; /* hidden on mobile */
-}
+.desktopCta { display: none; }
 
 .mobileCta {
   position: fixed;
   bottom: 0;
   left: 0;
   right: 0;
-  padding: var(--space-4) var(--space-5);
-  padding-bottom: max(var(--space-4), env(safe-area-inset-bottom));
+  padding: var(--space-3) var(--space-5);
+  padding-bottom: max(var(--space-3), env(safe-area-inset-bottom));
   background: linear-gradient(to top, var(--bg-primary) 70%, transparent);
   z-index: 100;
 }
 
-.mobileCtaSpacer {
-  height: 80px;
+.mobileBtnRow {
+  display: flex;
+  gap: var(--space-3);
+  align-items: center;
+  max-width: var(--max-width);
+  margin: 0 auto;
 }
+
+.mobileCartBtn {
+  width: 48px;
+  height: 48px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+  background: var(--bg-secondary);
+  font-size: 1.125rem;
+  cursor: pointer;
+  transition: all var(--duration-fast) var(--ease-out);
+}
+.mobileCartBtn:disabled { opacity: 0.4; cursor: not-allowed; }
+.mobileCartBtnDone {
+  background: var(--success);
+  border-color: var(--success);
+  color: white;
+}
+
+.mobileCtaSpacer { height: 72px; }
 
 .errorState {
   display: flex;
@@ -166,19 +206,9 @@
   color: var(--text-muted);
 }
 
-/* =============================================
-   RESPONSIVE — Tablet (768px+)
-   ============================================= */
+/* ---- Tablet ---- */
 @media (min-width: 768px) {
-  .topBar {
-    padding: var(--space-4) var(--space-8);
-  }
-
-  .content {
-    max-width: 540px;
-    padding: var(--space-8);
-  }
-
+  .content { max-width: 540px; padding: var(--space-8); }
   .mobileCta {
     position: sticky;
     background: none;
@@ -186,24 +216,11 @@
     max-width: 540px;
     margin: 0 auto;
   }
-
-  .mobileCtaSpacer {
-    display: none;
-  }
+  .mobileCtaSpacer { display: none; }
 }
 
-/* =============================================
-   RESPONSIVE — Desktop (1024px+)
-   ============================================= */
+/* ---- Desktop ---- */
 @media (min-width: 1024px) {
-  .topBar {
-    padding: var(--space-4) var(--space-12);
-  }
-
-  .backLink {
-    font-size: 1rem;
-  }
-
   .desktopLayout {
     flex-direction: row;
     max-width: 1200px;
@@ -225,7 +242,6 @@
     gap: var(--space-3);
     margin-top: var(--space-3);
   }
-
   .thumb {
     width: 72px;
     height: 72px;
@@ -238,50 +254,18 @@
     opacity: 0.5;
     transition: all var(--duration-fast) var(--ease-out);
   }
-  .thumb img {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-  }
+  .thumb img { width: 100%; height: 100%; object-fit: cover; }
   .thumb:hover { opacity: 0.8; }
-  .thumbActive {
-    opacity: 1;
-    border-color: var(--text-primary);
-  }
+  .thumbActive { opacity: 1; border-color: var(--text-primary); }
 
-  .content {
-    flex: 1;
-    max-width: 500px;
-    padding: 0;
-  }
+  .content { flex: 1; max-width: 500px; padding: 0; }
 
-  .productName {
-    font-size: 2.25rem;
-  }
+  .productName { font-size: 2.25rem; }
+  .price { font-size: 1.5rem; }
+  .description { font-size: 1rem; }
+  .trustBadges { justify-content: flex-start; gap: var(--space-4); }
 
-  .price {
-    font-size: 1.5rem;
-  }
-
-  .description {
-    font-size: 1rem;
-  }
-
-  .trustBadges {
-    justify-content: flex-start;
-    gap: var(--space-4);
-  }
-
-  .desktopCta {
-    display: block;
-    margin-top: var(--space-6);
-  }
-
-  .mobileCta {
-    display: none;
-  }
-
-  .mobileCtaSpacer {
-    display: none;
-  }
+  .desktopCta { display: block; margin-top: var(--space-6); }
+  .mobileCta { display: none; }
+  .mobileCtaSpacer { display: none; }
 }

@@ -1,0 +1,170 @@
+'use client';
+
+import { useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { createClient } from '@/lib/supabase/client';
+
+const ALL_SIZES = ['XS', 'S', 'M', 'L', 'XL', 'XXL'];
+
+export default function AdminNewProduct() {
+  const router = useRouter();
+  const [name, setName] = useState('');
+  const [slug, setSlug] = useState('');
+  const [description, setDescription] = useState('');
+  const [pricePaise, setPricePaise] = useState('');
+  const [salePricePaise, setSalePricePaise] = useState('');
+  const [sizes, setSizes] = useState<string[]>(['S', 'M', 'L', 'XL']);
+  const [stock, setStock] = useState<Record<string, string>>({});
+  const [imageUrls, setImageUrls] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  function handleNameChange(val: string) {
+    setName(val);
+    setSlug(val.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, ''));
+  }
+
+  function toggleSize(s: string) {
+    setSizes(prev => prev.includes(s) ? prev.filter(x => x !== s) : [...prev, s]);
+  }
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!name.trim() || !pricePaise) return;
+    setSaving(true);
+    setError('');
+
+    const supabase = createClient();
+
+    // Parse images
+    const images = imageUrls.split('\n').map(u => u.trim()).filter(Boolean);
+    const price = Math.round(parseFloat(pricePaise) * 100);
+    const salePrice = salePricePaise ? Math.round(parseFloat(salePricePaise) * 100) : null;
+
+    // 1. Insert product
+    const { data: product, error: prodErr } = await supabase
+      .from('products')
+      .insert({
+        name: name.trim(),
+        slug: slug || name.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
+        description: description.trim(),
+        price_paise: price,
+        sale_price_paise: salePrice,
+        sizes,
+        images,
+        is_active: true,
+      })
+      .select('id')
+      .single();
+
+    if (prodErr || !product) {
+      setError(prodErr?.message || 'Failed to create product');
+      setSaving(false);
+      return;
+    }
+
+    // 2. Insert inventory for each size
+    const inventoryRows = sizes.map(s => ({
+      product_id: product.id,
+      size: s,
+      stock: parseInt(stock[s] || '0') || 0,
+    }));
+
+    const { error: invErr } = await supabase.from('inventory').insert(inventoryRows);
+    if (invErr) {
+      setError('Product created but inventory failed: ' + invErr.message);
+      setSaving(false);
+      return;
+    }
+
+    router.push('/admin/products');
+  }
+
+  return (
+    <div>
+      <h1 style={{ fontSize: '1.25rem', fontWeight: 600, marginBottom: 'var(--space-5)' }}>Add New Product</h1>
+
+      {error && (
+        <div className="warning-banner" style={{ marginBottom: 'var(--space-4)', color: 'var(--error)', borderColor: 'rgba(229,57,53,0.3)', background: 'rgba(229,57,53,0.1)' }}>
+          {error}
+        </div>
+      )}
+
+      <form onSubmit={handleSubmit}>
+        <div className="card" style={{ marginBottom: 'var(--space-4)' }}>
+          <div className="input-group" style={{ marginBottom: 'var(--space-3)' }}>
+            <label className="input-label">Product Name</label>
+            <input className="input-field" value={name} onChange={e => handleNameChange(e.target.value)} required />
+          </div>
+          <div className="input-group" style={{ marginBottom: 'var(--space-3)' }}>
+            <label className="input-label">Slug (URL)</label>
+            <input className="input-field" value={slug} onChange={e => setSlug(e.target.value)} placeholder="auto-generated" />
+          </div>
+          <div className="input-group" style={{ marginBottom: 'var(--space-3)' }}>
+            <label className="input-label">Description</label>
+            <textarea className="input-field" value={description} onChange={e => setDescription(e.target.value)} rows={3} style={{ resize: 'vertical', minHeight: '60px' }} />
+          </div>
+          <div className="input-row" style={{ marginBottom: 'var(--space-3)' }}>
+            <div className="input-group">
+              <label className="input-label">Price (₹)</label>
+              <input className="input-field" type="number" step="0.01" value={pricePaise} onChange={e => setPricePaise(e.target.value)} required placeholder="1299" />
+            </div>
+            <div className="input-group">
+              <label className="input-label">Sale Price (₹, optional)</label>
+              <input className="input-field" type="number" step="0.01" value={salePricePaise} onChange={e => setSalePricePaise(e.target.value)} placeholder="999" />
+            </div>
+          </div>
+        </div>
+
+        <div className="card" style={{ marginBottom: 'var(--space-4)' }}>
+          <label className="input-label" style={{ marginBottom: 'var(--space-3)' }}>Sizes & Initial Stock</label>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--space-2)', marginBottom: 'var(--space-4)' }}>
+            {ALL_SIZES.map(s => (
+              <button
+                key={s}
+                type="button"
+                className={`size-btn ${sizes.includes(s) ? 'size-btn-selected' : ''}`}
+                onClick={() => toggleSize(s)}
+              >
+                {s}
+              </button>
+            ))}
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 'var(--space-3)' }}>
+            {sizes.map(s => (
+              <div key={s} className="input-group">
+                <label className="input-label">{s} Stock</label>
+                <input
+                  className="input-field"
+                  type="number"
+                  min="0"
+                  value={stock[s] || ''}
+                  onChange={e => setStock(prev => ({ ...prev, [s]: e.target.value }))}
+                  placeholder="0"
+                />
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="card" style={{ marginBottom: 'var(--space-5)' }}>
+          <div className="input-group">
+            <label className="input-label">Image URLs (one per line)</label>
+            <textarea
+              className="input-field"
+              value={imageUrls}
+              onChange={e => setImageUrls(e.target.value)}
+              rows={3}
+              placeholder={"/product-1.png\n/product-2.png"}
+              style={{ resize: 'vertical', minHeight: '60px' }}
+            />
+          </div>
+        </div>
+
+        <button className={`btn btn-primary ${saving ? 'btn-loading' : ''}`} type="submit" disabled={saving}>
+          CREATE PRODUCT
+        </button>
+      </form>
+    </div>
+  );
+}
