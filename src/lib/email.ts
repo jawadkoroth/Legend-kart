@@ -40,7 +40,7 @@ export async function sendOrderConfirmation(order: OrderEmailData): Promise<void
           </div>
           <p style="color:#CFCFCF;font-size:14px;">
             Track your order:
-            <a href="${process.env.NEXT_PUBLIC_URL || 'http://localhost:3000'}/order/${order.id}" style="color:#F5F5F5;text-decoration:underline;">Click here</a>
+            <a href="${process.env.NEXT_PUBLIC_URL || 'https://legend-kart.vercel.app'}/order/${order.id}" style="color:#F5F5F5;text-decoration:underline;">Click here</a>
           </p>
         </div>
       `,

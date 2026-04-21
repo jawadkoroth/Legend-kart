@@ -637,3 +637,25 @@ img { max-width: 100%; display: block; }
   border-radius: var(--radius-sm);
   animation: pulse 2s ease-in-out infinite;
 }
+
+/* ---------- Light Theme Overrides ---------- */
+[data-theme='light'] {
+  --bg-primary: #FAFAFA;
+  --bg-secondary: #F0F0F0;
+  --bg-tertiary: #E8E8E8;
+  --bg-elevated: #FFFFFF;
+  --bg-input: #FFFFFF;
+
+  --text-primary: #111111;
+  --text-secondary: #444444;
+  --text-muted: #777777;
+  --text-accent: #B8860B; /* slightly darker gold for white bg */
+
+  --border-color: #E2E2E2;
+  --border-light: #CCCCCC;
+
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.1);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.1);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.15);
+}
+

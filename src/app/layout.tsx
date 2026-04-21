@@ -23,6 +23,19 @@ export default function RootLayout({
   return (
     <html lang="en">
       <head>
+        <script
+          dangerouslySetInnerHTML={{
+             __html: `
+              (function() {
+                try {
+                  var localTheme = localStorage.getItem('theme');
+                  var themeToSet = localTheme || 'dark';
+                  document.documentElement.setAttribute('data-theme', themeToSet);
+                } catch (e) {}
+              })();
+            `
+          }}
+        />
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
         <link

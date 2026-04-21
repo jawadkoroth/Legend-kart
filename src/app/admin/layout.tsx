@@ -67,8 +67,8 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   return (
     <div className="admin-layout">
       <div className="admin-header">
-        <span style={{ fontFamily: 'var(--font-serif)', fontWeight: 700, letterSpacing: '0.15em' }}>NOIR</span>
-        <span className="text-xs text-muted">ADMIN</span>
+        <span style={{ fontFamily: 'var(--font-serif)', fontSize: '1.25rem', fontWeight: 600, letterSpacing: '0.1em' }}>NOIR</span>
+        <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)', letterSpacing: '0.15em' }}>ADMIN</span>
       </div>
 
       <div className="admin-content">
