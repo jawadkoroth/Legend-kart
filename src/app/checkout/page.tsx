@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense } from 'react';
 import Link from 'next/link';
+import { createClient } from '@/lib/supabase/client';
 import styles from './page.module.css';
 
 function CheckoutContent() {
@@ -34,6 +35,26 @@ function CheckoutContent() {
   useEffect(() => {
     async function fetchData() {
       try {
+        const supabase = createClient();
+        const { data: { session } } = await supabase.auth.getSession();
+        
+        if (session) {
+          const { data: profile } = await supabase
+            .from('profiles')
+            .select('phone, name, email')
+            .eq('id', session.user.id)
+            .single();
+
+          if (!profile?.phone) {
+             router.replace('/profile/complete?next=/checkout');
+             return;
+          }
+          
+          if (profile.name) setName(profile.name);
+          if (profile.phone) setPhone(profile.phone.replace('+91', ''));
+          if (profile.email) setEmail(profile.email);
+        }
+
         const res = await fetch('/api/products');
         const data = await res.json();
         if (data.success) {

@@ -12,13 +12,16 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const [checking, setChecking] = useState(true);
 
   useEffect(() => {
+    let mounted = true;
+    const supabase = createClient();
+
     async function checkAuth() {
-      const supabase = createClient();
-      const { data: { user } } = await supabase.auth.getUser();
+      const { data: { session } } = await supabase.auth.getSession();
+      const user = session?.user;
 
       if (!user) {
         if (pathname !== '/admin') router.push('/admin');
-        setChecking(false);
+        if (mounted) setChecking(false);
         return;
       }
 
@@ -31,14 +34,31 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
       if (!adminUser) {
         await supabase.auth.signOut();
         router.push('/admin');
-        setChecking(false);
+        if (mounted) setChecking(false);
         return;
       }
 
-      setAuthed(true);
-      setChecking(false);
+      if (mounted) {
+        setAuthed(true);
+        setChecking(false);
+      }
     }
+    
     checkAuth();
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+       if (event === 'SIGNED_OUT' || !session) {
+          if (mounted) setAuthed(false);
+          if (pathname !== '/admin') router.push('/admin');
+       } else if (event === 'SIGNED_IN') {
+          checkAuth();
+       }
+    });
+
+    return () => {
+      mounted = false;
+      subscription.unsubscribe();
+    };
   }, [pathname, router]);
 
   // Login page — no layout needed

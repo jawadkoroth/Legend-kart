@@ -38,14 +38,16 @@ export default function ProfilePage() {
         .single();
 
       if (data) {
+        if (!data.phone) {
+          router.replace('/profile/complete');
+          return;
+        }
         setProfile(data);
         setName(data.name);
-        setPhone(data.phone || '');
+        setPhone(data.phone.replace('+91', ''));
       } else {
-        // Profile doesn't exist yet — create with user email
-        setProfile({ name: '', email: user.email || '', phone: null });
-        setName('');
-        setEditing(true);
+        router.replace('/profile/complete');
+        return;
       }
       setLoading(false);
     }
@@ -55,9 +57,32 @@ export default function ProfilePage() {
   async function handleSave() {
     setSaving(true);
     setMessage('');
+    if (phone.length !== 10) {
+      setMessage('Enter a valid 10-digit number');
+      setSaving(false);
+      return;
+    }
+
     const supabase = createClient();
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
+
+    const formattedPhone = `+91${phone}`;
+
+    // App-level dedup check
+    if (formattedPhone !== profile?.phone) {
+      const { data: existing } = await supabase
+        .from('profiles')
+        .select('id')
+        .eq('phone', formattedPhone)
+        .maybeSingle();
+
+      if (existing) {
+        setMessage('Mobile number is already registered.');
+        setSaving(false);
+        return;
+      }
+    }
 
     const { error } = await supabase
       .from('profiles')
@@ -65,13 +90,13 @@ export default function ProfilePage() {
         id: user.id,
         name: name.trim(),
         email: profile?.email || user.email || '',
-        phone: phone.trim() || null,
+        phone: formattedPhone,
       });
 
     if (error) {
       setMessage('Failed to save');
     } else {
-      setProfile(prev => prev ? { ...prev, name: name.trim(), phone: phone.trim() || null } : prev);
+      setProfile(prev => prev ? { ...prev, name: name.trim(), phone: formattedPhone } : prev);
       setEditing(false);
       setMessage('Profile updated');
       setTimeout(() => setMessage(''), 3000);
@@ -119,21 +144,27 @@ export default function ProfilePage() {
                 <input className="input-field" value={profile?.email || ''} disabled style={{ opacity: 0.5 }} />
               </div>
               <div className="input-group" style={{ marginBottom: 'var(--space-5)' }}>
-                <label className="input-label">Phone</label>
-                <input
-                  className="input-field"
-                  value={phone}
-                  onChange={e => setPhone(e.target.value.replace(/\D/g, '').slice(0, 10))}
-                  placeholder="10-digit phone"
-                  inputMode="numeric"
-                  maxLength={10}
-                />
+                <label className="input-label">Mobile Number *</label>
+                <p className="text-xs text-muted" style={{ marginBottom: 'var(--space-2)' }}>⚠ This is your primary account identity.</p>
+                <div style={{ display: 'flex', alignItems: 'center', background: 'var(--bg-input)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-sm)' }}>
+                  <span style={{ padding: '0 var(--space-3)', color: 'var(--text-muted)', borderRight: '1px solid var(--border-color)' }}>+91</span>
+                  <input
+                    className="input-field"
+                    style={{ border: 'none' }}
+                    value={phone}
+                    onChange={e => setPhone(e.target.value.replace(/\D/g, '').slice(0, 10))}
+                    placeholder="10-digit phone"
+                    inputMode="numeric"
+                    maxLength={10}
+                    required
+                  />
+                </div>
               </div>
               <div style={{ display: 'flex', gap: 'var(--space-3)' }}>
                 <button className={`btn btn-primary ${saving ? 'btn-loading' : ''}`} onClick={handleSave} disabled={saving} style={{ flex: 1 }}>
                   SAVE
                 </button>
-                <button className="btn btn-secondary" onClick={() => { setEditing(false); setName(profile?.name || ''); setPhone(profile?.phone || ''); }} style={{ flex: 1 }}>
+                <button className="btn btn-secondary" onClick={() => { setEditing(false); setName(profile?.name || ''); setPhone(profile?.phone?.replace('+91', '') || ''); }} style={{ flex: 1 }}>
                   CANCEL
                 </button>
               </div>

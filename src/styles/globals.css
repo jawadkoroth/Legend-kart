@@ -480,9 +480,10 @@ img { max-width: 100%; display: block; }
   display: flex;
   flex-direction: column;
   min-height: 100dvh;
-  background: linear-gradient(180deg, var(--bg-primary) 0%, var(--bg-secondary) 100%);
+  background: var(--bg-primary);
+  isolation: isolate;
   
-  --admin-glass-bg: rgba(22, 22, 22, 0.5);
+  --admin-glass-bg: rgba(22, 22, 22, 0.45);
   --admin-glass-border: rgba(255, 255, 255, 0.05);
   --admin-glass-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
 }
@@ -556,6 +557,8 @@ img { max-width: 100%; display: block; }
   backdrop-filter: blur(6px);
   -webkit-backdrop-filter: blur(6px);
   box-shadow: var(--admin-glass-shadow);
+  position: relative;
+  z-index: 1;
 }
 
 .stats-grid {
