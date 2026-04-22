@@ -160,29 +160,32 @@
 }
 
 .storyStackContainer {
+  position: relative;
+  height: 480px; /* Base mobile height */
+  width: 100%;
+  max-width: 1000px;
+  margin: 0 auto;
   display: flex;
-  overflow-x: auto;
-  scroll-snap-type: x mandatory;
-  scroll-padding-left: var(--space-5);
-  gap: var(--space-4);
-  padding: 0 var(--space-5) var(--space-5) var(--space-5);
-  /* Hide scrollbar */
-  scrollbar-width: none;
-  -ms-overflow-style: none;
-}
-.storyStackContainer::-webkit-scrollbar {
-  display: none;
+  justify-content: center;
+  align-items: center;
+  overflow: hidden; /* Prevent horizontal scrollbars causing layout shifts */
+  touch-action: pan-y; /* Allow vertical scroll, hijack horizontal in JS */
 }
 
 .storyCardWrapper {
-  flex: 0 0 88%;
-  scroll-snap-align: center;
-  transition: opacity 0.3s ease;
-  will-change: transform, opacity;
+  position: absolute;
+  width: 310px; /* Mobile width */
+  height: 420px;
+  transform-style: preserve-3d;
+  transition: transform 0.5s cubic-bezier(0.25, 1, 0.5, 1), 
+              opacity 0.5s ease, 
+              filter 0.5s ease;
+  will-change: transform, opacity, filter;
+  cursor: pointer;
 }
 
 .storyCardWrapperActive {
-  /* No special mobile scaling strictly needed, default is full opacity */
+  cursor: default;
 }
 
 .storyCard {
@@ -493,41 +496,18 @@
     padding: 0 var(--space-12);
   }
 
-  /* Desktop Stack Setup */
   .storyStackContainer {
-    position: relative;
-    height: 540px;
-    width: 100%;
-    max-width: 1000px;
-    margin: 0 auto;
-    overflow: visible; /* Let stacked cards peek out */
-    display: block;
-    padding: 0;
+    height: 600px;
+    overflow: visible; /* Let stacked desk cards peek softly */
   }
 
   .storyCardWrapper {
-    position: absolute;
-    top: 0;
-    left: var(--space-12);
-    width: 380px; /* Fixed width for stacked cards */
-    height: 100%;
-    transform-origin: left center;
-    
-    transform: var(--desk-transform);
-    opacity: var(--desk-opacity);
-    z-index: var(--desk-z);
-    pointer-events: var(--desk-pointer);
-    
-    transition: all 0.5s cubic-bezier(0.25, 1, 0.5, 1);
-    cursor: pointer;
-  }
-
-  .storyCardWrapperActive {
-    cursor: default;
+    width: 400px; 
+    height: 540px;
   }
   
   .storyImgWrap {
-    height: 380px; /* Force image height strictly on desktop so info box is neat */
+    height: 400px; /* Force proportional desktop image height */
   }
 
   .featured {

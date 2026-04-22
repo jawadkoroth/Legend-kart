@@ -16,58 +16,58 @@ const STORY_STEPS = [
 export default function LandingPage() {
   const [activeIndex, setActiveIndex] = useState(0);
   const audioRef = useRef<HTMLAudioElement | null>(null);
-  const observerRef = useRef<IntersectionObserver | null>(null);
+  const lastPlay = useRef(0);
+  const touchStartX = useRef(0);
 
-  // Preload Audio
+  // Preload Audio strictly once
   useEffect(() => {
-    audioRef.current = new Audio('/whoosh.mp3');
-    audioRef.current.volume = 0.15;
+    const audio = new Audio('/whoosh.mp3');
+    audio.preload = 'auto';
+    audio.volume = 0.15;
+    audioRef.current = audio;
   }, []);
 
   const playSound = useCallback(() => {
-    if (audioRef.current) {
-      audioRef.current.currentTime = 0;
-      audioRef.current.play().catch(() => {}); // Catch autoplay rejections safely
+    const now = Date.now();
+    // 180ms throttle to prevent overlapping spam
+    if (now - lastPlay.current > 180) {
+      if (audioRef.current) {
+        audioRef.current.currentTime = 0;
+        audioRef.current.play().catch(() => {});
+        lastPlay.current = now;
+      }
     }
   }, []);
 
   // Desktop Hover Handler
   const handleHover = (idx: number) => {
-    if (window.innerWidth < 1024) return; // Prevent hover logic triggering on mobile layout
+    if (window.innerWidth < 1024) return; 
     if (idx !== activeIndex) {
       setActiveIndex(idx);
       playSound();
     }
   };
 
-  // Mobile Centering Observer
-  useEffect(() => {
-    if (window.innerWidth >= 1024) return;
+  // Mobile Swipe Handlers
+  const handleTouchStart = (e: React.TouchEvent) => {
+    touchStartX.current = e.changedTouches[0].screenX;
+  };
 
-    observerRef.current = new IntersectionObserver((entries) => {
-      entries.forEach(entry => {
-        if (entry.isIntersecting) {
-          const newIdx = parseInt(entry.target.getAttribute('data-story-idx') || '0', 10);
-          setActiveIndex(prev => {
-            if (prev !== newIdx) {
-              playSound();
-              return newIdx;
-            }
-            return prev;
-          });
-        }
-      });
-    }, {
-      root: null, // viewport
-      rootMargin: '0px -50% 0px -50%', // center line
-      threshold: 0
-    });
-
-    const elements = document.querySelectorAll('[data-story-idx]');
-    elements.forEach(el => observerRef.current?.observe(el));
-
-    return () => observerRef.current?.disconnect();
-  }, [playSound]);
+  const handleTouchEnd = (e: React.TouchEvent) => {
+    const endX = e.changedTouches[0].screenX;
+    const diff = touchStartX.current - endX;
+    
+    // Swipe Left
+    if (diff > 50 && activeIndex < STORY_STEPS.length - 1) {
+      setActiveIndex(activeIndex + 1);
+      playSound();
+    } 
+    // Swipe Right
+    else if (diff < -50 && activeIndex > 0) {
+      setActiveIndex(activeIndex - 1);
+      playSound();
+    }
+  };
 
 
   return (
@@ -102,41 +102,47 @@ export default function LandingPage() {
             <h2 className={styles.storyTitle}>From Thread to Tailor</h2>
           </div>
           
-          <div className={styles.storyStackContainer}>
+          <div 
+            className={styles.storyStackContainer}
+            onTouchStart={handleTouchStart}
+            onTouchEnd={handleTouchEnd}
+          >
             {STORY_STEPS.map((step, idx) => {
               const diff = idx - activeIndex;
+              const absDiff = Math.abs(diff);
+              const direction = Math.sign(diff); // 1 = right stack, -1 = left stack
 
-              // Compute Desktop Transforms
-              let deskTransform = 'translateX(0) scale(1)';
-              let deskOpacity = 1;
-              let deskZ = 10;
-              let deskPointer = 'auto';
+              // 3D Apple Carousel Math
+              let translateX = 0;
+              let scale = 1;
+              let rotateY = 0;
+              let z = 10;
+              let opacity = 1;
+              let blur = 0;
 
-              if (diff > 0) {
-                // Stacked to the right behind
-                deskTransform = `translateX(${diff * 60}px) scale(${1 - diff * 0.05})`;
-                deskOpacity = Math.max(1 - diff * 0.25, 0);
-                deskZ = 10 - diff;
-              } else if (diff < 0) {
-                // Pushed away to the left & hidden fully
-                deskTransform = `translateX(${diff * 80}px) scale(${1 + diff * 0.05})`;
-                deskOpacity = 0;
-                deskZ = 10 + diff;
-                deskPointer = 'none';
+              if (diff !== 0) {
+                // Determine shifts ensuring side tiles peek heavily but shrink
+                translateX = direction * (10 + absDiff * 60); // Shifts apart iteratively (base 10%, scale + 60%)
+                scale = 1 - (absDiff * 0.15); // Scales down 0.85 -> 0.70 ...
+                rotateY = direction * -12; // Rotate inwards towards camera
+                opacity = 1 - (absDiff * 0.45); // Fade heavily into depth
+                z = 10 - absDiff;
+                blur = absDiff * 4; // Increment blur per depth stage
               }
 
-              // Dynamic Inline Style variables for Desktop
+              const transformString = `perspective(1000px) translateX(${translateX}%) scale(${scale}) rotateY(${rotateY}deg)`;
+
               const inlineStyles = {
-                '--desk-transform': deskTransform,
-                '--desk-opacity': deskOpacity,
-                '--desk-z': deskZ,
-                '--desk-pointer': deskPointer,
+                transform: transformString,
+                opacity: opacity,
+                zIndex: z,
+                filter: `blur(${blur}px)`,
+                pointerEvents: opacity < 0.1 ? 'none' : 'auto', // disable hover on deeply hidden cards
               } as React.CSSProperties;
 
               return (
                 <div
                   key={idx}
-                  data-story-idx={idx}
                   className={`${styles.storyCardWrapper} ${idx === activeIndex ? styles.storyCardWrapperActive : ''}`}
                   style={inlineStyles}
                   onMouseEnter={() => handleHover(idx)}
@@ -144,7 +150,7 @@ export default function LandingPage() {
                   <div className={styles.storyCard}>
                     <div className={styles.storyImgWrap}>
                       <img src={step.img} alt={step.title} loading="lazy" />
-                      <div className={styles.storyOverlay} />
+                      {diff !== 0 && <div className={styles.storyOverlay} />}
                       <div className={styles.storyStepNum}>0{idx + 1}</div>
                     </div>
                     <div className={styles.storyInfo}>
