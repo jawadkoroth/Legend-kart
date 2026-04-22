@@ -19,8 +19,9 @@ export default function LandingPage() {
   const poolIndex = useRef(0);
   const lastPlay = useRef(0);
   const touchStartX = useRef(0);
+  const audioUnlocked = useRef(false);
 
-  // Preload Audio Pool strictly once
+  // Preload Audio Pool and establish global Interaction Unlock
   useEffect(() => {
     const POOL_SIZE = 5;
     const pool: HTMLAudioElement[] = [];
@@ -31,9 +32,44 @@ export default function LandingPage() {
       pool.push(audio);
     }
     audioPool.current = pool;
+
+    // Silent Unlock mechanism to bypass browser auto-play policies
+    const unlockAudio = () => {
+      if (audioUnlocked.current) return;
+      audioUnlocked.current = true;
+      
+      pool.forEach(audio => {
+        audio.muted = true;
+        const playPromise = audio.play();
+        if (playPromise !== undefined) {
+          playPromise.then(() => {
+            audio.pause();
+            audio.currentTime = 0;
+            audio.muted = false;
+          }).catch(() => {});
+        }
+      });
+
+      // Cleanup
+      window.removeEventListener('pointerdown', unlockAudio);
+      window.removeEventListener('touchstart', unlockAudio);
+      window.removeEventListener('keydown', unlockAudio);
+    };
+
+    window.addEventListener('pointerdown', unlockAudio, { once: true, passive: true });
+    window.addEventListener('touchstart', unlockAudio, { once: true, passive: true });
+    window.addEventListener('keydown', unlockAudio, { once: true, passive: true });
+
+    return () => {
+      window.removeEventListener('pointerdown', unlockAudio);
+      window.removeEventListener('touchstart', unlockAudio);
+      window.removeEventListener('keydown', unlockAudio);
+    };
   }, []);
 
   const playSound = useCallback(() => {
+    if (!audioUnlocked.current) return; // Prevent spamming rejected promises
+
     const now = Date.now();
     
     // 50ms micro-throttle prevents digital distortion but permits rapid flurries
