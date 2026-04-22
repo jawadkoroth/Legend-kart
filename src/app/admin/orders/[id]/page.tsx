@@ -3,6 +3,7 @@
 import { useEffect, useState, use } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
+import { useToast } from '@/hooks/useToast';
 
 interface Order {
   id: string;
@@ -41,6 +42,7 @@ export default function AdminOrderDetail({ params }: { params: Promise<{ id: str
   const [cancelReason, setCancelReason] = useState('');
   const [showCancelForm, setShowCancelForm] = useState(false);
   const [noteText, setNoteText] = useState('');
+  const { toast, showToast } = useToast();
 
   useEffect(() => {
     fetchOrder();
@@ -69,9 +71,7 @@ export default function AdminOrderDetail({ params }: { params: Promise<{ id: str
 
     try {
       if (action === 'verify') {
-        const verifyNote = `Verified via manual check at ${new Date().toLocaleString('en-IN')}`;
-        const existingNotes = order.notes || '';
-        await supabase.from('orders').update({ notes: existingNotes ? `${existingNotes}\n${verifyNote}` : verifyNote }).eq('id', id);
+        await supabase.from('orders').update({ payment_status: 'verified' }).eq('id', id);
       }
 
       if (action === 'confirm') {
@@ -86,14 +86,17 @@ export default function AdminOrderDetail({ params }: { params: Promise<{ id: str
       }
 
       if (action === 'ship') {
-        // Call ship API (admin auth via cookie)
         const res = await fetch(`/api/admin/orders/${id}/ship`, { method: 'POST' });
         const data = await res.json();
         if (!data.success) {
-          alert(data.error || 'Shipment creation failed');
+          showToast(data.error || 'Shipment creation failed', 'error');
           setActionLoading('');
           return;
         }
+      }
+
+      if (action === 'deliver') {
+        await supabase.from('orders').update({ order_status: 'delivered' }).eq('id', id);
       }
 
       if (action === 'save-notes') {
@@ -101,9 +104,10 @@ export default function AdminOrderDetail({ params }: { params: Promise<{ id: str
       }
 
       await fetchOrder();
+      showToast('Action successful', 'success');
     } catch (err) {
       console.error('Action failed:', err);
-      alert('Action failed');
+      showToast('Action failed', 'error');
     }
     setActionLoading('');
   }
@@ -118,6 +122,8 @@ export default function AdminOrderDetail({ params }: { params: Promise<{ id: str
 
   return (
     <div>
+      {toast && <div className={`toast toast-${toast.type}`}>{toast.message}</div>}
+
       <button onClick={() => router.push('/admin/orders')} className="btn btn-ghost btn-sm" style={{ marginBottom: 'var(--space-4)' }}>← Back to Orders</button>
 
       {/* Header */}
@@ -178,15 +184,15 @@ export default function AdminOrderDetail({ params }: { params: Promise<{ id: str
       {/* Actions */}
       {!isCancelled && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)', marginBottom: 'var(--space-5)' }}>
-          {/* COD Verify (optional) */}
-          {isCOD && isPending && (
+          {/* COD Verify explicitly bounds to payment_status verified explicitly skipping shipping */}
+          {isCOD && order.payment_status === 'pending' && (
             <button
               className={`btn btn-success btn-sm ${actionLoading === 'verify' ? 'btn-loading' : ''}`}
               onClick={() => handleAction('verify')}
               disabled={!!actionLoading}
               style={{ width: '100%' }}
             >
-              ✓ Mark as Verified
+              ✓ Mark Payment Verified
             </button>
           )}
 
@@ -207,6 +213,16 @@ export default function AdminOrderDetail({ params }: { params: Promise<{ id: str
               disabled={!!actionLoading}
             >
               CREATE SHIPMENT
+            </button>
+          )}
+
+          {order.order_status === 'shipped' && (
+            <button
+              className={`btn btn-success ${actionLoading === 'deliver' ? 'btn-loading' : ''}`}
+              onClick={() => handleAction('deliver')}
+              disabled={!!actionLoading}
+            >
+              MARK DELIVERED
             </button>
           )}
 

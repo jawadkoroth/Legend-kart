@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
+import { useToast } from '@/hooks/useToast';
 
 interface Product {
   id: string;
@@ -17,6 +18,7 @@ interface Product {
 export default function AdminProducts() {
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
+  const { toast, showToast } = useToast();
 
   useEffect(() => {
     fetchProducts();
@@ -41,24 +43,33 @@ export default function AdminProducts() {
         inventory: (inv || []).filter(i => i.product_id === p.id),
       }));
       setProducts(enriched);
+    } else {
+      showToast('Failed to load products', 'error');
     }
     setLoading(false);
   }
 
   async function toggleActive(id: string, isActive: boolean) {
     const supabase = createClient();
-    await supabase.from('products').update({ is_active: !isActive }).eq('id', id);
-    fetchProducts();
+    const { error } = await supabase.from('products').update({ is_active: !isActive }).eq('id', id);
+    if (!error) {
+      showToast(`Product ${!isActive ? 'activated' : 'deactivated'}`, 'success');
+      fetchProducts();
+    } else {
+      showToast('Failed to toggle status', 'error');
+    }
   }
 
   async function updateStock(productId: string, size: string, newStock: number) {
     const supabase = createClient();
-    await supabase
+    const { error } = await supabase
       .from('inventory')
       .update({ stock: Math.max(0, newStock) })
       .eq('product_id', productId)
       .eq('size', size);
-    fetchProducts();
+      
+    if (!error) fetchProducts();
+    else showToast('Failed to update stock', 'error');
   }
 
   const formatPrice = (paise: number) => '₹' + (paise / 100).toLocaleString('en-IN');
@@ -75,8 +86,10 @@ export default function AdminProducts() {
         </Link>
       </div>
 
+      {toast && <div className={`toast toast-${toast.type}`}>{toast.message}</div>}
+
       {products.map(product => (
-        <div key={product.id} className="card" style={{ marginBottom: 'var(--space-4)' }}>
+        <div key={product.id} className="card" style={{ marginBottom: 'var(--space-4)', opacity: product.is_active ? 1 : 0.6, filter: product.is_active ? 'none' : 'grayscale(0.5)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-3)' }}>
             <div>
               <p style={{ fontWeight: 600 }}>{product.name}</p>
@@ -100,12 +113,14 @@ export default function AdminProducts() {
               >
                 ✏️ Edit
               </Link>
-              <button
-                className={`btn btn-sm ${product.is_active ? 'btn-success' : 'btn-secondary'}`}
-                onClick={() => toggleActive(product.id, product.is_active)}
-              >
-                {product.is_active ? 'Active' : 'Off'}
-              </button>
+              <label className="premium-toggle" title="Toggle active status">
+                <input
+                  type="checkbox"
+                  checked={product.is_active}
+                  onChange={() => toggleActive(product.id, product.is_active)}
+                />
+                <span className="premium-toggle-slider" />
+              </label>
             </div>
           </div>
 
