@@ -159,21 +159,30 @@
   color: var(--text-primary);
 }
 
-.emblaViewport {
-  overflow: hidden;
-  padding-left: var(--space-5); /* For side-peek padding */
-}
-
-.emblaContainer {
+.storyStackContainer {
   display: flex;
-  touch-action: pan-y pinch-zoom;
-  margin-left: calc(var(--space-4) * -1);
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  scroll-padding-left: var(--space-5);
+  gap: var(--space-4);
+  padding: 0 var(--space-5) var(--space-5) var(--space-5);
+  /* Hide scrollbar */
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.storyStackContainer::-webkit-scrollbar {
+  display: none;
 }
 
-.emblaSlide {
-  flex: 0 0 85%;
-  min-width: 0;
-  padding-left: var(--space-4);
+.storyCardWrapper {
+  flex: 0 0 88%;
+  scroll-snap-align: center;
+  transition: opacity 0.3s ease;
+  will-change: transform, opacity;
+}
+
+.storyCardWrapperActive {
+  /* No special mobile scaling strictly needed, default is full opacity */
 }
 
 .storyCard {
@@ -183,6 +192,7 @@
   overflow: hidden;
   display: flex;
   flex-direction: column;
+  height: 100%;
 }
 
 .storyImgWrap {
@@ -198,6 +208,13 @@
   object-fit: cover;
   user-select: none;
   -webkit-user-drag: none;
+}
+
+.storyOverlay {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(to top, rgba(11,11,11,0.5) 0%, transparent 50%);
+  pointer-events: none;
 }
 
 .storyStepNum {
@@ -476,17 +493,41 @@
     padding: 0 var(--space-12);
   }
 
-  .emblaViewport {
-    padding-left: var(--space-12);
+  /* Desktop Stack Setup */
+  .storyStackContainer {
+    position: relative;
+    height: 540px;
+    width: 100%;
+    max-width: 1000px;
+    margin: 0 auto;
+    overflow: visible; /* Let stacked cards peek out */
+    display: block;
+    padding: 0;
   }
 
-  .emblaContainer {
-    margin-left: calc(var(--space-6) * -1);
+  .storyCardWrapper {
+    position: absolute;
+    top: 0;
+    left: var(--space-12);
+    width: 380px; /* Fixed width for stacked cards */
+    height: 100%;
+    transform-origin: left center;
+    
+    transform: var(--desk-transform);
+    opacity: var(--desk-opacity);
+    z-index: var(--desk-z);
+    pointer-events: var(--desk-pointer);
+    
+    transition: all 0.5s cubic-bezier(0.25, 1, 0.5, 1);
+    cursor: pointer;
   }
 
-  .emblaSlide {
-    flex: 0 0 calc(33.333% - var(--space-6));
-    padding-left: var(--space-6);
+  .storyCardWrapperActive {
+    cursor: default;
+  }
+  
+  .storyImgWrap {
+    height: 380px; /* Force image height strictly on desktop so info box is neat */
   }
 
   .featured {
