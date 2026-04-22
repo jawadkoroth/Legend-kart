@@ -15,25 +15,40 @@ const STORY_STEPS = [
 
 export default function LandingPage() {
   const [activeIndex, setActiveIndex] = useState(0);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const audioPool = useRef<HTMLAudioElement[]>([]);
+  const poolIndex = useRef(0);
   const lastPlay = useRef(0);
   const touchStartX = useRef(0);
 
-  // Preload Audio strictly once
+  // Preload Audio Pool strictly once
   useEffect(() => {
-    const audio = new Audio('/whoosh.mp3');
-    audio.preload = 'auto';
-    audio.volume = 0.15;
-    audioRef.current = audio;
+    const POOL_SIZE = 5;
+    const pool: HTMLAudioElement[] = [];
+    for (let i = 0; i < POOL_SIZE; i++) {
+      const audio = new Audio('/whoosh.mp3');
+      audio.preload = 'auto';
+      audio.volume = 0.15;
+      pool.push(audio);
+    }
+    audioPool.current = pool;
   }, []);
 
   const playSound = useCallback(() => {
     const now = Date.now();
-    // 180ms throttle to prevent overlapping spam
-    if (now - lastPlay.current > 180) {
-      if (audioRef.current) {
-        audioRef.current.currentTime = 0;
-        audioRef.current.play().catch(() => {});
+    
+    // 50ms micro-throttle prevents digital distortion but permits rapid flurries
+    if (now - lastPlay.current > 50) {
+      if (audioPool.current.length > 0) {
+        const audio = audioPool.current[poolIndex.current];
+        
+        audio.currentTime = 0;
+        // Subtle pitch variation for organic mechanics (0.95 to 1.05)
+        audio.playbackRate = 0.95 + Math.random() * 0.1;
+        
+        audio.play().catch(() => {});
+        
+        // Cycle securely through hardware pool
+        poolIndex.current = (poolIndex.current + 1) % audioPool.current.length;
         lastPlay.current = now;
       }
     }
