@@ -4,12 +4,15 @@ import { useEffect, useState } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import Link from 'next/link';
+import AdminFeedbackDrawer from '@/components/AdminFeedbackDrawer';
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
   const [authed, setAuthed] = useState(false);
   const [checking, setChecking] = useState(true);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [isFeedbackOpen, setIsFeedbackOpen] = useState(false);
 
   useEffect(() => {
     let mounted = true;
@@ -41,7 +44,13 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
       if (mounted) {
         setAuthed(true);
         setChecking(false);
+        fetchUnreadCount();
       }
+    }
+    
+    async function fetchUnreadCount() {
+      const { count } = await supabase.from('feedback').select('*', { count: 'exact', head: true }).eq('is_read', false);
+      if (mounted && count !== null) setUnreadCount(count);
     }
     
     checkAuth();
@@ -87,13 +96,33 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   return (
     <div className="admin-layout">
       <div className="admin-header">
-        <span style={{ fontFamily: 'var(--font-serif)', fontSize: '1.25rem', fontWeight: 600, letterSpacing: '0.1em' }}>NOIR</span>
-        <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)', letterSpacing: '0.15em' }}>ADMIN</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
+          <span style={{ fontFamily: 'var(--font-serif)', fontSize: '1.25rem', fontWeight: 600, letterSpacing: '0.1em' }}>NOIR</span>
+          <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)', letterSpacing: '0.15em' }}>ADMIN</span>
+        </div>
+        
+        <button 
+          onClick={() => setIsFeedbackOpen(true)}
+          style={{ background: 'none', border: 'none', cursor: 'pointer', position: 'relative', display: 'flex', alignItems: 'center' }}
+        >
+          <span style={{ fontSize: '1.25rem' }}>💬</span>
+          {unreadCount > 0 && (
+            <span style={{ position: 'absolute', top: '-4px', right: '-8px', background: 'var(--error)', color: 'white', fontSize: '10px', fontWeight: 'bold', padding: '2px 6px', borderRadius: '10px' }}>
+              {unreadCount}
+            </span>
+          )}
+        </button>
       </div>
 
       <div className="admin-content">
         {children}
       </div>
+      
+      <AdminFeedbackDrawer 
+        isOpen={isFeedbackOpen} 
+        onClose={() => setIsFeedbackOpen(false)} 
+        onReadUpdate={() => setUnreadCount(prev => Math.max(0, prev - 1))} 
+      />
 
       <nav className="admin-nav">
         {navItems.map(item => (
