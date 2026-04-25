@@ -5,22 +5,25 @@ import Link from 'next/link';
 import styles from './page.module.css';
 
 const STORY_STEPS = [
-  { img: '/story-1.png', title: 'From Raw Thread to Premium Masterpiece', desc: 'Starting strictly with the finest, sustainably harvested organic black linen. Hand-selected for extreme durability, a flawless minimalist weave, and an uncompromising premium texture.' },
-  { img: '/story-2.png', title: 'Precision Craftsmanship', desc: 'Expertly tailored by master artisans using continuous high-tension stitching for a perfect drape.' },
-  { img: '/story-3.png', title: 'Intense Quality Check', desc: 'Meticulous three-point inspection granting flawless seams and a continuous midnight-black finish.' },
-  { img: '/story-4.png', title: 'Signature Packaging', desc: 'Encased seamlessly in our timeless Noir matte luxury box.' },
-  { img: '/story-5.png', title: 'Expedited Transit', desc: 'Handled efficiently and dispatched directly to your location with guaranteed care.' },
-  { img: '/story-6.png', title: 'The Noir Essential', desc: 'A minimalist masterpiece crafted to endure. Designed to define.' },
+  { img: '/story-1.png', title: 'Raw Black Linen', desc: 'Hand-selected organic linen. Sourced for extreme durability and an uncompromising minimal weave.' },
+  { img: '/story-2.png', title: 'Precision Craft', desc: 'Expertly tailored by master artisans. High-tension continuous stitching ensures a flawless drape.' },
+  { img: '/story-3.png', title: 'Intense Check', desc: 'Meticulous three-point inspection. We guarantee flawless seams and a midnight-black finish.' },
+  { img: '/story-4.png', title: 'Signature Pack', desc: 'Encased seamlessly in our timeless Noir luxury box for maximum premium protection.' },
+  { img: '/story-5.png', title: 'Expedited Transit', desc: 'Handled efficiently and dispatched directly to your location with guaranteed expedited care.' },
+  { img: '/story-6.png', title: 'The Noir Essential', desc: 'A minimalist masterpiece crafted to endure seamlessly. Designed to define your aesthetic.' },
 ];
 
 export default function LandingPage() {
-  const [activeIndex, setActiveIndex] = useState(0);
+  const [sliderValue, setSliderValue] = useState(0);
+  const [isDragging, setIsDragging] = useState(false);
+  const [isVideoReady, setIsVideoReady] = useState(false);
+  const [storyVisible, setStoryVisible] = useState(false);
+  
+  const storyRef = useRef<HTMLElement>(null);
   const audioPool = useRef<HTMLAudioElement[]>([]);
   const poolIndex = useRef(0);
   const lastPlay = useRef(0);
-  const touchStartX = useRef(0);
   const audioUnlocked = useRef(false);
-  const [isVideoReady, setIsVideoReady] = useState(false);
 
   // Preload Audio Pool and establish global Interaction Unlock
   useEffect(() => {
@@ -91,35 +94,39 @@ export default function LandingPage() {
     }
   }, []);
 
+  // Observer for Cinematic Intro
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting) {
+          setStoryVisible(true);
+        }
+      },
+      { threshold: 0.2, rootMargin: '0px 0px -50px 0px' }
+    );
+    if (storyRef.current) observer.observe(storyRef.current);
+    return () => observer.disconnect();
+  }, []);
+
   // Desktop Hover Handler
   const handleHover = (idx: number) => {
     if (window.innerWidth < 1024) return; 
-    if (idx !== activeIndex) {
-      setActiveIndex(idx);
-      playSound();
-    }
-  };
-
-  // Mobile Swipe Handlers
-  const handleTouchStart = (e: React.TouchEvent) => {
-    touchStartX.current = e.changedTouches[0].screenX;
-  };
-
-  const handleTouchEnd = (e: React.TouchEvent) => {
-    const endX = e.changedTouches[0].screenX;
-    const diff = touchStartX.current - endX;
+    setSliderValue(idx);
     
-    // Swipe Left
-    if (diff > 50 && activeIndex < STORY_STEPS.length - 1) {
-      setActiveIndex(activeIndex + 1);
-      playSound();
-    } 
-    // Swipe Right
-    else if (diff < -50 && activeIndex > 0) {
-      setActiveIndex(activeIndex - 1);
-      playSound();
-    }
+    // Throttle sound during hover
+    if (Math.abs(sliderValue - idx) > 0.5) playSound();
   };
+
+  // Mobile Continuous Slider Handler
+  const handleSliderChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = parseFloat(e.target.value);
+    setSliderValue(val);
+    
+    // Sound on tick
+    if (Math.abs(val - Math.round(val)) < 0.1) playSound();
+  };
+
+
 
 
   return (
@@ -147,24 +154,23 @@ export default function LandingPage() {
       </section>
 
       {/* Brand Story Slider */}
-      <section className={styles.storySection}>
+      <section 
+        className={`${styles.storySection} ${storyVisible ? styles.storySectionVisible : ''}`}
+        ref={storyRef}
+      >
         <div className="container-wide">
           <div className={styles.storyHeader}>
             <p className={styles.storySub}>Our Process</p>
             <h2 className={styles.storyTitle}>From Thread to Tailor</h2>
           </div>
           
-          <div 
-            className={styles.storyStackContainer}
-            onTouchStart={handleTouchStart}
-            onTouchEnd={handleTouchEnd}
-          >
+          <div className={styles.storyStackContainer}>
             {STORY_STEPS.map((step, idx) => {
-              const diff = idx - activeIndex;
+              const diff = idx - sliderValue;
               const absDiff = Math.abs(diff);
               const direction = Math.sign(diff); // 1 = right stack, -1 = left stack
 
-              // 3D Apple Carousel Math
+              // 3D Apple Carousel Math tailored for float transitions
               let translateX = 0;
               let scale = 1;
               let rotateY = 0;
@@ -183,26 +189,30 @@ export default function LandingPage() {
               }
 
               const transformString = `perspective(1000px) translateX(${translateX}%) scale(${scale}) rotateY(${rotateY}deg)`;
+              
+              // We derive pseudo 'active' status when exact or closest
+              const isActive = absDiff < 0.3;
 
               const inlineStyles = {
                 transform: transformString,
-                opacity: opacity,
-                zIndex: z,
+                opacity: Math.max(0, opacity),
+                zIndex: Math.round(z),
                 filter: `blur(${blur}px)`,
                 pointerEvents: opacity < 0.1 ? 'none' : 'auto', // disable hover on deeply hidden cards
+                transition: isDragging ? 'none' : 'transform 0.5s cubic-bezier(0.25, 1, 0.5, 1), opacity 0.5s ease, filter 0.5s ease',
               } as React.CSSProperties;
 
               return (
                 <div
                   key={idx}
-                  className={`${styles.storyCardWrapper} ${idx === activeIndex ? styles.storyCardWrapperActive : ''}`}
+                  className={`${styles.storyCardWrapper} ${isActive ? styles.storyCardWrapperActive : ''}`}
                   style={inlineStyles}
                   onMouseEnter={() => handleHover(idx)}
                 >
                   <div className={styles.storyCard}>
                     <div className={styles.storyImgWrap}>
                       <img src={step.img} alt={step.title} loading="lazy" />
-                      {diff !== 0 && <div className={styles.storyOverlay} />}
+                      {diff !== 0 && <div className={styles.storyOverlay} style={{ opacity: Math.min(absDiff, 1) }} />}
                       <div className={styles.storyStepNum}>0{idx + 1}</div>
                     </div>
                     <div className={styles.storyInfo}>
@@ -213,6 +223,22 @@ export default function LandingPage() {
                 </div>
               );
             })}
+          </div>
+          
+          <div className={styles.sliderControlWrapper}>
+            <input 
+              type="range"
+              min="0"
+              max={STORY_STEPS.length - 1}
+              step="0.01"
+              value={sliderValue}
+              onChange={handleSliderChange}
+              onMouseDown={() => setIsDragging(true)}
+              onMouseUp={() => setIsDragging(false)}
+              onTouchStart={() => setIsDragging(true)}
+              onTouchEnd={() => setIsDragging(false)}
+              className={styles.glassSlider}
+            />
           </div>
         </div>
       </section>

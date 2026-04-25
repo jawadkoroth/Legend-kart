@@ -143,6 +143,15 @@
   padding: var(--space-16) 0;
   background: var(--bg-primary);
   overflow: hidden;
+  opacity: 0.3;
+  transform: translateY(80px);
+  transition: opacity 1s cubic-bezier(0.25, 1, 0.5, 1), transform 1s cubic-bezier(0.25, 1, 0.5, 1);
+  will-change: transform, opacity;
+}
+
+.storySectionVisible {
+  opacity: 1;
+  transform: translateY(0);
 }
 
 .storyHeader {
@@ -242,21 +251,65 @@
 }
 
 .storyInfo {
-  padding: var(--space-5);
+  padding: var(--space-4) var(--space-5);
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
+  text-align: left; /* Explicit strict left anchor preventing shrink shifts */
+  flex: 1;
 }
 
 .storyItemTitle {
   font-size: 1.125rem;
   font-weight: 600;
+  margin: 0;
 }
 
 .storyItemDesc {
   font-size: 0.875rem;
   color: var(--text-secondary);
-  line-height: 1.6;
+  line-height: 1.5;
+  margin: 0;
+}
+
+/* ---------- Mobile Glass Slider ---------- */
+.sliderControlWrapper {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: var(--space-6) var(--space-5);
+  margin-top: var(--space-2);
+}
+
+.glassSlider {
+  -webkit-appearance: none;
+  width: 100%;
+  max-width: 320px;
+  height: 6px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-full);
+  outline: none;
+  margin: 0;
+}
+
+.glassSlider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 50px;
+  height: 26px;
+  border-radius: var(--radius-full);
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  cursor: grab;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+  transition: transform 0.2s, background 0.2s;
+}
+
+.glassSlider:active::-webkit-slider-thumb {
+  cursor: grabbing;
+  transform: scale(0.95);
+  background: #fff;
 }
 
 /* ---------- Featured Product ---------- */
@@ -506,6 +559,10 @@
   .storyStackContainer {
     height: 600px;
     overflow: visible; /* Let stacked desk cards peek softly */
+  }
+
+  .sliderControlWrapper {
+    display: none; /* Hide interactive manual slider on desktop where hover rules */
   }
 
   .storyCardWrapper {
