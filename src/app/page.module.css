@@ -272,45 +272,7 @@
   margin: 0;
 }
 
-/* ---------- Mobile Glass Slider ---------- */
-.sliderControlWrapper {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  padding: var(--space-6) var(--space-5);
-  margin-top: var(--space-2);
-}
 
-.glassSlider {
-  -webkit-appearance: none;
-  width: 100%;
-  max-width: 320px;
-  height: 6px;
-  background: rgba(255, 255, 255, 0.1);
-  border-radius: var(--radius-full);
-  outline: none;
-  margin: 0;
-}
-
-.glassSlider::-webkit-slider-thumb {
-  -webkit-appearance: none;
-  appearance: none;
-  width: 50px;
-  height: 26px;
-  border-radius: var(--radius-full);
-  background: rgba(255, 255, 255, 0.85);
-  backdrop-filter: blur(8px);
-  border: 1px solid rgba(255, 255, 255, 0.3);
-  cursor: grab;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.5);
-  transition: transform 0.2s, background 0.2s;
-}
-
-.glassSlider:active::-webkit-slider-thumb {
-  cursor: grabbing;
-  transform: scale(0.95);
-  background: #fff;
-}
 
 /* ---------- Featured Product ---------- */
 .featured {
@@ -559,10 +521,6 @@
   .storyStackContainer {
     height: 600px;
     overflow: visible; /* Let stacked desk cards peek softly */
-  }
-
-  .sliderControlWrapper {
-    display: none; /* Hide interactive manual slider on desktop where hover rules */
   }
 
   .storyCardWrapper {

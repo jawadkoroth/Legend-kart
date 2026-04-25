@@ -14,10 +14,13 @@ const STORY_STEPS = [
 ];
 
 export default function LandingPage() {
-  const [sliderValue, setSliderValue] = useState(0);
+  const [activeIndex, setActiveIndex] = useState(0);
+  const [touchOffset, setTouchOffset] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
   const [isVideoReady, setIsVideoReady] = useState(false);
   const [storyVisible, setStoryVisible] = useState(false);
+  
+  const touchStartPos = useRef({ x: 0, y: 0, time: 0 });
   
   const storyRef = useRef<HTMLElement>(null);
   const audioPool = useRef<HTMLAudioElement[]>([]);
@@ -111,19 +114,61 @@ export default function LandingPage() {
   // Desktop Hover Handler
   const handleHover = (idx: number) => {
     if (window.innerWidth < 1024) return; 
-    setSliderValue(idx);
-    
-    // Throttle sound during hover
-    if (Math.abs(sliderValue - idx) > 0.5) playSound();
+    if (idx !== activeIndex) {
+      setActiveIndex(idx);
+      playSound();
+    }
   };
 
-  // Mobile Continuous Slider Handler
-  const handleSliderChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const val = parseFloat(e.target.value);
-    setSliderValue(val);
+  // Mobile Swipe Handlers
+  const handleTouchStart = (e: React.TouchEvent) => {
+    setIsDragging(true);
+    touchStartPos.current = {
+      x: e.touches[0].clientX,
+      y: e.touches[0].clientY,
+      time: Date.now()
+    };
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    if (!isDragging) return;
+    const currentX = e.touches[0].clientX;
+    const diffX = touchStartPos.current.x - currentX;
     
-    // Sound on tick
-    if (Math.abs(val - Math.round(val)) < 0.1) playSound();
+    // Fractional mapping: roughly 300px drag equals 1 full card shift
+    let offset = diffX / 300; 
+
+    // Edge friction (rubber banding resistance)
+    if (activeIndex === 0 && offset < 0) offset *= 0.25;
+    if (activeIndex === STORY_STEPS.length - 1 && offset > 0) offset *= 0.25;
+
+    setTouchOffset(offset);
+  };
+
+  const handleTouchEnd = (e: React.TouchEvent) => {
+    setIsDragging(false);
+    
+    const endX = e.changedTouches[0].clientX;
+    const diffX = touchStartPos.current.x - endX;
+    const timeDiff = Date.now() - touchStartPos.current.time;
+    
+    const velocity = Math.abs(diffX) / timeDiff; 
+    const didCrossThreshold = Math.abs(diffX) > 60; // Distance threshold (~20% card)
+    const isFastSwipe = velocity > 0.4 && Math.abs(diffX) > 20;
+
+    let targetIndex = activeIndex;
+
+    if (didCrossThreshold || isFastSwipe) {
+      if (diffX > 0 && activeIndex < STORY_STEPS.length - 1) targetIndex++;
+      else if (diffX < 0 && activeIndex > 0) targetIndex--;
+    }
+
+    if (targetIndex !== activeIndex) {
+      setActiveIndex(targetIndex);
+      playSound();
+    }
+    
+    setTouchOffset(0);
   };
 
 
@@ -164,9 +209,15 @@ export default function LandingPage() {
             <h2 className={styles.storyTitle}>From Thread to Tailor</h2>
           </div>
           
-          <div className={styles.storyStackContainer}>
+          <div 
+            className={styles.storyStackContainer}
+            onTouchStart={handleTouchStart}
+            onTouchMove={handleTouchMove}
+            onTouchEnd={handleTouchEnd}
+          >
             {STORY_STEPS.map((step, idx) => {
-              const diff = idx - sliderValue;
+              const effectiveSliderValue = activeIndex + touchOffset;
+              const diff = idx - effectiveSliderValue;
               const absDiff = Math.abs(diff);
               const direction = Math.sign(diff); // 1 = right stack, -1 = left stack
 
@@ -199,7 +250,7 @@ export default function LandingPage() {
                 zIndex: Math.round(z),
                 filter: `blur(${blur}px)`,
                 pointerEvents: opacity < 0.1 ? 'none' : 'auto', // disable hover on deeply hidden cards
-                transition: isDragging ? 'none' : 'transform 0.5s cubic-bezier(0.25, 1, 0.5, 1), opacity 0.5s ease, filter 0.5s ease',
+                transition: isDragging ? 'none' : 'transform 0.45s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.45s ease, filter 0.45s ease',
               } as React.CSSProperties;
 
               return (
@@ -223,22 +274,6 @@ export default function LandingPage() {
                 </div>
               );
             })}
-          </div>
-          
-          <div className={styles.sliderControlWrapper}>
-            <input 
-              type="range"
-              min="0"
-              max={STORY_STEPS.length - 1}
-              step="0.01"
-              value={sliderValue}
-              onChange={handleSliderChange}
-              onMouseDown={() => setIsDragging(true)}
-              onMouseUp={() => setIsDragging(false)}
-              onTouchStart={() => setIsDragging(true)}
-              onTouchEnd={() => setIsDragging(false)}
-              className={styles.glassSlider}
-            />
           </div>
         </div>
       </section>
