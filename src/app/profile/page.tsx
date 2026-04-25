@@ -22,12 +22,12 @@ export default function ProfilePage() {
   const [message, setMessage] = useState('');
 
   useEffect(() => {
-    async function load() {
-      const supabase = createClient();
-      const { data: { session } } = await supabase.auth.getSession();
-      const user = session?.user;
+    let mounted = true;
+    const supabase = createClient();
+
+    async function loadProfile(user: any) {
       if (!user) {
-        router.replace('/auth');
+        if (mounted) router.replace('/auth');
         return;
       }
 
@@ -37,7 +37,7 @@ export default function ProfilePage() {
         .eq('id', user.id)
         .single();
 
-      if (data) {
+      if (data && mounted) {
         if (!data.phone) {
           router.replace('/profile/complete');
           return;
@@ -45,13 +45,33 @@ export default function ProfilePage() {
         setProfile(data);
         setName(data.name);
         setPhone(data.phone.replace('+91', ''));
-      } else {
+        setLoading(false);
+      } else if (mounted) {
         router.replace('/profile/complete');
-        return;
       }
-      setLoading(false);
     }
-    load();
+
+    // Initial mount check
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (mounted) loadProfile(session?.user);
+    });
+
+    // Reactive subscription handling realtime auth gaps
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (mounted) {
+        if (event === 'SIGNED_OUT' || !session?.user) {
+          router.replace('/auth');
+        } else if (event === 'SIGNED_IN') {
+          // Re-hydrate silently
+          loadProfile(session.user);
+        }
+      }
+    });
+
+    return () => {
+      mounted = false;
+      subscription.unsubscribe();
+    };
   }, [router]);
 
   async function handleSave() {
