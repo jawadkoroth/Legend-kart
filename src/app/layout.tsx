@@ -3,6 +3,7 @@ import '@/styles/globals.css';
 import { CartProvider } from '@/lib/cart';
 import Navbar from '@/components/Navbar';
 import FeedbackButton from '@/components/FeedbackButton';
+import GlobalAuthSync from '@/components/GlobalAuthSync';
 
 export const metadata: Metadata = {
   title: 'NOIR — Premium Black Fashion',
@@ -47,6 +48,7 @@ export default function RootLayout({
       </head>
       <body>
         <CartProvider>
+          <GlobalAuthSync />
           <Navbar />
           {children}
           <FeedbackButton />
