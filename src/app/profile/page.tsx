@@ -13,6 +13,7 @@ interface Profile {
 
 export default function ProfilePage() {
   const router = useRouter();
+  const [user, setUser] = useState<{ id: string; email?: string } | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(false);
@@ -25,37 +26,39 @@ export default function ProfilePage() {
     let mounted = true;
     const supabase = createClient();
 
-    const check = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
+    const init = async () => {
+      const { data: { user: authUser } } = await supabase.auth.getUser();
 
       if (!mounted) return;
 
-      if (!user) {
-        router.replace('/auth');
-        return;
-      }
+      if (authUser) {
+        setUser(authUser);
 
-      const { data } = await supabase
-        .from('profiles')
-        .select('name, email, phone')
-        .eq('id', user.id)
-        .single();
+        const { data } = await supabase
+          .from('profiles')
+          .select('name, email, phone')
+          .eq('id', authUser.id)
+          .single();
 
-      if (data && mounted) {
-        if (!data.phone) {
+        if (data) {
+          if (!data.phone) {
+            router.replace('/profile/complete');
+          } else {
+            setProfile(data);
+            setName(data.name);
+            setPhone(data.phone.replace('+91', ''));
+          }
+        } else {
           router.replace('/profile/complete');
-          return;
         }
-        setProfile(data);
-        setName(data.name);
-        setPhone(data.phone.replace('+91', ''));
-        setLoading(false);
-      } else if (mounted) {
-        router.replace('/profile/complete');
+      } else {
+        router.replace('/auth');
       }
+
+      setLoading(false);
     };
 
-    check();
+    init();
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
       if (mounted && event === 'SIGNED_OUT') {
@@ -125,12 +128,9 @@ export default function ProfilePage() {
     router.replace('/');
   }
 
+  // 🚨 CRITICAL: block render until auth resolved
   if (loading) {
-    return (
-      <div className={styles.page}>
-        <div className="animate-pulse text-muted" style={{ textAlign: 'center', padding: 'var(--space-12)' }}>Loading...</div>
-      </div>
-    );
+    return null;
   }
 
   return (
