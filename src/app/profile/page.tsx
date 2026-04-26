@@ -25,9 +25,13 @@ export default function ProfilePage() {
     let mounted = true;
     const supabase = createClient();
 
-    async function loadProfile(user: any) {
+    const check = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+
+      if (!mounted) return;
+
       if (!user) {
-        if (mounted) router.replace('/auth');
+        router.replace('/auth');
         return;
       }
 
@@ -49,38 +53,12 @@ export default function ProfilePage() {
       } else if (mounted) {
         router.replace('/profile/complete');
       }
-    }
-
-    // Delay initial check to escape OAuth hydration race conditions picking up URL hashes
-    const init = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!mounted) return;
-      
-      if (!session) {
-        router.replace('/auth');
-      } else {
-        loadProfile(session.user);
-      }
     };
 
-    const raceTimer = setTimeout(init, 300);
-
-    // Reactive subscription handling realtime auth gaps
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-      if (mounted) {
-        if (event === 'SIGNED_OUT') {
-          router.replace('/auth');
-        } else if (event === 'SIGNED_IN' && session?.user) {
-          // Re-hydrate silently
-          loadProfile(session.user);
-        }
-      }
-    });
+    check();
 
     return () => {
       mounted = false;
-      clearTimeout(raceTimer);
-      subscription.unsubscribe();
     };
   }, [router]);
 

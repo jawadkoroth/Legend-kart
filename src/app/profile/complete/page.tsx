@@ -17,10 +17,15 @@ function ProfileCompleteContent() {
   const [error, setError] = useState('');
 
   useEffect(() => {
+    let mounted = true;
+
     async function checkAuth() {
       const supabase = createClient();
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) {
+      const { data: { user } } = await supabase.auth.getUser();
+      
+      if (!mounted) return;
+
+      if (!user) {
         router.replace('/auth');
         return;
       }
@@ -28,7 +33,7 @@ function ProfileCompleteContent() {
       const { data: profile } = await supabase
         .from('profiles')
         .select('phone, name')
-        .eq('id', session.user.id)
+        .eq('id', user.id)
         .single();
         
       if (profile?.phone) {
