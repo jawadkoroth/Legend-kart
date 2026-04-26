@@ -56,7 +56,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     checkAuth();
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-       if (event === 'SIGNED_OUT' || !session) {
+       if (event === 'SIGNED_OUT') {
           if (mounted) setAuthed(false);
           if (pathname !== '/admin') router.push('/admin');
        } else if (event === 'SIGNED_IN') {

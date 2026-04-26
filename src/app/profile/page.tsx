@@ -57,8 +57,15 @@ export default function ProfilePage() {
 
     check();
 
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
+      if (mounted && event === 'SIGNED_OUT') {
+        router.replace('/auth');
+      }
+    });
+
     return () => {
       mounted = false;
+      subscription.unsubscribe();
     };
   }, [router]);
 
