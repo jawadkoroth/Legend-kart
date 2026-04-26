@@ -51,10 +51,19 @@ export default function ProfilePage() {
       }
     }
 
-    // Initial mount check
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (mounted) loadProfile(session?.user);
-    });
+    // Delay initial check to escape OAuth hydration race conditions picking up URL hashes
+    const init = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!mounted) return;
+      
+      if (!session) {
+        router.replace('/auth');
+      } else {
+        loadProfile(session.user);
+      }
+    };
+
+    const raceTimer = setTimeout(init, 300);
 
     // Reactive subscription handling realtime auth gaps
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
@@ -70,6 +79,7 @@ export default function ProfilePage() {
 
     return () => {
       mounted = false;
+      clearTimeout(raceTimer);
       subscription.unsubscribe();
     };
   }, [router]);
