@@ -34,9 +34,20 @@ export default function Navbar() {
 
   useEffect(() => {
     const supabase = createClient();
+    
+    // Initial check
     supabase.auth.getUser().then(({ data }) => {
       setUser(data.user ? { id: data.user.id } : null);
     });
+
+    // Reactive listener
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      setUser(session?.user ? { id: session.user.id } : null);
+    });
+
+    return () => {
+      subscription.unsubscribe();
+    };
   }, []);
 
   // Hide on admin pages

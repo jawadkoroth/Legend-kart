@@ -95,11 +95,7 @@ function ProfileCompleteContent() {
   }
 
   if (loading) {
-    return (
-      <div style={{ minHeight: '100dvh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <div className="animate-pulse text-muted">Loading...</div>
-      </div>
-    );
+    return <div style={{ height: '100dvh', width: '100%', backgroundColor: '#0B0B0B' }} />;
   }
 
   return (
