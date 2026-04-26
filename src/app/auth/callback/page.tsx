@@ -1,31 +1,24 @@
 'use client'
 
-import { useEffect } from 'react'
-import { createClient } from '@/lib/supabase/client'
-import { useRouter } from 'next/navigation'
+import { useEffect } from "react"
+import { useRouter } from "next/navigation"
+import { createClient } from "@/lib/supabase/client"
 
-export default function AuthCallback() {
-  const supabase = createClient()
+export default function Callback() {
   const router = useRouter()
 
   useEffect(() => {
-    const handleAuth = async () => {
-      const { data } = await supabase.auth.getSession()
+    const handle = async () => {
+      const supabase = createClient()
 
-      if (data.session) {
-        router.push('/') // Redirect home on success
-      } else {
-        router.push('/auth')
-      }
+      // 🔥 THIS IS REQUIRED TO STORE SESSION
+      await supabase.auth.getSession()
+
+      router.replace("/profile")
     }
 
-    handleAuth()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    handle()
   }, [])
 
-  return (
-    <div style={{ minHeight: '100dvh', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)' }}>
-      <div className="animate-pulse">Authenticating your session...</div>
-    </div>
-  )
+  return null
 }
