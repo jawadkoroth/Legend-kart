@@ -68,9 +68,9 @@ export default function ProfilePage() {
     // Reactive subscription handling realtime auth gaps
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       if (mounted) {
-        if (event === 'SIGNED_OUT' || !session?.user) {
+        if (event === 'SIGNED_OUT') {
           router.replace('/auth');
-        } else if (event === 'SIGNED_IN') {
+        } else if (event === 'SIGNED_IN' && session?.user) {
           // Re-hydrate silently
           loadProfile(session.user);
         }
