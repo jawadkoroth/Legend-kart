@@ -31,30 +31,27 @@ export default function ProfilePage() {
 
       if (!mounted) return;
 
-      if (authUser) {
-        setUser(authUser);
-
-        const { data } = await supabase
-          .from('profiles')
-          .select('name, email, phone')
-          .eq('id', authUser.id)
-          .single();
-
-        if (data) {
-          if (!data.phone) {
-            router.replace('/profile/complete');
-          } else {
-            setProfile(data);
-            setName(data.name);
-            setPhone(data.phone.replace('+91', ''));
-          }
-        } else {
-          router.replace('/profile/complete');
-        }
-      } else {
+      if (!authUser) {
         router.replace('/auth');
+        return;
       }
 
+      setUser(authUser);
+
+      const { data } = await supabase
+        .from('profiles')
+        .select('name, email, phone')
+        .eq('id', authUser.id)
+        .single();
+
+      if (!data || !data.phone) {
+        router.replace('/profile/complete');
+        return;
+      }
+
+      setProfile(data);
+      setName(data.name);
+      setPhone(data.phone.replace('+91', ''));
       setLoading(false);
     };
 
@@ -130,7 +127,7 @@ export default function ProfilePage() {
 
   // 🚨 CRITICAL: block render until auth resolved
   if (loading) {
-    return null;
+    return <div style={{ height: '100dvh', width: '100%', backgroundColor: '#0B0B0B' }} />;
   }
 
   return (
