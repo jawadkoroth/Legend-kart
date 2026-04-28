@@ -51,7 +51,11 @@ export default function AdminLogin() {
         return;
       }
 
-      router.push('/admin/dashboard');
+      // Cookies are now set by the SSR browser client. Force a server
+      // re-evaluation so the protected admin layout (RSC) sees the new
+      // session before navigation lands.
+      router.refresh();
+      router.replace('/admin/dashboard');
     } catch {
       setError('Something went wrong');
       setLoading(false);

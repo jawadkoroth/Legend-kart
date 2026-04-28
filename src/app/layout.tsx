@@ -3,7 +3,8 @@ import '@/styles/globals.css';
 import { CartProvider } from '@/lib/cart';
 import Navbar from '@/components/Navbar';
 import FeedbackButton from '@/components/FeedbackButton';
-import GlobalAuthSync from '@/components/GlobalAuthSync';
+import { AuthProvider } from '@/lib/auth/AuthProvider';
+import { createServerSupabaseClient } from '@/lib/supabase/server';
 
 export const metadata: Metadata = {
   title: 'NOIR — Premium Black Fashion',
@@ -16,17 +17,25 @@ export const metadata: Metadata = {
   },
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  // Hydrate auth state on the server so the very first paint reflects
+  // the real user. Using getUser() (not getSession()) because it's the
+  // only verified-against-the-server call.
+  const supabase = await createServerSupabaseClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
   return (
     <html lang="en">
       <head>
         <script
           dangerouslySetInnerHTML={{
-             __html: `
+            __html: `
               (function() {
                 try {
                   var localTheme = localStorage.getItem('theme');
@@ -47,12 +56,13 @@ export default function RootLayout({
         <meta name="theme-color" content="#0B0B0B" />
       </head>
       <body>
-        <CartProvider>
-          <GlobalAuthSync />
-          <Navbar />
-          {children}
-          <FeedbackButton />
-        </CartProvider>
+        <AuthProvider initialUser={user}>
+          <CartProvider>
+            <Navbar />
+            {children}
+            <FeedbackButton />
+          </CartProvider>
+        </AuthProvider>
       </body>
     </html>
   );

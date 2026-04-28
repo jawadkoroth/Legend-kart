@@ -1,19 +1,24 @@
 'use client';
 
-import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { Suspense, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import styles from './page.module.css';
 
 type Step = 'login' | 'otp';
 
-export default function AuthPage() {
+function AuthInner() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const errorParam = searchParams.get('error');
+  const rawNext = searchParams.get('next') || '/profile';
+  const next = rawNext.startsWith('/') && !rawNext.startsWith('//') ? rawNext : '/profile';
+
   const [step, setStep] = useState<Step>('login');
   const [email, setEmail] = useState('');
   const [otp, setOtp] = useState('');
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
+  const [error, setError] = useState(errorParam ?? '');
   const [message, setMessage] = useState('');
 
   async function handleSendOtp(e: React.FormEvent) {
@@ -57,7 +62,12 @@ export default function AuthPage() {
     }
 
     if (data.user) {
-      router.push('/profile');
+      // Cookies have just been written by the SSR browser client.
+      // router.refresh() forces RSC trees (incl. RootLayout's getUser
+      // call and Navbar via AuthProvider) to revalidate. The middleware
+      // then handles any post-login redirect logic.
+      router.refresh();
+      router.replace(next);
     }
     setLoading(false);
   }
@@ -66,14 +76,17 @@ export default function AuthPage() {
     setLoading(true);
     setError('');
     const supabase = createClient();
-    const { error } = await supabase.auth.signInWithOAuth({
+    const callbackUrl = new URL('/auth/callback', window.location.origin);
+    callbackUrl.searchParams.set('next', next);
+
+    const { error: oauthError } = await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: {
-        redirectTo: `${window.location.origin}/auth/callback`,
+        redirectTo: callbackUrl.toString(),
       },
     });
-    if (error) {
-      setError(error.message);
+    if (oauthError) {
+      setError(oauthError.message);
       setLoading(false);
     }
   }
@@ -157,5 +170,13 @@ export default function AuthPage() {
         )}
       </div>
     </div>
+  );
+}
+
+export default function AuthPage() {
+  return (
+    <Suspense fallback={<div style={{ minHeight: '100dvh' }} />}>
+      <AuthInner />
+    </Suspense>
   );
 }

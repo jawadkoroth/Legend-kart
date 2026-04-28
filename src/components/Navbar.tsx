@@ -4,13 +4,13 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useCart } from '@/lib/cart';
 import { useEffect, useState } from 'react';
-import { createClient } from '@/lib/supabase/client';
+import { useAuth } from '@/lib/auth/AuthProvider';
 import styles from './Navbar.module.css';
 
 export default function Navbar() {
   const pathname = usePathname();
   const { totalItems } = useCart();
-  const [user, setUser] = useState<{ id: string } | null>(null);
+  const { user } = useAuth();
   const [theme, setTheme] = useState<'light' | 'dark'>('dark');
 
   useEffect(() => {
@@ -31,24 +31,6 @@ export default function Navbar() {
     document.documentElement.setAttribute('data-theme', newTheme);
     localStorage.setItem('theme', newTheme);
   };
-
-  useEffect(() => {
-    const supabase = createClient();
-    
-    // Initial check
-    supabase.auth.getUser().then(({ data }) => {
-      setUser(data.user ? { id: data.user.id } : null);
-    });
-
-    // Reactive listener
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-      setUser(session?.user ? { id: session.user.id } : null);
-    });
-
-    return () => {
-      subscription.unsubscribe();
-    };
-  }, []);
 
   // Hide on admin pages
   if (pathname.startsWith('/admin')) return null;
