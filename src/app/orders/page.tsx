@@ -1,18 +1,15 @@
 import { redirect } from 'next/navigation';
 import Link from 'next/link';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
+import styles from './orders.module.css';
 
 /**
  * /orders — authenticated list of the current user's orders.
  *
- * Server component. The cookie-bound SSR client doubles as the auth
- * gate: if `auth.getUser()` returns null we redirect to /auth with
- * a `next` query so the user is bounced back here after sign-in.
- *
- * Strict ownership: every row returned has `user_id = auth.uid()`,
- * enforced both by our explicit `.eq('user_id', user.id)` filter AND
- * by the migration-006 RLS policy (`USING (user_id = auth.uid())`)
- * as belt-and-braces.
+ * UI is fully owned by `orders.module.css` (scoped). Logic, auth, and
+ * data fetching are unchanged from the previous implementation:
+ * cookie-bound SSR client → redirect to /auth if signed-out → strict
+ * `.eq('user_id', user.id)` filter (RLS belt-and-braces).
  */
 export const dynamic = 'force-dynamic';
 
@@ -25,6 +22,22 @@ type OrderRow = {
   payment_method: string;
   created_at: string;
 };
+
+const ALLOWED_STATUSES = [
+  'pending',
+  'confirmed',
+  'shipped',
+  'delivered',
+  'cancelled',
+] as const;
+type OrderStatus = (typeof ALLOWED_STATUSES)[number];
+
+function badgeClass(status: string): string {
+  const safe: OrderStatus = (ALLOWED_STATUSES as readonly string[]).includes(status)
+    ? (status as OrderStatus)
+    : 'pending';
+  return `${styles.badge} ${styles[`badge_${safe}`]}`;
+}
 
 const formatPrice = (paise: number) =>
   '₹' + (paise / 100).toLocaleString('en-IN');
@@ -57,28 +70,10 @@ export default async function OrdersPage() {
   const orders: OrderRow[] = error || !data ? [] : (data as OrderRow[]);
 
   return (
-    <div
-      style={{
-        maxWidth: '720px',
-        margin: '0 auto',
-        padding: 'var(--space-6) var(--space-4)',
-      }}
-    >
-      <header style={{ marginBottom: 'var(--space-6)' }}>
-        <h1
-          style={{
-            fontFamily: 'var(--font-serif)',
-            fontSize: '1.75rem',
-            fontWeight: 500,
-            letterSpacing: '-0.01em',
-          }}
-        >
-          Your orders
-        </h1>
-        <p
-          className="text-sm text-muted"
-          style={{ marginTop: 'var(--space-2)' }}
-        >
+    <div className={styles.page}>
+      <header className={styles.header}>
+        <h1 className={styles.title}>Your orders</h1>
+        <p className={styles.subtitle}>
           {orders.length === 0
             ? 'You haven’t placed any orders yet.'
             : `${orders.length} order${orders.length === 1 ? '' : 's'}`}
@@ -86,55 +81,31 @@ export default async function OrdersPage() {
       </header>
 
       {orders.length === 0 ? (
-        <div
-          className="card"
-          style={{ textAlign: 'center', padding: 'var(--space-8)' }}
-        >
-          <p className="text-muted" style={{ marginBottom: 'var(--space-4)' }}>
+        <div className={styles.empty}>
+          <p className={styles.emptyText}>
             When you place an order, it will appear here.
           </p>
-          <Link href="/" className="btn btn-secondary">
+          <Link href="/" className={styles.emptyLink}>
             Continue shopping
           </Link>
         </div>
       ) : (
-        <div
-          style={{
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 'var(--space-3)',
-          }}
-        >
+        <div className={styles.list}>
           {orders.map((order) => (
             <Link
               key={order.id}
               href={`/orders/${order.id}`}
-              className="order-card"
+              className={styles.card}
             >
-              <div className="order-card-header">
-                <span
-                  style={{
-                    fontWeight: 600,
-                    fontSize: '0.8125rem',
-                    fontFamily: 'monospace',
-                  }}
-                >
-                  {order.order_number}
-                </span>
-                <span className={`badge badge-${order.order_status}`}>
+              <div className={styles.cardHeader}>
+                <span className={styles.orderNumber}>{order.order_number}</span>
+                <span className={badgeClass(order.order_status)}>
                   {order.order_status}
                 </span>
               </div>
-              <div
-                style={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  fontSize: '0.8125rem',
-                  color: 'var(--text-muted)',
-                }}
-              >
+              <div className={styles.cardMeta}>
                 <span>{formatDate(order.created_at)}</span>
-                <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>
+                <span className={styles.cardTotal}>
                   {formatPrice(order.total_paise)}
                 </span>
               </div>
