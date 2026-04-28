@@ -50,7 +50,9 @@ export default function AdminShell({
       <AdminFeedbackDrawer
         isOpen={isFeedbackOpen}
         onClose={() => setIsFeedbackOpen(false)}
-        onReadUpdate={() => setUnreadCount(prev => Math.max(0, prev - 1))}
+        onUnreadDelta={delta =>
+          setUnreadCount(prev => Math.max(0, prev + delta))
+        }
       />
 
       <nav className="admin-nav">

@@ -39,6 +39,13 @@ export default function Navbar() {
     <nav className={styles.navbar}>
       <Link href="/" className={styles.logo}>NOIR</Link>
       <div className={styles.actions}>
+        <Link
+          href="/products"
+          className={styles.shopLink}
+          aria-label="Shop all products"
+        >
+          Shop
+        </Link>
         <button onClick={toggleTheme} className={styles.iconBtn} aria-label="Toggle Theme">
           {theme === 'dark' ? (
             // Sun icon

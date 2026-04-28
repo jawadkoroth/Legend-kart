@@ -1,0 +1,115 @@
+.card {
+  display: flex;
+  flex-direction: column;
+  text-decoration: none;
+  color: inherit;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md, 6px);
+  overflow: hidden;
+  transition:
+    transform 0.35s cubic-bezier(0.22, 1, 0.36, 1),
+    border-color 0.25s ease,
+    box-shadow 0.35s ease;
+  outline: none;
+}
+
+.card:hover,
+.card:focus-visible {
+  transform: translateY(-2px);
+  border-color: var(--accent-gold, #c9a86a);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.35);
+}
+
+.card:hover .name,
+.card:focus-visible .name {
+  color: var(--accent-gold, #c9a86a);
+}
+
+.cardDisabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+  pointer-events: none;
+  user-select: none;
+}
+
+.imageWrap {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  background: var(--bg-tertiary, #141414);
+  overflow: hidden;
+}
+
+.image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  transition: transform 0.6s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.card:hover .image {
+  transform: scale(1.04);
+}
+
+.imageDisabled {
+  filter: grayscale(0.85) brightness(0.7);
+}
+
+.outOfStockPill {
+  position: absolute;
+  top: var(--space-3, 12px);
+  left: var(--space-3, 12px);
+  padding: 4px 10px;
+  background: rgba(11, 11, 11, 0.85);
+  color: var(--text-primary, #fff);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: var(--space-4, 16px) var(--space-4, 16px) var(--space-5, 20px);
+}
+
+.name {
+  font-size: 0.9375rem;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  color: var(--text-primary, #fff);
+  margin: 0;
+  transition: color 0.25s ease;
+}
+
+.priceRow {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2, 8px);
+  margin-top: 2px;
+}
+
+.price {
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--text-primary, #fff);
+}
+
+.priceStrike {
+  font-size: 0.8125rem;
+  color: var(--text-muted, #9a9a9a);
+  text-decoration: line-through;
+}
+
+.lowStock {
+  margin: 4px 0 0;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--accent-gold, #c9a86a);
+  letter-spacing: 0.04em;
+}

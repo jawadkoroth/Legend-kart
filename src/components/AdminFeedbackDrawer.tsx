@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 
 interface Feedback {
@@ -15,10 +15,15 @@ interface Feedback {
 interface DrawerProps {
   isOpen: boolean;
   onClose: () => void;
-  onReadUpdate: () => void;
+  /**
+   * Called with a signed delta to apply to the unread badge.
+   * `-1` when a message has been successfully marked read,
+   * `+1` when a previously-applied optimistic mark must be reverted.
+   */
+  onUnreadDelta: (delta: -1 | 1) => void;
 }
 
-export default function AdminFeedbackDrawer({ isOpen, onClose, onReadUpdate }: DrawerProps) {
+export default function AdminFeedbackDrawer({ isOpen, onClose, onUnreadDelta }: DrawerProps) {
   const [feedbacks, setFeedbacks] = useState<Feedback[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -26,6 +31,11 @@ export default function AdminFeedbackDrawer({ isOpen, onClose, onReadUpdate }: D
   const [hasMore, setHasMore] = useState(true);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [isMobile, setIsMobile] = useState(false);
+  const [errorToast, setErrorToast] = useState<string | null>(null);
+
+  // Tracks ids whose mark-as-read request is in flight, so a fast
+  // double-click on the same item never produces two UPDATEs.
+  const pendingReadIds = useRef<Set<string>>(new Set());
 
   const PAGE_SIZE = 20;
 
@@ -72,14 +82,40 @@ export default function AdminFeedbackDrawer({ isOpen, onClose, onReadUpdate }: D
 
   const handleSelect = async (id: string) => {
     setSelectedId(id);
-    
-    // Auto mark as read
+
     const fb = feedbacks.find(f => f.id === id);
-    if (fb && !fb.is_read) {
-      const supabase = createClient();
-      await supabase.from('feedback').update({ is_read: true }).eq('id', id);
-      setFeedbacks(prev => prev.map(f => f.id === id ? { ...f, is_read: true } : f));
-      onReadUpdate(); // trigger unread badge update in top nav
+    if (!fb || fb.is_read) return;
+    if (pendingReadIds.current.has(id)) return;
+    pendingReadIds.current.add(id);
+
+    // 1. Optimistic UI: flip the row to read immediately and re-sort
+    //    in place so it slides under the unread bucket without needing
+    //    a refetch.
+    setFeedbacks(prev =>
+      prev
+        .map(f => (f.id === id ? { ...f, is_read: true } : f))
+        .sort((a, b) => {
+          if (a.is_read !== b.is_read) return a.is_read ? 1 : -1;
+          return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+        }),
+    );
+    onUnreadDelta(-1);
+
+    // 2. Persist. On failure, revert state and badge, surface a toast.
+    const supabase = createClient();
+    const { error } = await supabase
+      .from('feedback')
+      .update({ is_read: true })
+      .eq('id', id);
+
+    pendingReadIds.current.delete(id);
+
+    if (error) {
+      setFeedbacks(prev => prev.map(f => (f.id === id ? { ...f, is_read: false } : f)));
+      onUnreadDelta(1);
+      setErrorToast('Could not mark message as read. Try again.');
+      // Auto-dismiss the inline error after a few seconds.
+      setTimeout(() => setErrorToast(null), 4000);
     }
   };
 
@@ -95,7 +131,7 @@ export default function AdminFeedbackDrawer({ isOpen, onClose, onReadUpdate }: D
     <>
       {/* Backdrop */}
       {isOpen && (
-        <div 
+        <div
           onClick={onClose}
           style={{
             position: 'fixed', inset: 0,
@@ -108,7 +144,7 @@ export default function AdminFeedbackDrawer({ isOpen, onClose, onReadUpdate }: D
       )}
 
       {/* Drawer Panel */}
-      <div 
+      <div
         style={{
           position: 'fixed', top: 0, right: 0, bottom: 0,
           width: '100%', maxWidth: '900px',
@@ -127,12 +163,27 @@ export default function AdminFeedbackDrawer({ isOpen, onClose, onReadUpdate }: D
           <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: '1.5rem', color: 'var(--text-muted)', cursor: 'pointer' }}>×</button>
         </div>
 
+        {errorToast && (
+          <div
+            role="alert"
+            style={{
+              padding: 'var(--space-2) var(--space-5)',
+              backgroundColor: 'rgba(239, 68, 68, 0.12)',
+              color: 'var(--error)',
+              borderBottom: '1px solid var(--border-color)',
+              fontSize: '0.8125rem',
+            }}
+          >
+            {errorToast}
+          </div>
+        )}
+
         {/* Content Region */}
         <div style={{ flex: 1, display: 'flex', overflow: 'hidden', position: 'relative' }}>
-          
+
           {/* LEFT: Inbox List */}
-          <div 
-            style={{ 
+          <div
+            style={{
               width: isMobile ? '100%' : '350px',
               borderRight: isMobile ? 'none' : '1px solid var(--border-color)',
               overflowY: 'auto',
@@ -147,7 +198,7 @@ export default function AdminFeedbackDrawer({ isOpen, onClose, onReadUpdate }: D
               feedbacks.map(fb => {
                 const isSelected = selectedId === fb.id;
                 return (
-                  <div 
+                  <div
                     key={fb.id}
                     onClick={() => handleSelect(fb.id)}
                     style={{
@@ -164,8 +215,8 @@ export default function AdminFeedbackDrawer({ isOpen, onClose, onReadUpdate }: D
                       </span>
                       {!fb.is_read && <span style={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: 'var(--text-primary)', marginTop: 6 }} />}
                     </div>
-                    <p 
-                      style={{ 
+                    <p
+                      style={{
                         fontSize: '0.8125rem', color: 'var(--text-muted)', marginBottom: '8px',
                         display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden'
                       }}
@@ -177,10 +228,10 @@ export default function AdminFeedbackDrawer({ isOpen, onClose, onReadUpdate }: D
                 );
               })
             )}
-            
+
             {hasMore && feedbacks.length > 0 && (
-              <button 
-                onClick={loadMore} 
+              <button
+                onClick={loadMore}
                 disabled={loadingMore}
                 className="btn btn-ghost"
                 style={{ margin: 'var(--space-4)', fontSize: '0.75rem' }}
@@ -191,9 +242,9 @@ export default function AdminFeedbackDrawer({ isOpen, onClose, onReadUpdate }: D
           </div>
 
           {/* RIGHT: Detailed Context */}
-          <div 
-            style={{ 
-              flex: 1, 
+          <div
+            style={{
+              flex: 1,
               backgroundColor: 'var(--bg-secondary)',
               display: 'flex', flexDirection: 'column',
               position: isMobile ? 'absolute' : 'relative',
@@ -207,7 +258,7 @@ export default function AdminFeedbackDrawer({ isOpen, onClose, onReadUpdate }: D
                 {/* Right Header */}
                 <div style={{ padding: 'var(--space-3) var(--space-5)', borderBottom: '1px solid var(--border-color)', display: 'flex', alignItems: 'center' }}>
                   {isMobile && (
-                    <button 
+                    <button
                       onClick={() => setSelectedId(null)}
                       style={{ background: 'none', border: 'none', color: 'var(--text-primary)', marginRight: 'var(--space-4)', fontSize: '1.25rem', cursor: 'pointer' }}
                     >
@@ -224,7 +275,7 @@ export default function AdminFeedbackDrawer({ isOpen, onClose, onReadUpdate }: D
                 <div style={{ padding: 'var(--space-6) var(--space-5)', flex: 1, overflowY: 'auto' }}>
                   {selectedFeedback.phone && (
                     <p style={{ fontSize: '0.875rem', marginBottom: 'var(--space-6)', padding: 'var(--space-3)', backgroundColor: 'var(--bg-tertiary)', borderRadius: 'var(--radius-md)' }}>
-                      <strong>Phone Contact:</strong> <br/> {selectedFeedback.phone}
+                      <strong>Phone Contact:</strong> <br /> {selectedFeedback.phone}
                     </p>
                   )}
                   <p style={{ fontSize: '0.9375rem', lineHeight: 1.7, color: 'var(--text-primary)', whiteSpace: 'pre-wrap' }}>
@@ -245,7 +296,7 @@ export default function AdminFeedbackDrawer({ isOpen, onClose, onReadUpdate }: D
               </div>
             )}
           </div>
-          
+
         </div>
       </div>
     </>

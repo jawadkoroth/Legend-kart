@@ -25,6 +25,26 @@
   gap: var(--space-1);
 }
 
+.shopLink {
+  display: inline-flex;
+  align-items: center;
+  padding: 8px 12px;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  text-decoration: none;
+  border-radius: var(--radius-sm);
+  transition: color var(--duration-fast) var(--ease-out),
+    background var(--duration-fast) var(--ease-out);
+}
+
+.shopLink:hover {
+  color: var(--accent-gold, var(--text-primary));
+  background: var(--bg-tertiary);
+}
+
 .iconBtn {
   position: relative;
   display: flex;
@@ -37,6 +57,7 @@
   transition: all var(--duration-fast) var(--ease-out);
   -webkit-tap-highlight-color: transparent;
 }
+
 .iconBtn:hover {
   color: var(--text-primary);
   background: var(--bg-tertiary);
@@ -69,6 +90,7 @@
   .navbar {
     padding: var(--space-3) var(--space-12);
   }
+
   .logo {
     font-size: 1.375rem;
   }
