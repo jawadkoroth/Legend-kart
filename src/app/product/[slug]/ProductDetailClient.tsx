@@ -98,6 +98,11 @@ export default function ProductDetailClient({
 
   function handleAddToCart() {
     if (!selectedSize || isSoldOut) return;
+    const sizeStock = getStock(selectedSize);
+    // Defence-in-depth: the size button is already disabled when its
+    // individual stock is 0, but never let a sold-out size sneak into
+    // the cart even if state somehow desyncs.
+    if (sizeStock <= 0) return;
     const images = getImages();
     addItem({
       product_id: product.id,
@@ -106,6 +111,7 @@ export default function ProductDetailClient({
       size: selectedSize,
       price_paise: finalPrice,
       image: images[0],
+      maxStock: sizeStock,
     });
     setAddedToCart(true);
     setTimeout(() => setAddedToCart(false), 2000);

@@ -37,7 +37,7 @@ function CheckoutContent() {
       try {
         const supabase = createClient();
         const { data: { session } } = await supabase.auth.getSession();
-        
+
         if (session) {
           const { data: profile } = await supabase
             .from('profiles')
@@ -46,10 +46,10 @@ function CheckoutContent() {
             .single();
 
           if (!profile?.phone) {
-             router.replace('/profile/complete?next=/checkout');
-             return;
+            router.replace('/profile/complete?next=/checkout');
+            return;
           }
-          
+
           if (profile.name) setName(profile.name);
           if (profile.phone) setPhone(profile.phone.replace('+91', ''));
           if (profile.email) setEmail(profile.email);
@@ -139,6 +139,42 @@ function CheckoutContent() {
     if (!validate()) return;
     setSubmitting(true);
     setOrderError('');
+
+    // Final stock revalidation immediately before order POST.
+    //
+    // - On a clear "no stock" answer: block the order with a user-
+    //   facing message; the server inventory decrement would reject
+    //   it anyway, but failing fast here avoids a payment round-trip.
+    // - On any transport/parse failure: log + continue. The
+    //   `/api/orders` route runs the authoritative decrement under a
+    //   transaction, so a soft-fail here cannot oversell.
+    try {
+      const validateRes = await fetch('/api/cart/validate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          items: [{ product_id: product.id, size, quantity: 1 }],
+        }),
+      });
+      if (validateRes.ok) {
+        const validateData = (await validateRes.json()) as {
+          items?: Array<{ removed: boolean; maxStock: number }>;
+        };
+        const entry = validateData.items?.[0];
+        if (entry && (entry.removed || entry.maxStock < 1)) {
+          setOrderError(
+            'This item is no longer available in the selected size. Please choose another.',
+          );
+          setSubmitting(false);
+          return;
+        }
+      } else {
+        console.error('[CHECKOUT_VALIDATE_FAILED]', validateRes.status);
+      }
+    } catch (err) {
+      console.error('[CHECKOUT_VALIDATE_ERROR]', err);
+      // Fail-soft: continue to order POST; DB is final gate.
+    }
 
     try {
       const res = await fetch('/api/orders', {
