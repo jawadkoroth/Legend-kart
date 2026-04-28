@@ -91,6 +91,18 @@ interface CartContextType {
   totalPaise: number;
   /** Spec-compatible alias for `totalPaise`. */
   getTotal: () => number;
+  /**
+   * Epoch-ms timestamp of the last successful `applyValidation` call,
+   * or `null` if the cart has never been server-validated.
+   *
+   * Consumers can compare against `Date.now()` to decide whether the
+   * snapshot is fresh enough to trust. The checkout page treats
+   * anything older than 15 s as stale and forces a revalidation
+   * before allowing an order POST.
+   */
+  validatedAt: number | null;
+  /** True if a non-zero number of items have been validated and not mutated since. */
+  isValidationFresh: (maxAgeMs?: number) => boolean;
 }
 
 const CartContext = createContext<CartContextType | null>(null);
@@ -139,9 +151,16 @@ function saveCart(items: CartItem[]) {
   }
 }
 
+/** Default freshness window for `isValidationFresh` and checkout's stale check. */
+const DEFAULT_FRESH_MS = 15_000;
+
+/** Debounce for sibling-tab `storage` events (ms). Tunable, kept short. */
+const STORAGE_SYNC_DEBOUNCE_MS = 75;
+
 export function CartProvider({ children }: { children: ReactNode }) {
   const [items, setItems] = useState<CartItem[]>([]);
   const [loaded, setLoaded] = useState(false);
+  const [validatedAt, setValidatedAt] = useState<number | null>(null);
 
   // Tracks the last JSON we wrote to localStorage so the storage
   // listener can ignore echoes of our own writes.
@@ -165,13 +184,21 @@ export function CartProvider({ children }: { children: ReactNode }) {
   }, [items, loaded]);
 
   // Multi-tab sync: respond to writes in sibling tabs only.
+  //
+  // Bursts of writes from another tab (e.g. holding the `+` button)
+  // would otherwise trigger a re-render per event. We coalesce by
+  // recording the latest payload and applying it on a short timer;
+  // a fresh event resets the timer so only the final value lands.
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    function onStorage(e: StorageEvent) {
-      if (e.key !== CART_KEY) return;
-      // Tab cleared storage -> treat as empty cart, but only if we
-      // didn't just write the same value ourselves.
-      const next = e.newValue ?? '[]';
+    let pendingPayload: string | null = null;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+
+    function flush() {
+      timer = null;
+      const next = pendingPayload;
+      pendingPayload = null;
+      if (next === null) return;
       if (next === lastSerializedRef.current) return;
       try {
         const parsed: unknown = JSON.parse(next);
@@ -180,14 +207,33 @@ export function CartProvider({ children }: { children: ReactNode }) {
           ...item,
           maxStock: typeof item.maxStock === 'number' ? item.maxStock : 0,
         }));
-        lastSerializedRef.current = JSON.stringify(sanitized);
+        const reserialized = JSON.stringify(sanitized);
+        if (reserialized === lastSerializedRef.current) return;
+        lastSerializedRef.current = reserialized;
         setItems(sanitized);
+        // A sibling-tab mutation invalidates our last server
+        // validation snapshot — quantities or composition just
+        // changed without going through `applyValidation`.
+        setValidatedAt(null);
       } catch {
         // Ignore malformed payloads from other tabs.
       }
     }
+
+    function onStorage(e: StorageEvent) {
+      if (e.key !== CART_KEY) return;
+      const next = e.newValue ?? '[]';
+      if (next === lastSerializedRef.current) return;
+      pendingPayload = next;
+      if (timer !== null) clearTimeout(timer);
+      timer = setTimeout(flush, STORAGE_SYNC_DEBOUNCE_MS);
+    }
+
     window.addEventListener('storage', onStorage);
-    return () => window.removeEventListener('storage', onStorage);
+    return () => {
+      window.removeEventListener('storage', onStorage);
+      if (timer !== null) clearTimeout(timer);
+    };
   }, []);
 
   const addItem = useCallback(
@@ -220,6 +266,8 @@ export function CartProvider({ children }: { children: ReactNode }) {
           { ...item, quantity: Math.min(safeQty, item.maxStock) },
         ];
       });
+      // Local mutation invalidates the validation snapshot.
+      setValidatedAt(null);
     },
     [],
   );
@@ -228,6 +276,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
     setItems(prev =>
       prev.filter(i => !(i.product_id === product_id && i.size === size)),
     );
+    setValidatedAt(null);
   }, []);
 
   const updateQuantity = useCallback(
@@ -240,23 +289,27 @@ export function CartProvider({ children }: { children: ReactNode }) {
         prev.map(i =>
           i.product_id === product_id && i.size === size
             ? {
-                ...i,
-                // Clamp to `[1, maxStock]`. If maxStock is 0 (legacy
-                // entry pre-revalidation), keep the existing quantity
-                // rather than zero it out — revalidation will fix it.
-                quantity:
-                  i.maxStock > 0
-                    ? Math.min(Math.max(1, Math.floor(qty)), i.maxStock)
-                    : i.quantity,
-              }
+              ...i,
+              // Clamp to `[1, maxStock]`. If maxStock is 0 (legacy
+              // entry pre-revalidation), keep the existing quantity
+              // rather than zero it out — revalidation will fix it.
+              quantity:
+                i.maxStock > 0
+                  ? Math.min(Math.max(1, Math.floor(qty)), i.maxStock)
+                  : i.quantity,
+            }
             : i,
         ),
       );
+      setValidatedAt(null);
     },
     [removeItem],
   );
 
-  const clearCart = useCallback(() => setItems([]), []);
+  const clearCart = useCallback(() => {
+    setItems([]);
+    setValidatedAt(null);
+  }, []);
 
   const applyValidation = useCallback(
     (result: CartValidationResult): ApplyValidationSummary => {
@@ -300,9 +353,22 @@ export function CartProvider({ children }: { children: ReactNode }) {
         return next;
       });
 
+      // Mark as freshly validated so consumers (e.g. checkout) can
+      // skip a redundant round-trip when they navigate immediately
+      // after a successful /cart validation.
+      setValidatedAt(Date.now());
+
       return summary;
     },
     [],
+  );
+
+  const isValidationFresh = useCallback(
+    (maxAgeMs: number = DEFAULT_FRESH_MS) => {
+      if (validatedAt === null) return false;
+      return Date.now() - validatedAt <= maxAgeMs;
+    },
+    [validatedAt],
   );
 
   const totalItems = useMemo(
@@ -327,6 +393,8 @@ export function CartProvider({ children }: { children: ReactNode }) {
       totalItems,
       totalPaise,
       getTotal,
+      validatedAt,
+      isValidationFresh,
     }),
     [
       items,
@@ -338,6 +406,8 @@ export function CartProvider({ children }: { children: ReactNode }) {
       totalItems,
       totalPaise,
       getTotal,
+      validatedAt,
+      isValidationFresh,
     ],
   );
 

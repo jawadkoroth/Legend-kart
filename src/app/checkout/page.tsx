@@ -5,11 +5,13 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense } from 'react';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
+import { useCart } from '@/lib/cart';
 import styles from './page.module.css';
 
 function CheckoutContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { items, isValidationFresh } = useCart();
   const productId = searchParams.get('product_id') || '';
   const size = searchParams.get('size') || '';
   const couponCode = searchParams.get('coupon') || '';
@@ -142,38 +144,73 @@ function CheckoutContent() {
 
     // Final stock revalidation immediately before order POST.
     //
-    // - On a clear "no stock" answer: block the order with a user-
-    //   facing message; the server inventory decrement would reject
-    //   it anyway, but failing fast here avoids a payment round-trip.
-    // - On any transport/parse failure: log + continue. The
-    //   `/api/orders` route runs the authoritative decrement under a
-    //   transaction, so a soft-fail here cannot oversell.
-    try {
-      const validateRes = await fetch('/api/cart/validate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          items: [{ product_id: product.id, size, quantity: 1 }],
-        }),
-      });
-      if (validateRes.ok) {
+    // Behaviour:
+    //   - On a clear "no stock" answer: block the order with a user-
+    //     facing message; failing fast here avoids a payment round-
+    //     trip when the server inventory decrement would reject anyway.
+    //   - On any transport / parse failure: BLOCK the order with a
+    //     retryable error. We refuse to gamble on the database being
+    //     the only gate when we explicitly couldn't verify stock.
+    //
+    // Freshness optimisation:
+    //   - If the cart provider just validated this exact line within
+    //     the freshness window (e.g. the user came straight from /cart),
+    //     we skip the redundant round-trip. Any local mutation since
+    //     then will have invalidated `validatedAt` automatically.
+    const cartLine = items.find(
+      i => i.product_id === product.id && i.size === size,
+    );
+    const canSkipRevalidation =
+      Boolean(cartLine) &&
+      isValidationFresh() &&
+      (cartLine?.maxStock ?? 0) > 0;
+
+    if (!canSkipRevalidation) {
+      try {
+        const validateRes = await fetch('/api/cart/validate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            items: [{ product_id: product.id, size, quantity: 1 }],
+          }),
+        });
+        if (!validateRes.ok) {
+          console.error('[CHECKOUT_VALIDATE_FAILED]', validateRes.status);
+          setOrderError('Unable to verify stock. Please try again.');
+          setSubmitting(false);
+          return;
+        }
         const validateData = (await validateRes.json()) as {
-          items?: Array<{ removed: boolean; maxStock: number }>;
+          items: Array<{
+            product_id: string;
+            size: string;
+            maxStock: number;
+            clampedQuantity: number;
+            removed: boolean;
+          }>;
         };
         const entry = validateData.items?.[0];
-        if (entry && (entry.removed || entry.maxStock < 1)) {
+        if (!entry) {
+          // Server returned 200 but no row for the line we asked
+          // about — treat as a verification failure, not a soft pass.
+          console.error('[CHECKOUT_VALIDATE_EMPTY]', validateData);
+          setOrderError('Unable to verify stock. Please try again.');
+          setSubmitting(false);
+          return;
+        }
+        if (entry.removed || entry.maxStock < 1) {
           setOrderError(
             'This item is no longer available in the selected size. Please choose another.',
           );
           setSubmitting(false);
           return;
         }
-      } else {
-        console.error('[CHECKOUT_VALIDATE_FAILED]', validateRes.status);
+      } catch (err) {
+        console.error('[CHECKOUT_VALIDATE_ERROR]', err);
+        setOrderError('Unable to verify stock. Please try again.');
+        setSubmitting(false);
+        return;
       }
-    } catch (err) {
-      console.error('[CHECKOUT_VALIDATE_ERROR]', err);
-      // Fail-soft: continue to order POST; DB is final gate.
     }
 
     try {
