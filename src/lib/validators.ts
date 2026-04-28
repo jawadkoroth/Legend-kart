@@ -22,6 +22,13 @@ export const createOrderSchema = z.object({
   shipping_address: addressSchema,
   payment_method: z.enum(['cod', 'online']),
   coupon_code: z.string().optional().or(z.literal('')),
+  /**
+   * Client-generated UUID v4, scoped to a single submit attempt.
+   * The server uses it to make order creation idempotent: a retry
+   * with the same id returns the previously-created order instead
+   * of creating a duplicate or double-decrementing inventory.
+   */
+  client_request_id: z.string().uuid(),
 });
 
 export const validateCouponSchema = z.object({

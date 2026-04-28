@@ -23,6 +23,22 @@ function CheckoutContent() {
   const validateAbortRef = useRef<AbortController | null>(null);
   const submitTokenRef = useRef(0);
 
+  // Idempotency key for /api/orders.
+  //
+  // Generated lazily on the first submit attempt and PRESERVED
+  // across transient retries (network errors, 5xx, payment-gateway
+  // hiccups) so the server's UNIQUE(client_request_id) index turns
+  // a retried POST into an idempotent replay returning the same
+  // order_id instead of double-creating + double-decrementing stock.
+  //
+  // It is reset on:
+  //   * successful order creation (online: after Razorpay handoff;
+  //     COD: before the redirect to /order/[id]);
+  //   * hard validation failures from the server (400) where the
+  //     user must edit the form and resubmit — a different submit
+  //     intent deserves a fresh idempotency window.
+  const clientRequestIdRef = useRef<string | null>(null);
+
   // On unmount, abort any in-flight validate and bump the token so
   // any settled-but-not-yet-handled response is discarded.
   useEffect(() => {
@@ -259,6 +275,21 @@ function CheckoutContent() {
       return;
     }
 
+    // Reuse the same client_request_id across retries within a
+    // submit session so the server can dedupe via UNIQUE index.
+    if (!clientRequestIdRef.current) {
+      clientRequestIdRef.current =
+        typeof crypto !== 'undefined' && 'randomUUID' in crypto
+          ? crypto.randomUUID()
+          : // Fallback for very old browsers; matches UUID v4 shape.
+          'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+            const r = (Math.random() * 16) | 0;
+            const v = c === 'x' ? r : (r & 0x3) | 0x8;
+            return v.toString(16);
+          });
+    }
+    const clientRequestId = clientRequestIdRef.current;
+
     try {
       const res = await fetch('/api/orders', {
         method: 'POST',
@@ -277,6 +308,7 @@ function CheckoutContent() {
           },
           payment_method: paymentMethod,
           coupon_code: couponCode || undefined,
+          client_request_id: clientRequestId,
         }),
       });
 
@@ -284,18 +316,30 @@ function CheckoutContent() {
 
       if (!data.success) {
         console.error('[ORDER_FAILED]', data.error, data.details);
+        // 400 = validation error; user must edit and resubmit, so
+        // a new idempotency window is appropriate. Other failures
+        // (5xx, 409 transient stock) keep the same id so a retry
+        // is replay-safe.
+        if (res.status === 400) {
+          clientRequestIdRef.current = null;
+        }
         setOrderError(data.error || 'Failed to place order. Please try again.');
         setSubmitting(false);
         return;
       }
 
       if (paymentMethod === 'online') {
+        // Hand off to Razorpay; the id is consumed once payment
+        // succeeds or the user dismisses the modal.
+        clientRequestIdRef.current = null;
         await openRazorpay(data);
       } else {
+        clientRequestIdRef.current = null;
         router.push(`/order/${data.order_id}`);
       }
     } catch (err) {
       console.error('[ORDER_ERROR]', err);
+      // Network error: keep the id so the next click is a replay.
       setOrderError('Network error. Please check your connection and try again.');
       setSubmitting(false);
     }

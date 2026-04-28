@@ -3,10 +3,33 @@ import { createAdminClient } from '@/lib/supabase/admin';
 import { apiSuccess, apiError } from '@/lib/api-response';
 import { verifyPaymentSignature } from '@/lib/razorpay';
 import { sendOrderConfirmation } from '@/lib/email';
+import { logEvent } from '@/lib/log';
 
+/**
+ * POST /api/payments/verify
+ *
+ * Browser-driven fast path for the success page. Verifies the
+ * client-supplied Razorpay signature and best-effort flips the
+ * order to `paid` so the order detail page renders correctly
+ * without waiting for the webhook.
+ *
+ * The Razorpay WEBHOOK is the source of truth (`/api/payments/webhook`);
+ * this route is structured so it cannot conflict with it:
+ *
+ *   - We use a conditional UPDATE that only flips
+ *     `pending → paid`. If the webhook already won, the row is
+ *     already `paid`, our update affects 0 rows, and we still
+ *     return success (the user's payment IS valid).
+ *   - We never call `restore_stock` here. Stock restoration on
+ *     payment failure is solely the webhook's job, so we can't
+ *     race it into a double-restore.
+ *   - On bad signature, we mark `failed` only if the row is still
+ *     `pending` (so a paid-via-webhook row stays paid).
+ */
 export async function POST(req: NextRequest) {
   try {
-    const { order_id, razorpay_payment_id, razorpay_signature } = await req.json();
+    const { order_id, razorpay_payment_id, razorpay_signature } =
+      await req.json();
 
     if (!order_id || !razorpay_payment_id || !razorpay_signature) {
       return apiError(400, 'Missing required fields');
@@ -14,7 +37,8 @@ export async function POST(req: NextRequest) {
 
     const supabase = createAdminClient();
 
-    // 1. Get order
+    // 1. Load the order. We need `razorpay_order_id` for signature
+    // verification; everything else is for downstream UX (email).
     const { data: order, error } = await supabase
       .from('orders')
       .select('*')
@@ -25,47 +49,70 @@ export async function POST(req: NextRequest) {
       return apiError(404, 'Order not found');
     }
 
+    // 2. Already paid? Webhook beat us — that's the happy path,
+    // not an error. Return success so the client routes to the
+    // order page as usual.
     if (order.payment_status === 'paid') {
+      logEvent('payment.verify_already_paid', {
+        order_id: order.id,
+        order_number: order.order_number,
+      });
       return apiSuccess({ message: 'Payment already verified' });
     }
 
-    // 2. Verify signature
+    // 3. Verify the signature.
     const isValid = verifyPaymentSignature(
       order.razorpay_order_id,
       razorpay_payment_id,
-      razorpay_signature
+      razorpay_signature,
     );
 
     if (!isValid) {
-      console.error('[PAYMENT_FAILED] Invalid signature for order', order.order_number);
+      logEvent('payment.verify_bad_signature', {
+        order_id: order.id,
+        order_number: order.order_number,
+      });
+      // Only flip to `failed` if still `pending` — never downgrade
+      // a paid-via-webhook row. We do NOT restore stock here; the
+      // webhook owns that side of the lifecycle.
       await supabase
         .from('orders')
         .update({ payment_status: 'failed' })
-        .eq('id', order_id);
-
-      // Restore stock on payment failure
-      await supabase.rpc('restore_stock', {
-        p_product_id: order.product_id,
-        p_size: order.size,
-        p_quantity: order.quantity,
-      });
+        .eq('id', order_id)
+        .eq('payment_status', 'pending');
 
       return apiError(400, 'Payment verification failed');
     }
 
-    // 3. Mark as paid
-    await supabase
+    // 4. Conditional flip: only `pending → paid`. If the webhook
+    // landed between step 2 and step 4, the WHERE clause keeps us
+    // from clobbering its state.
+    const { error: updateError } = await supabase
       .from('orders')
       .update({
         payment_status: 'paid',
         razorpay_payment_id,
         razorpay_signature,
       })
-      .eq('id', order_id);
+      .eq('id', order_id)
+      .eq('payment_status', 'pending');
 
-    console.log(`[PAYMENT_SUCCESS] ${order.order_number}`);
+    if (updateError) {
+      logEvent('payment.verify_update_failed', {
+        order_id: order.id,
+        error: updateError.message,
+      });
+      return apiError(500, 'Failed to record payment');
+    }
 
-    // 4. Send email (fire-and-forget)
+    logEvent('payment.verify_success', {
+      order_id: order.id,
+      order_number: order.order_number,
+    });
+
+    // 5. Fire-and-forget confirmation email. Safe to send even on
+    // a pending→paid race lost to the webhook because the webhook
+    // does not send email.
     const { data: product } = await supabase
       .from('products')
       .select('name')
@@ -84,7 +131,9 @@ export async function POST(req: NextRequest) {
 
     return apiSuccess({ message: 'Payment verified successfully' });
   } catch (err) {
-    console.error('[PAYMENT_VERIFY_ERROR]', err);
+    logEvent('payment.verify_unhandled_error', {
+      error: err instanceof Error ? err.message : String(err),
+    });
     return apiError(500, 'Internal server error');
   }
 }
