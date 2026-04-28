@@ -1,17 +1,37 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense } from 'react';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
-import { useCart } from '@/lib/cart';
 import styles from './page.module.css';
 
 function CheckoutContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { items, isValidationFresh } = useCart();
+
+  // Per-submit race controls.
+  //
+  // - `validateAbortRef` aborts an in-flight `/api/cart/validate`
+  //   if the component unmounts or a newer submit supersedes it.
+  // - `submitTokenRef` is incremented on every submit; the in-flight
+  //   validate captures the token at issue time and discards its
+  //   result if a newer submit (or an unmount) has bumped the ref.
+  //   This makes a stale validate response harmless: it can never
+  //   gate or unblock an order that doesn't belong to it.
+  const validateAbortRef = useRef<AbortController | null>(null);
+  const submitTokenRef = useRef(0);
+
+  // On unmount, abort any in-flight validate and bump the token so
+  // any settled-but-not-yet-handled response is discarded.
+  useEffect(() => {
+    return () => {
+      submitTokenRef.current++;
+      validateAbortRef.current?.abort();
+      validateAbortRef.current = null;
+    };
+  }, []);
   const productId = searchParams.get('product_id') || '';
   const size = searchParams.get('size') || '';
   const couponCode = searchParams.get('coupon') || '';
@@ -144,42 +164,58 @@ function CheckoutContent() {
 
     // Final stock revalidation immediately before order POST.
     //
-    // Behaviour:
-    //   - On a clear "no stock" answer: block the order with a user-
-    //     facing message; failing fast here avoids a payment round-
-    //     trip when the server inventory decrement would reject anyway.
-    //   - On any transport / parse failure: BLOCK the order with a
-    //     retryable error. We refuse to gamble on the database being
-    //     the only gate when we explicitly couldn't verify stock.
+    // We ALWAYS validate at submit, even if the cart provider's
+    // `validatedAt` snapshot is fresh: a fresh snapshot is a strong
+    // hint, not a guarantee — inventory can change in the seconds
+    // between /cart load and /checkout submit. The DB decrement is
+    // the final gate, but we refuse to initiate a payment round-trip
+    // when we cannot prove the line is still sellable.
     //
-    // Freshness optimisation:
-    //   - If the cart provider just validated this exact line within
-    //     the freshness window (e.g. the user came straight from /cart),
-    //     we skip the redundant round-trip. Any local mutation since
-    //     then will have invalidated `validatedAt` automatically.
-    const cartLine = items.find(
-      i => i.product_id === product.id && i.size === size,
-    );
-    const canSkipRevalidation =
-      Boolean(cartLine) &&
-      isValidationFresh() &&
-      (cartLine?.maxStock ?? 0) > 0;
+    // The validate request is dispatched immediately (in parallel
+    // with any local prep that follows). Order creation awaits its
+    // result, so the gate is strict but the dispatch is non-blocking.
+    //
+    // Race safety:
+    //   - Cancel any prior in-flight validate via `validateAbortRef`.
+    //   - Bump `submitTokenRef` and capture the token; a stale
+    //     response (e.g. user double-submitted, or component
+    //     unmounted then remounted) is discarded.
+    //   - On any non-OK / parse error / abort / empty entry, block
+    //     with a retryable error.
+    //   - On a clear "no stock" answer, block with the existing
+    //     user-facing message.
+    if (validateAbortRef.current) {
+      validateAbortRef.current.abort();
+    }
+    const controller = new AbortController();
+    validateAbortRef.current = controller;
+    const myToken = ++submitTokenRef.current;
 
-    if (!canSkipRevalidation) {
-      try {
-        const validateRes = await fetch('/api/cart/validate', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            items: [{ product_id: product.id, size, quantity: 1 }],
-          }),
-        });
-        if (!validateRes.ok) {
-          console.error('[CHECKOUT_VALIDATE_FAILED]', validateRes.status);
-          setOrderError('Unable to verify stock. Please try again.');
-          setSubmitting(false);
-          return;
-        }
+    const validatePromise = fetch('/api/cart/validate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        items: [{ product_id: product.id, size, quantity: 1 }],
+      }),
+      signal: controller.signal,
+    });
+
+    type ValidateOutcome =
+      | { ok: true }
+      | { ok: false; reason: 'unavailable' | 'verify-failed' };
+    // Default to a hard fail; every success path explicitly assigns.
+    let validateOutcome: ValidateOutcome = {
+      ok: false,
+      reason: 'verify-failed',
+    };
+    try {
+      const validateRes = await validatePromise;
+      // Stale: a newer submit started, or we were unmounted. Drop.
+      if (myToken !== submitTokenRef.current) return;
+      if (!validateRes.ok) {
+        console.error('[CHECKOUT_VALIDATE_FAILED]', validateRes.status);
+        validateOutcome = { ok: false, reason: 'verify-failed' };
+      } else {
         const validateData = (await validateRes.json()) as {
           items: Array<{
             product_id: string;
@@ -189,28 +225,38 @@ function CheckoutContent() {
             removed: boolean;
           }>;
         };
+        if (myToken !== submitTokenRef.current) return;
         const entry = validateData.items?.[0];
         if (!entry) {
-          // Server returned 200 but no row for the line we asked
-          // about — treat as a verification failure, not a soft pass.
           console.error('[CHECKOUT_VALIDATE_EMPTY]', validateData);
-          setOrderError('Unable to verify stock. Please try again.');
-          setSubmitting(false);
-          return;
+          validateOutcome = { ok: false, reason: 'verify-failed' };
+        } else if (entry.removed || entry.maxStock < 1) {
+          validateOutcome = { ok: false, reason: 'unavailable' };
+        } else {
+          validateOutcome = { ok: true };
         }
-        if (entry.removed || entry.maxStock < 1) {
-          setOrderError(
-            'This item is no longer available in the selected size. Please choose another.',
-          );
-          setSubmitting(false);
-          return;
-        }
-      } catch (err) {
-        console.error('[CHECKOUT_VALIDATE_ERROR]', err);
-        setOrderError('Unable to verify stock. Please try again.');
-        setSubmitting(false);
-        return;
       }
+    } catch (err) {
+      if (myToken !== submitTokenRef.current) return;
+      // AbortError surfaces when a newer submit aborts us; that path
+      // already returned above via the token check, but guard anyway.
+      if ((err as { name?: string })?.name === 'AbortError') return;
+      console.error('[CHECKOUT_VALIDATE_ERROR]', err);
+      validateOutcome = { ok: false, reason: 'verify-failed' };
+    } finally {
+      if (validateAbortRef.current === controller) {
+        validateAbortRef.current = null;
+      }
+    }
+
+    if (!validateOutcome.ok) {
+      setOrderError(
+        validateOutcome.reason === 'unavailable'
+          ? 'This item is no longer available in the selected size. Please choose another.'
+          : 'Unable to verify stock. Please try again.',
+      );
+      setSubmitting(false);
+      return;
     }
 
     try {
