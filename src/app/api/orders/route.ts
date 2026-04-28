@@ -1,5 +1,6 @@
 import { NextRequest } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
+import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { apiSuccess, apiError } from '@/lib/api-response';
 import { createOrderSchema } from '@/lib/validators';
 import { generateOrderNumber } from '@/lib/order-id';
@@ -52,6 +53,24 @@ export async function POST(req: NextRequest) {
       client_request_id,
     } = parsed.data;
     const supabase = createAdminClient();
+
+    // Resolve the SSR-bound auth session (cookies). Logged-in users
+    // get their `auth.uid()` recorded on the order so /orders can
+    // filter by ownership; guests stay NULL and continue to work
+    // unchanged. We use a separate cookie-bound client for this
+    // read — the admin client has no session and would always
+    // return null user.
+    let userId: string | null = null;
+    try {
+      const ssr = await createServerSupabaseClient();
+      const {
+        data: { user },
+      } = await ssr.auth.getUser();
+      userId = user?.id ?? null;
+    } catch {
+      // Auth lookup must never block order creation; guest fallback.
+      userId = null;
+    }
 
     // 2. Verify product exists and is active.
     const { data: product, error: productError } = await supabase
@@ -107,6 +126,7 @@ export async function POST(req: NextRequest) {
         p_payment_method: payment_method,
         p_customer: customer,
         p_shipping_address: shipping_address,
+        p_user_id: userId,
       },
     );
 
@@ -246,7 +266,7 @@ export async function POST(req: NextRequest) {
         size,
         total_paise: total,
         payment_method,
-      }).catch(() => {});
+      }).catch(() => { });
     }
 
     return apiSuccess(
