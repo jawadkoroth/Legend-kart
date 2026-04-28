@@ -209,14 +209,24 @@ export async function POST(req: NextRequest) {
   }
 
   // payment.failed
-  const { error: updErr } = await supabase
+  //
+  // Tighten the predicate to `pending` (was `!= 'paid'`): the only
+  // legal source state for `failed` is `pending`. `failed` and
+  // `refunded` are already handled by the state-dedupe block above,
+  // and `paid` must never be downgraded. `.select('id')` lets us
+  // count the rows we actually mutated so stock restoration is
+  // gated on a genuine pending → failed transition — closing the
+  // race where /api/payments/verify flips the row to `paid`
+  // between our SELECT (line 129) and UPDATE here.
+  const { data: failedUpdatedRows, error: updErr } = await supabase
     .from('orders')
     .update({
       payment_status: 'failed',
       webhook_event_id: eventId,
     })
     .eq('id', order.id)
-    .neq('payment_status', 'paid'); // never downgrade a paid order
+    .eq('payment_status', 'pending')
+    .select('id');
 
   if (updErr) {
     logEvent('payment.webhook_update_failed', {
@@ -230,10 +240,26 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // Restore stock once and only once: gated by the previous
-  // `payment_status` we read at lookup time. The state-dedupe block
-  // above already returned for orders in `failed` state, so reaching
-  // here means we just transitioned from non-failed → failed.
+  if (!failedUpdatedRows || failedUpdatedRows.length === 0) {
+    // Concurrent writer (most likely /api/payments/verify) flipped
+    // the row to `paid` between our SELECT and this UPDATE. Do NOT
+    // restore stock — a paid order's inventory must stay
+    // decremented. Stamp the event id so this exact delivery hits
+    // the line-148 dedupe on retry instead of re-running this
+    // branch.
+    await supabase
+      .from('orders')
+      .update({ webhook_event_id: eventId })
+      .eq('id', order.id);
+    logEvent('payment.webhook_noop', {
+      reason: 'state_changed_concurrently',
+      order_id: order.id,
+      event_id: eventId,
+    });
+    return NextResponse.json({ success: true, idempotent: true });
+  }
+
+  // Genuine pending → failed transition: restore stock exactly once.
   await supabase.rpc('restore_stock', {
     p_product_id: order.product_id,
     p_size: order.size,
