@@ -1,6 +1,26 @@
 import { Resend } from 'resend';
 
-const resend = new Resend(process.env.RESEND_API_KEY);
+/**
+ * Lazily-instantiated Resend client.
+ *
+ * The previous top-level `new Resend(process.env.RESEND_API_KEY)` threw
+ * during Next.js page-data collection on any environment where the
+ * secret is not set (CI builds, local builds without an `.env`),
+ * preventing the build from completing even though the email path is
+ * non-critical and gated by `sendOrderConfirmation` itself.
+ *
+ * Now we defer construction until the first actual send call. If the
+ * key is missing the email is skipped with a log line — same
+ * non-blocking contract as before.
+ */
+let resendClient: Resend | null = null;
+function getResend(): Resend | null {
+  if (resendClient) return resendClient;
+  const key = process.env.RESEND_API_KEY;
+  if (!key) return null;
+  resendClient = new Resend(key);
+  return resendClient;
+}
 
 interface OrderEmailData {
   id: string;
@@ -20,6 +40,14 @@ interface OrderEmailData {
 export async function sendOrderConfirmation(order: OrderEmailData): Promise<void> {
   if (!order.customer.email) {
     console.log(`[EMAIL_SKIP] No email for order ${order.order_number}`);
+    return;
+  }
+
+  const resend = getResend();
+  if (!resend) {
+    console.log(
+      `[EMAIL_SKIP] RESEND_API_KEY not configured; order ${order.order_number} email skipped`,
+    );
     return;
   }
 
