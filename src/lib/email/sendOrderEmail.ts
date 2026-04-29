@@ -41,6 +41,14 @@ export interface OrderEmailData {
   total_paise: number;
   payment_method: string; // 'cod' | 'online'
   shipping_address?: OrderEmailAddress;
+  /**
+   * Optional product image. Relative paths are normalised to
+   * absolute (prepended with NEXT_PUBLIC_URL) so they render in
+   * email clients that block relative srcs. When missing or empty
+   * the template falls back to an initials tile, never blocking the
+   * send.
+   */
+  image_url?: string | null;
 }
 
 export type OrderStatusForEmail =
@@ -83,6 +91,8 @@ interface RenderOpts {
   intro: string;
   /** Optional accent line above heading, e.g. "Payment Confirmed". */
   eyebrow?: string;
+  /** Optional item block (thumb + product/size/qty) rendered above summary. */
+  item?: { name: string; size: string; quantity: number; image_url?: string | null };
   /** Order summary rows rendered in the dark inner card. */
   summary: { label: string; value: string }[];
   /** Address block (string lines) rendered in its own subtle card. */
@@ -93,7 +103,9 @@ interface RenderOpts {
 }
 
 function renderEmail(opts: RenderOpts): string {
-  const { heading, intro, eyebrow, summary, address, outro, cta } = opts;
+  const { heading, intro, eyebrow, item, summary, address, outro, cta } = opts;
+
+  const itemBlock = item ? renderItemBlock(item) : '';
 
   const summaryRows = summary
     .map(
@@ -111,11 +123,11 @@ function renderEmail(opts: RenderOpts): string {
         <div style="background:#101012;border:1px solid rgba(255,255,255,0.06);border-radius:10px;padding:16px 18px;margin-top:14px;">
           <p style="margin:0 0 6px;color:#9A9A9A;font-size:11px;letter-spacing:0.08em;text-transform:uppercase;">Delivery address</p>
           ${address
-            .map(
-              (line) =>
-                `<p style="margin:2px 0;color:#F5F5F5;font-size:13px;line-height:1.5;">${escapeHtml(line)}</p>`,
-            )
-            .join('')}
+        .map(
+          (line) =>
+            `<p style="margin:2px 0;color:#F5F5F5;font-size:13px;line-height:1.5;">${escapeHtml(line)}</p>`,
+        )
+        .join('')}
         </div>`
       : '';
 
@@ -165,8 +177,10 @@ function renderEmail(opts: RenderOpts): string {
                 <h1 style="margin:0 0 10px;font-family:Georgia,'Playfair Display',serif;font-size:22px;font-weight:500;color:#F5F5F5;letter-spacing:-0.01em;">${escapeHtml(heading)}</h1>
                 <p style="margin:0;color:#CFCFCF;font-size:14px;line-height:1.6;">${escapeHtml(intro)}</p>
 
+                ${itemBlock}
+
                 <!-- Summary card -->
-                <div style="background:#101012;border:1px solid rgba(255,255,255,0.06);border-radius:10px;padding:18px 20px;margin-top:22px;">
+                <div style="background:#101012;border:1px solid rgba(255,255,255,0.06);border-radius:10px;padding:18px 20px;margin-top:14px;">
                   <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
                     ${summaryRows}
                   </table>
@@ -209,6 +223,60 @@ function escapeHtml(s: string): string {
 
 function escapeAttr(s: string): string {
   return escapeHtml(s);
+}
+
+/**
+ * Normalise an image URL for inclusion in email HTML.
+ *
+ *  - Absolute http(s) and protocol-relative URLs pass through.
+ *  - Relative paths (e.g. "/images/foo.jpg") are prefixed with the
+ *    site origin so email clients (which strip <base>) can resolve
+ *    them.
+ *  - Anything else (data:, javascript:, blank, malformed) yields
+ *    null — the template falls back to initials.
+ */
+function normaliseImageUrl(raw?: string | null): string | null {
+  if (!raw) return null;
+  const trimmed = String(raw).trim();
+  if (!trimmed) return null;
+  if (/^https?:\/\//i.test(trimmed)) return trimmed;
+  if (trimmed.startsWith('//')) return `https:${trimmed}`;
+  if (trimmed.startsWith('/')) return `${siteUrl().replace(/\/$/, '')}${trimmed}`;
+  return null;
+}
+
+/**
+ * Renders a small product header above the summary card: 64px square
+ * thumbnail (or initials tile fallback) on the left, product name +
+ * "Size X · Qty N" on the right. Pure inline-styled HTML for email
+ * client compatibility (Gmail / Outlook / Apple Mail).
+ */
+function renderItemBlock(item: {
+  name: string;
+  size: string;
+  quantity: number;
+  image_url?: string | null;
+}): string {
+  const url = normaliseImageUrl(item.image_url);
+  const initials = (item.name || 'N').trim().charAt(0).toUpperCase() || 'N';
+  const qtyText = item.quantity > 1 ? ` · Qty ${item.quantity}` : '';
+  const meta = `Size ${escapeHtml(item.size)}${escapeHtml(qtyText)}`;
+
+  const thumb = url
+    ? `<img src="${escapeAttr(url)}" alt="" width="64" height="64"
+            style="display:block;width:64px;height:64px;border-radius:8px;object-fit:cover;border:1px solid rgba(201,168,106,0.35);background:#0F0F11;" />`
+    : `<div style="width:64px;height:64px;border-radius:8px;background:#0F0F11;border:1px solid rgba(201,168,106,0.35);color:#C9A86A;font-family:Georgia,'Playfair Display',serif;font-size:24px;line-height:64px;text-align:center;font-weight:500;">${escapeHtml(initials)}</div>`;
+
+  return `
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:22px;">
+          <tr>
+            <td width="64" valign="top" style="width:64px;padding-right:14px;">${thumb}</td>
+            <td valign="middle" style="vertical-align:middle;">
+              <p style="margin:0 0 4px;color:#F5F5F5;font-size:14px;font-weight:500;line-height:1.4;">${escapeHtml(item.name)}</p>
+              <p style="margin:0;color:#9A9A9A;font-size:12px;letter-spacing:0.04em;">${meta}</p>
+            </td>
+          </tr>
+        </table>`;
 }
 
 /* ------------------------------------------------------------------ */
@@ -278,15 +346,27 @@ function paymentLabel(method: string): string {
 }
 
 function commonSummary(order: OrderEmailData): { label: string; value: string }[] {
-  const itemValue = order.quantity && order.quantity > 1
-    ? `${order.product_name} · Size ${order.size} · Qty ${order.quantity}`
-    : `${order.product_name} · Size ${order.size}`;
+  // Item now lives in its own visual block above the summary card,
+  // so the summary stays compact and scannable.
   return [
     { label: 'Order', value: order.order_number },
-    { label: 'Item', value: itemValue },
     { label: 'Total', value: formatPrice(order.total_paise) },
     { label: 'Payment', value: paymentLabel(order.payment_method) },
   ];
+}
+
+function itemForEmail(order: OrderEmailData): {
+  name: string;
+  size: string;
+  quantity: number;
+  image_url?: string | null;
+} {
+  return {
+    name: order.product_name,
+    size: order.size,
+    quantity: order.quantity ?? 1,
+    image_url: order.image_url,
+  };
 }
 
 /* ------------------------------------------------------------------ */
@@ -306,6 +386,7 @@ export async function sendOrderCreatedEmail(order: OrderEmailData): Promise<void
       order.payment_method === 'cod'
         ? 'Your order has been placed. We will reach out before dispatch to confirm your address.'
         : 'Your order has been placed. We are confirming your payment and will email you again once it is captured.',
+    item: itemForEmail(order),
     summary: commonSummary(order),
     address: addressLines(order.shipping_address),
     cta: { label: 'View order', href: viewOrderHref(order.id) },
@@ -332,6 +413,7 @@ export async function sendPaymentSuccessEmail(order: OrderEmailData): Promise<vo
     eyebrow: 'Payment confirmed',
     heading: 'Payment received',
     intro: `Your payment for order ${order.order_number} has been captured. We are preparing it for dispatch.`,
+    item: itemForEmail(order),
     summary: commonSummary(order),
     address: addressLines(order.shipping_address),
     cta: { label: 'View order', href: viewOrderHref(order.id) },
@@ -355,6 +437,7 @@ export async function sendPaymentFailedEmail(order: OrderEmailData): Promise<voi
     eyebrow: 'Payment failed',
     heading: 'We could not capture your payment',
     intro: `Your payment for order ${order.order_number} did not go through. The order is on hold and stock has been released.`,
+    item: itemForEmail(order),
     summary: commonSummary(order),
     outro:
       'You can retry payment from the order page. If the amount was debited from your account, it will be refunded by your bank within 5–7 business days.',
@@ -412,6 +495,7 @@ export async function sendOrderStatusEmail(
     eyebrow: preset.eyebrow,
     heading: preset.heading,
     intro: preset.intro,
+    item: itemForEmail(order),
     summary: commonSummary(order),
     address: status === 'cancelled' ? undefined : addressLines(order.shipping_address),
     outro: preset.outro,

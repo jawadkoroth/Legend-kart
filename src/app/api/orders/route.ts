@@ -75,7 +75,7 @@ export async function POST(req: NextRequest) {
     // 2. Verify product exists and is active.
     const { data: product, error: productError } = await supabase
       .from('products')
-      .select('id, name, price_paise, is_active')
+      .select('id, name, price_paise, is_active, images')
       .eq('id', product_id)
       .single();
 
@@ -175,6 +175,12 @@ export async function POST(req: NextRequest) {
       // also get a follow-up `payment.success` email from the
       // webhook once Razorpay captures). Fire-and-forget: never
       // blocks the API response, never throws.
+      const productImages = (product as { images?: unknown }).images;
+      const firstImage =
+        Array.isArray(productImages) && typeof productImages[0] === 'string'
+          ? (productImages[0] as string)
+          : null;
+
       sendOrderCreatedEmail({
         id: orderId,
         order_number: finalOrderNumber,
@@ -185,6 +191,7 @@ export async function POST(req: NextRequest) {
         total_paise: total,
         payment_method,
         shipping_address,
+        image_url: firstImage,
       }).catch(() => { });
     }
 

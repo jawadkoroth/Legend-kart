@@ -74,9 +74,15 @@ export async function POST(
 
     const { data: product } = await supabase
       .from('products')
-      .select('name')
+      .select('name, images')
       .eq('id', order.product_id)
       .single();
+
+    const productImages = (product as { images?: unknown } | null)?.images;
+    const firstImage =
+      Array.isArray(productImages) && typeof productImages[0] === 'string'
+        ? (productImages[0] as string)
+        : null;
 
     // Fire the email (fire-and-forget on the gateway side).
     sendOrderStatusEmail(
@@ -90,9 +96,10 @@ export async function POST(
         total_paise: order.total_paise,
         payment_method: order.payment_method,
         shipping_address: order.shipping_address,
+        image_url: firstImage,
       },
       status as OrderStatusForEmail,
-    ).catch(() => {});
+    ).catch(() => { });
 
     logEvent('admin.order_status_email_dispatched', {
       order_id: order.id,
