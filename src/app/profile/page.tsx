@@ -4,6 +4,7 @@ import { createServerSupabaseClient } from '@/lib/supabase/server';
 import ProfileClient from './ProfileClient';
 import ProfileCard from './ProfileCard';
 import AccountSection from './AccountSection';
+import AddressesSection from './AddressesSection';
 import styles from './account.module.css';
 
 /**
@@ -110,9 +111,8 @@ export default async function ProfilePage() {
                       </span>
                       <span
                         aria-hidden="true"
-                        className={`${styles.statusDot} ${
-                          styles[`statusDot_${safeStatus(order.order_status)}`]
-                        }`}
+                        className={`${styles.statusDot} ${styles[`statusDot_${safeStatus(order.order_status)}`]
+                          }`}
                       />
                     </div>
                   </Link>
@@ -124,14 +124,10 @@ export default async function ProfilePage() {
           <AccountSection
             icon={<MapPinIcon />}
             title="Addresses"
-            description="Manage your delivery addresses."
-            disabled
-            footer={
-              <span className={`${styles.cta} ${styles.ctaDisabled}`}>
-                Coming soon
-              </span>
-            }
-          />
+            description="Saved addresses for faster checkout."
+          >
+            <AddressesSection />
+          </AccountSection>
 
           <AccountSection
             icon={<SettingsIcon />}

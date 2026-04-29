@@ -59,6 +59,26 @@ function CheckoutContent() {
   const [paymentMethod, setPaymentMethod] = useState<'online' | 'cod'>('online');
   const [orderError, setOrderError] = useState('');
 
+  // Auth state — non-null only for logged-in users.
+  const [userId, setUserId] = useState<string | null>(null);
+
+  // Saved addresses (logged-in users only).
+  type SavedAddress = {
+    id: string;
+    label: string | null;
+    full_name: string;
+    phone: string;
+    line1: string;
+    line2: string | null;
+    city: string;
+    state: string;
+    pincode: string;
+    is_default: boolean;
+  };
+  const [savedAddresses, setSavedAddresses] = useState<SavedAddress[]>([]);
+  const [selectedSavedId, setSelectedSavedId] = useState<string | null>(null);
+  const [saveToBook, setSaveToBook] = useState(false);
+
   // Form state
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
@@ -77,6 +97,7 @@ function CheckoutContent() {
         const { data: { session } } = await supabase.auth.getSession();
 
         if (session) {
+          setUserId(session.user.id);
           const { data: profile } = await supabase
             .from('profiles')
             .select('phone, name, email')
@@ -91,6 +112,24 @@ function CheckoutContent() {
           if (profile.name) setName(profile.name);
           if (profile.phone) setPhone(profile.phone.replace('+91', ''));
           if (profile.email) setEmail(profile.email);
+
+          // Pull saved addresses; RLS limits to this user.
+          const { data: addrs } = await supabase
+            .from('addresses')
+            .select('id,label,full_name,phone,line1,line2,city,state,pincode,is_default')
+            .order('is_default', { ascending: false })
+            .order('created_at', { ascending: false });
+          if (addrs && addrs.length > 0) {
+            const list = addrs as SavedAddress[];
+            setSavedAddresses(list);
+            const def = list.find(a => a.is_default) ?? list[0];
+            setSelectedSavedId(def.id);
+            setLine1(def.line1);
+            setLine2(def.line2 ?? '');
+            setCity(def.city);
+            setState(def.state);
+            setPincode(def.pincode);
+          }
         }
 
         const res = await fetch('/api/products');
@@ -328,6 +367,39 @@ function CheckoutContent() {
         return;
       }
 
+      // Persist to the address book if the user opted in (manual
+      // mode + checkbox). Fire-and-forget: never blocks the order.
+      if (
+        userId &&
+        selectedSavedId === null &&
+        saveToBook
+      ) {
+        const supabase = createClient();
+        supabase
+          .from('addresses')
+          .insert({
+            user_id: userId,
+            label: null,
+            full_name: name.trim(),
+            phone,
+            line1: line1.trim(),
+            line2: line2.trim() || null,
+            city: city.trim(),
+            state: state.trim(),
+            pincode,
+            country: 'India',
+          })
+          .select('id')
+          .single()
+          .then(({ data: row, error }) => {
+            if (error || !row) return;
+            // First-ever save → mark as default.
+            if (savedAddresses.length === 0) {
+              supabase.rpc('set_default_address', { p_id: row.id }).then(() => { });
+            }
+          });
+      }
+
       if (paymentMethod === 'online') {
         // Hand off to Razorpay; the id is consumed once payment
         // succeeds or the user dismisses the modal.
@@ -478,27 +550,127 @@ function CheckoutContent() {
         {/* Shipping Address */}
         <div className={styles.formSection}>
           <label className="input-label">Shipping Address</label>
+
+          {/* Saved-address picker — only when logged in and at least
+              one address is on file. Selecting one prefills + locks the
+              form into 'saved' mode; the user can flip back to manual
+              entry via the gold banner action. */}
+          {savedAddresses.length > 0 && selectedSavedId !== null && (
+            <>
+              <div className={styles.savedPicker} role="radiogroup" aria-label="Saved addresses">
+                {savedAddresses.map(a => {
+                  const active = a.id === selectedSavedId;
+                  return (
+                    <button
+                      key={a.id}
+                      type="button"
+                      role="radio"
+                      aria-checked={active}
+                      className={`${styles.savedRow} ${active ? styles.savedRowActive : ''}`}
+                      onClick={() => {
+                        setSelectedSavedId(a.id);
+                        setLine1(a.line1);
+                        setLine2(a.line2 ?? '');
+                        setCity(a.city);
+                        setState(a.state);
+                        setPincode(a.pincode);
+                        setErrors({});
+                      }}
+                    >
+                      <input
+                        type="radio"
+                        className={styles.savedRadio}
+                        checked={active}
+                        readOnly
+                        tabIndex={-1}
+                      />
+                      <span className={styles.savedRowMeta}>
+                        <span className={styles.savedRowName}>
+                          {a.label || a.full_name}
+                          {a.is_default && <span className={styles.defaultPill}>Default</span>}
+                        </span>
+                        <span className={styles.savedRowAddr}>
+                          {a.line1}{a.line2 ? `, ${a.line2}` : ''}, {a.city}, {a.state} — {a.pincode}
+                        </span>
+                      </span>
+                      <span />
+                    </button>
+                  );
+                })}
+              </div>
+              <div className={styles.usingBanner}>
+                <span>Using saved address</span>
+                <button
+                  type="button"
+                  className={styles.linkBtn}
+                  onClick={() => {
+                    setSelectedSavedId(null);
+                    setLine1('');
+                    setLine2('');
+                    setCity('');
+                    setState('');
+                    setPincode('');
+                    setErrors({});
+                  }}
+                >
+                  Use a different address
+                </button>
+              </div>
+            </>
+          )}
+
+          {savedAddresses.length > 0 && selectedSavedId === null && (
+            <button
+              type="button"
+              className={styles.savedToggle}
+              onClick={() => {
+                const def = savedAddresses.find(a => a.is_default) ?? savedAddresses[0];
+                if (!def) return;
+                setSelectedSavedId(def.id);
+                setLine1(def.line1);
+                setLine2(def.line2 ?? '');
+                setCity(def.city);
+                setState(def.state);
+                setPincode(def.pincode);
+                setErrors({});
+              }}
+            >
+              ← Use a saved address
+            </button>
+          )}
+
           <div className="input-group">
-            <input className={`input-field ${errors.line1 ? 'input-error' : ''}`} placeholder="Address Line 1" value={line1} onChange={e => setLine1(e.target.value)} />
+            <input className={`input-field ${errors.line1 ? 'input-error' : ''}`} placeholder="Address Line 1" value={line1} onChange={e => setLine1(e.target.value)} readOnly={selectedSavedId !== null} />
             {errors.line1 && <span className="input-error-text">{errors.line1}</span>}
           </div>
           <div className="input-group">
-            <input className="input-field" placeholder="Address Line 2 (optional)" value={line2} onChange={e => setLine2(e.target.value)} />
+            <input className="input-field" placeholder="Address Line 2 (optional)" value={line2} onChange={e => setLine2(e.target.value)} readOnly={selectedSavedId !== null} />
           </div>
           <div className="input-row">
             <div className="input-group">
-              <input className={`input-field ${errors.city ? 'input-error' : ''}`} placeholder="City" value={city} onChange={e => setCity(e.target.value)} />
+              <input className={`input-field ${errors.city ? 'input-error' : ''}`} placeholder="City" value={city} onChange={e => setCity(e.target.value)} readOnly={selectedSavedId !== null} />
               {errors.city && <span className="input-error-text">{errors.city}</span>}
             </div>
             <div className="input-group">
-              <input className={`input-field ${errors.state ? 'input-error' : ''}`} placeholder="State" value={state} onChange={e => setState(e.target.value)} />
+              <input className={`input-field ${errors.state ? 'input-error' : ''}`} placeholder="State" value={state} onChange={e => setState(e.target.value)} readOnly={selectedSavedId !== null} />
               {errors.state && <span className="input-error-text">{errors.state}</span>}
             </div>
           </div>
           <div className="input-group">
-            <input className={`input-field ${errors.pincode ? 'input-error' : ''}`} placeholder="Pincode" value={pincode} onChange={e => setPincode(e.target.value.replace(/\D/g, '').slice(0, 6))} inputMode="numeric" maxLength={6} />
+            <input className={`input-field ${errors.pincode ? 'input-error' : ''}`} placeholder="Pincode" value={pincode} onChange={e => setPincode(e.target.value.replace(/\D/g, '').slice(0, 6))} inputMode="numeric" maxLength={6} readOnly={selectedSavedId !== null} />
             {errors.pincode && <span className="input-error-text">{errors.pincode}</span>}
           </div>
+
+          {userId && selectedSavedId === null && (
+            <label className={styles.saveBookRow}>
+              <input
+                type="checkbox"
+                checked={saveToBook}
+                onChange={e => setSaveToBook(e.target.checked)}
+              />
+              Save to my address book
+            </label>
+          )}
         </div>
 
         {/* Payment Method */}
