@@ -1,0 +1,236 @@
+/*
+ * NOIR — scoped styles for the Settings dashboard section.
+ *
+ * Three security-only rows: reset password, sign out everywhere,
+ * delete account. No editing duplication of the Profile section.
+ */
+
+.root {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 4px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.row:last-child {
+  border-bottom: none;
+}
+
+.rowMeta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.rowTitle {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--text-primary, #F5F5F5);
+}
+
+.rowDesc {
+  font-size: 0.75rem;
+  color: var(--text-muted, #9A9A9A);
+  line-height: 1.5;
+}
+
+.rowDanger .rowTitle {
+  color: #E59B9B;
+}
+
+/* Action buttons ---------------------------------------------- */
+
+.action {
+  flex-shrink: 0;
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 999px;
+  padding: 8px 14px;
+  font-size: 0.6875rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-weight: 600;
+  color: var(--text-primary, #F5F5F5);
+  cursor: pointer;
+  transition:
+    color 200ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    border-color 200ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.action:hover {
+  color: #C9A86A;
+  border-color: #C9A86A;
+}
+
+.action:focus-visible {
+  outline: 2px solid #C9A86A;
+  outline-offset: 3px;
+}
+
+.action:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.actionDanger {
+  color: #E59B9B;
+  border-color: rgba(229, 155, 155, 0.45);
+}
+
+.actionDanger:hover {
+  color: #1A0B0B;
+  background: #E59B9B;
+  border-color: #E59B9B;
+}
+
+/* Inline notice (e.g. OAuth, success after reset email) ------ */
+
+.notice {
+  font-size: 0.75rem;
+  color: var(--text-muted, #9A9A9A);
+  font-style: italic;
+}
+
+.noticeOk {
+  color: #9FD6B0;
+  font-style: normal;
+}
+
+/* Toast (reused look from addresses) -------------------------- */
+
+.toast {
+  font-size: 0.8125rem;
+  padding: 10px 14px;
+  background: rgba(76, 175, 80, 0.12);
+  color: #9FD6B0;
+  border: 1px solid rgba(159, 214, 176, 0.22);
+  border-radius: 10px;
+  margin-bottom: 12px;
+}
+
+.toastError {
+  background: rgba(229, 155, 155, 0.10);
+  color: #E59B9B;
+  border-color: rgba(229, 155, 155, 0.22);
+}
+
+/* Modal (delete confirm) -------------------------------------- */
+
+.backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.62);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 60;
+  padding: 20px;
+  animation: settingsFade 200ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+@keyframes settingsFade {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .backdrop { animation: none; }
+}
+
+.modal {
+  width: 100%;
+  max-width: 460px;
+  background: var(--bg-secondary, #0F0F11);
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  border-radius: 16px;
+  padding: 24px;
+  max-height: calc(100dvh - 40px);
+  overflow-y: auto;
+}
+
+.modalTitle {
+  font-family: var(--font-serif, 'Playfair Display', Georgia, serif);
+  font-size: 1.125rem;
+  font-weight: 500;
+  margin: 0 0 8px;
+  color: var(--text-primary, #F5F5F5);
+}
+
+.modalText {
+  font-size: 0.875rem;
+  line-height: 1.55;
+  color: var(--text-secondary, #B8B8B8);
+  margin: 0 0 14px;
+}
+
+.modalText strong {
+  color: var(--text-primary, #F5F5F5);
+}
+
+.confirmInput {
+  width: 100%;
+  background: var(--bg-input, #131316);
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  border-radius: 10px;
+  padding: 10px 12px;
+  color: var(--text-primary, #F5F5F5);
+  font-size: 0.875rem;
+  letter-spacing: 0.04em;
+  margin-bottom: 16px;
+}
+
+.confirmInput:focus {
+  outline: none;
+  border-color: #E59B9B;
+}
+
+.modalActions {
+  display: flex;
+  gap: 10px;
+}
+
+.btnGhost {
+  flex: 1;
+  background: transparent;
+  color: var(--text-primary, #F5F5F5);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 10px;
+  padding: 12px 16px;
+  font-size: 0.75rem;
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.btnGhost:hover {
+  border-color: rgba(255, 255, 255, 0.28);
+}
+
+.btnDanger {
+  flex: 1;
+  background: #E59B9B;
+  color: #1A0B0B;
+  border: none;
+  border-radius: 10px;
+  padding: 12px 16px;
+  font-size: 0.75rem;
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.btnDanger:hover { opacity: 0.92; }
+.btnDanger:disabled { opacity: 0.55; cursor: not-allowed; }

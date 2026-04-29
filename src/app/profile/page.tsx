@@ -5,6 +5,7 @@ import ProfileClient from './ProfileClient';
 import ProfileCard from './ProfileCard';
 import AccountSection from './AccountSection';
 import AddressesSection from './AddressesSection';
+import SettingsSection from './SettingsSection';
 import styles from './account.module.css';
 
 /**
@@ -29,13 +30,30 @@ export default async function ProfilePage() {
 
   const { data: profile } = await supabase
     .from('profiles')
-    .select('name, email, phone')
+    .select('name, email, phone, deleted_at')
     .eq('id', user.id)
     .maybeSingle();
+
+  // Soft-deleted accounts: end the session and bounce. Belt-and-braces
+  // alongside the global signOut fired by Settings → Delete account.
+  if (profile?.deleted_at) {
+    await supabase.auth.signOut();
+    redirect('/auth?next=/');
+  }
 
   if (!profile?.phone) {
     redirect('/profile/complete?next=/profile');
   }
+
+  // Sign-in provider — drives password-reset visibility in Settings.
+  // Email-link / email-OTP / password users land here as 'email';
+  // Google etc. as their identity provider.
+  const provider: 'email' | 'google' | 'unknown' =
+    user.app_metadata?.provider === 'email'
+      ? 'email'
+      : user.app_metadata?.provider === 'google'
+        ? 'google'
+        : 'unknown';
 
   // Optional recent-orders preview. Same client; piggy-backs on the
   // existing session. RLS (`Users read own orders`) restricts to the
@@ -132,14 +150,14 @@ export default async function ProfilePage() {
           <AccountSection
             icon={<SettingsIcon />}
             title="Settings"
-            description="Account preferences and security."
-            disabled
-            footer={
-              <span className={`${styles.cta} ${styles.ctaDisabled}`}>
-                Coming soon
-              </span>
-            }
-          />
+            description="Account security and access."
+          >
+            <SettingsSection
+              email={initialProfile.email}
+              provider={provider}
+              userId={user.id}
+            />
+          </AccountSection>
         </div>
       </div>
     </div>
