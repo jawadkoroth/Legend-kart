@@ -119,6 +119,28 @@ export default function ProductDetailClient({
 
   function handleBuyNow() {
     if (!selectedSize || isSoldOut) return;
+    const sizeStock = getStock(selectedSize);
+    if (sizeStock <= 0) return;
+
+    // Buy Now MUST hydrate the cart before routing — otherwise the
+    // checkout snapshot diverges from the cart state and any later
+    // navigation back to /cart loses the line. We re-use the existing
+    // cart system rather than spinning up a parallel "buy now" path:
+    // single source of truth, single localStorage key, single
+    // validation pipeline. The checkout page's URL contract is
+    // unchanged (product_id + size + optional coupon), so deep links
+    // and back-navigation continue to behave.
+    const images = getImages();
+    addItem({
+      product_id: product.id,
+      name: product.name,
+      slug: product.slug,
+      size: selectedSize,
+      price_paise: finalPrice,
+      image: images[0],
+      maxStock: sizeStock,
+    });
+
     const params = new URLSearchParams({
       product_id: product.id,
       size: selectedSize,

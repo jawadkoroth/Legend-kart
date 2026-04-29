@@ -42,6 +42,7 @@ export default function SettingsSection({
 
   // Global sign-out state.
   const [signingOut, setSigningOut] = useState(false);
+  const [showSignOutAll, setShowSignOutAll] = useState(false);
 
   // Delete-account modal state.
   const [showDelete, setShowDelete] = useState(false);
@@ -105,6 +106,7 @@ export default function SettingsSection({
     const { error } = await supabase.auth.signOut({ scope: 'global' });
     if (error) {
       setSigningOut(false);
+      setShowSignOutAll(false);
       showToast('err', 'Could not sign out everywhere. Please try again.');
       return;
     }
@@ -157,35 +159,48 @@ export default function SettingsSection({
         </div>
       )}
 
-      {/* Row 1 — Reset password */}
+      {/* Row 1 — Reset password.
+          For Google sign-in users we render the button visibly
+          disabled (rather than hiding it) so the affordance is
+          obvious, and surface the explicit explanatory copy. */}
       <div className={styles.row}>
         <div className={styles.rowMeta}>
           <span className={styles.rowTitle}>Password</span>
           <span className={styles.rowDesc}>
-            {isOAuth
-              ? 'Password is managed by your sign-in provider.'
-              : 'Send a password reset link to your email.'}
+            {provider === 'google'
+              ? 'Your account uses Google login. Password is managed by Google.'
+              : isOAuth
+                ? 'Password is managed by your sign-in provider.'
+                : 'Send a password reset link to your email.'}
           </span>
         </div>
-        {isOAuth ? (
-          <span className={styles.notice}>Managed by Google</span>
-        ) : (
-          <button
-            type="button"
-            className={styles.action}
-            onClick={handleResetPassword}
-            disabled={resetSending || resetCooldown > 0}
-          >
-            {resetSending
+        <button
+          type="button"
+          className={styles.action}
+          onClick={handleResetPassword}
+          disabled={isOAuth || resetSending || resetCooldown > 0}
+          aria-disabled={isOAuth || undefined}
+          title={
+            provider === 'google'
+              ? 'Password is managed by Google'
+              : undefined
+          }
+        >
+          {isOAuth
+            ? 'Managed by Google'
+            : resetSending
               ? 'Sending…'
               : resetCooldown > 0
                 ? `Resend in ${resetCooldown}s`
                 : 'Send reset link'}
-          </button>
-        )}
+        </button>
       </div>
 
-      {/* Row 2 — Sign out everywhere */}
+      {/* Row 2 — Sign out everywhere.
+          Gated behind a confirmation dialog because this terminates
+          all sessions including any active admin / mobile / browser
+          tab — a destructive enough action that an explicit confirm
+          is the right UX (and matches the Delete-account pattern). */}
       <div className={styles.row}>
         <div className={styles.rowMeta}>
           <span className={styles.rowTitle}>Sign out from all devices</span>
@@ -196,7 +211,7 @@ export default function SettingsSection({
         <button
           type="button"
           className={styles.action}
-          onClick={handleGlobalSignOut}
+          onClick={() => setShowSignOutAll(true)}
           disabled={signingOut}
         >
           {signingOut ? 'Signing out…' : 'Sign out everywhere'}
@@ -223,6 +238,35 @@ export default function SettingsSection({
           Delete account
         </button>
       </div>
+
+      {showSignOutAll && (
+        <DeleteModal onClose={() => !signingOut && setShowSignOutAll(false)}>
+          <h2 className={styles.modalTitle}>Sign out everywhere?</h2>
+          <p className={styles.modalText}>
+            This will end every active session on every device for
+            <strong> {email}</strong>. You will need to sign in again on each
+            device.
+          </p>
+          <div className={styles.modalActions}>
+            <button
+              type="button"
+              className={styles.btnGhost}
+              onClick={() => setShowSignOutAll(false)}
+              disabled={signingOut}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              className={styles.btnDanger}
+              onClick={handleGlobalSignOut}
+              disabled={signingOut}
+            >
+              {signingOut ? 'Signing out…' : 'Sign out everywhere'}
+            </button>
+          </div>
+        </DeleteModal>
+      )}
 
       {showDelete && (
         <DeleteModal

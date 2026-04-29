@@ -55,17 +55,33 @@ export default async function ProfilePage() {
         ? 'google'
         : 'unknown';
 
-  // Optional recent-orders preview. Same client; piggy-backs on the
-  // existing session. RLS (`Users read own orders`) restricts to the
-  // current user, but we add the explicit filter as belt-and-braces.
-  const { data: recentRows } = await supabase
-    .from('orders')
-    .select('id, order_number, total_paise, order_status, created_at')
-    .eq('user_id', user.id)
-    .order('created_at', { ascending: false })
-    .limit(2);
+  // Optional recent-orders preview + address count. Same client;
+  // piggy-backs on the existing session. RLS restricts both queries
+  // to the current user, but we add the explicit filter as
+  // belt-and-braces. The count uses head=true so we ship zero rows
+  // back — we only need the cardinality to render the collapsed
+  // "N saved addresses" summary in the accordion.
+  const [recentRes, addressCountRes] = await Promise.all([
+    supabase
+      .from('orders')
+      .select('id, order_number, total_paise, order_status, created_at')
+      .eq('user_id', user.id)
+      .order('created_at', { ascending: false })
+      .limit(2),
+    supabase
+      .from('addresses')
+      .select('id', { count: 'exact', head: true })
+      .eq('user_id', user.id),
+  ]);
 
-  const recent = recentRows ?? [];
+  const recent = recentRes.data ?? [];
+  const addressCount = addressCountRes.count ?? 0;
+  const addressSummary =
+    addressCount === 0
+      ? 'No saved addresses'
+      : addressCount === 1
+        ? '1 saved address'
+        : `${addressCount} saved addresses`;
 
   const initialProfile = {
     name: profile.name ?? '',
@@ -85,6 +101,8 @@ export default async function ProfilePage() {
 
         <div className={styles.main}>
           <AccountSection
+            collapsible
+            defaultExpanded
             icon={<UserIcon />}
             title="Profile"
             description="Personal details used at checkout."
@@ -140,6 +158,9 @@ export default async function ProfilePage() {
           </AccountSection>
 
           <AccountSection
+            collapsible
+            defaultExpanded={false}
+            summary={addressSummary}
             icon={<MapPinIcon />}
             title="Addresses"
             description="Saved addresses for faster checkout."
@@ -148,6 +169,8 @@ export default async function ProfilePage() {
           </AccountSection>
 
           <AccountSection
+            collapsible
+            defaultExpanded={false}
             icon={<SettingsIcon />}
             title="Settings"
             description="Account security and access."

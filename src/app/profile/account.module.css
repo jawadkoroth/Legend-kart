@@ -68,11 +68,9 @@
 /* ------------------------------------------------------------------ */
 
 .summary {
-  background: linear-gradient(
-    180deg,
-    var(--account-surface) 0%,
-    color-mix(in oklab, var(--account-surface) 92%, #000) 100%
-  );
+  background: linear-gradient(180deg,
+      var(--account-surface) 0%,
+      color-mix(in oklab, var(--account-surface) 92%, #000) 100%);
   border: 1px solid var(--account-border);
   border-radius: var(--account-radius);
   padding: 24px 20px;
@@ -181,6 +179,110 @@
   align-items: center;
   gap: 12px;
   margin-bottom: 6px;
+}
+
+/* Collapsible card -------------------------------------------- */
+
+.sectionCollapsible {
+  padding: 0;
+}
+
+.sectionCollapsible.sectionOpen {
+  /* Restore the inner padding only when the body is shown so the
+     collapsed pill stays compact without squashing the header. */
+  padding: 0;
+}
+
+.sectionHeaderBtn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 18px 22px;
+  background: transparent;
+  border: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  border-radius: var(--account-radius);
+  transition: background var(--account-dur) var(--account-ease);
+}
+
+.sectionHeaderBtn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.sectionHeaderBtn:focus-visible {
+  outline: 2px solid var(--account-accent);
+  outline-offset: 2px;
+}
+
+.sectionHeaderBtn:disabled {
+  cursor: not-allowed;
+}
+
+.sectionCollapsible .sectionHeader {
+  margin-bottom: 0;
+  flex: 1;
+  min-width: 0;
+}
+
+.sectionHeaderText {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.sectionTitleRow {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.sectionSummary {
+  font-size: 0.75rem;
+  color: var(--account-muted);
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sectionChevron {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--account-muted);
+  transition: transform var(--account-dur) var(--account-ease);
+}
+
+.sectionChevron svg {
+  width: 16px;
+  height: 16px;
+  stroke-width: 1.6;
+}
+
+.sectionOpen .sectionChevron {
+  transform: rotate(180deg);
+  color: var(--account-accent);
+}
+
+.sectionCollapsible .sectionBody {
+  margin-top: 0;
+  padding: 0 22px 22px;
+}
+
+.sectionCollapsible .sectionFooter {
+  margin: 0 22px 18px;
+  padding-top: 16px;
 }
 
 .sectionIcon {
@@ -349,11 +451,25 @@
   flex-shrink: 0;
 }
 
-.statusDot_pending   { background: #E8C988; }
-.statusDot_confirmed { background: #A9C7FF; }
-.statusDot_shipped   { background: #C8AEEB; }
-.statusDot_delivered { background: #9FD6B0; }
-.statusDot_cancelled { background: #E59B9B; }
+.statusDot_pending {
+  background: #E8C988;
+}
+
+.statusDot_confirmed {
+  background: #A9C7FF;
+}
+
+.statusDot_shipped {
+  background: #C8AEEB;
+}
+
+.statusDot_delivered {
+  background: #9FD6B0;
+}
+
+.statusDot_cancelled {
+  background: #E59B9B;
+}
 
 .recentEmpty {
   font-size: 0.8125rem;
@@ -367,12 +483,14 @@
 /* ------------------------------------------------------------------ */
 
 @media (prefers-reduced-motion: reduce) {
+
   .section,
   .recentRow,
   .signOut,
   .cta {
     transition: none;
   }
+
   .section:hover {
     transform: none;
   }

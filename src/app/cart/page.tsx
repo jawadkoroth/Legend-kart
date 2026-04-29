@@ -24,12 +24,30 @@ export default function CartPage() {
   const { items, removeItem, updateQuantity, totalPaise, applyValidation } =
     useCart();
 
-  const [isValidating, setIsValidating] = useState(false);
+  // `isValidating` starts true whenever the cart has anything in it,
+  // so the very first paint after mount has the checkout button
+  // disabled — closing the race window where a fast tapper on a slow
+  // mobile network could click PROCEED before the validate effect has
+  // even scheduled. The effect flips this back to false on completion.
+  const [isValidating, setIsValidating] = useState(
+    () => items.length > 0,
+  );
   const [adjusted, setAdjusted] = useState<{
     removed: string[];
     clamped: string[];
   } | null>(null);
   const [softWarning, setSoftWarning] = useState(false);
+  const [isRouting, setIsRouting] = useState(false);
+
+  // The current in-flight validation promise (if any). handleCheckout
+  // ALWAYS awaits this before navigating — so even if the user taps
+  // the button before the effect's promise has begun, the click path
+  // resolves on the same outcome the UI sees. validationOkRef tracks
+  // the outcome of the most recent attempt: true means we have fresh
+  // server-confirmed stock data, false means it failed (network / 5xx)
+  // and we must NOT navigate.
+  const validationPromiseRef = useRef<Promise<void> | null>(null);
+  const validationOkRef = useRef<boolean>(false);
 
   // True when any line in the cart is currently unsellable
   // (maxStock <= 0). Belt-and-braces: applyValidation already drops
@@ -43,6 +61,11 @@ export default function CartPage() {
     [items],
   );
 
+  // Sticky flag so we can show the “all your items became unavailable”
+  // empty-state copy after applyValidation has just emptied the cart.
+  // Kept across the items.length === 0 early-return below.
+  const [allRemoved, setAllRemoved] = useState(false);
+
   // Revalidate exactly once per mount, only after the provider has
   // hydrated from localStorage and there is something to check.
   const validatedRef = useRef(false);
@@ -53,9 +76,14 @@ export default function CartPage() {
     validatedRef.current = true;
 
     let cancelled = false;
+    // Already true via the lazy useState initializer; explicit set is
+    // here as a hard guarantee for cases where StrictMode replayed the
+    // effect after a previous run flipped it false.
     setIsValidating(true);
+    validationOkRef.current = false;
 
-    (async () => {
+    const initialCount = items.length;
+    const promise = (async () => {
       try {
         const res = await fetch('/api/cart/validate', {
           method: 'POST',
@@ -87,14 +115,29 @@ export default function CartPage() {
             ),
           });
         }
+        // If the cart had items going in and every single line was
+        // dropped, surface the explicit empty-state copy. We compare
+        // against `initialCount` (captured before applyValidation ran)
+        // because by the time `summary` resolves the local `items`
+        // closure is stale.
+        if (
+          summary.removedItems.length === initialCount &&
+          summary.clampedItems.length === 0 &&
+          summary.removedItems.length > 0
+        ) {
+          setAllRemoved(true);
+        }
+        validationOkRef.current = true;
       } catch (err) {
         if (cancelled) return;
         console.error('[CART_VALIDATE_FAILED]', err);
         setSoftWarning(true);
+        validationOkRef.current = false;
       } finally {
         if (!cancelled) setIsValidating(false);
       }
     })();
+    validationPromiseRef.current = promise;
 
     return () => {
       cancelled = true;
@@ -112,8 +155,23 @@ export default function CartPage() {
     return (
       <div className={styles.page}>
         <div className={styles.empty}>
+          {allRemoved && (
+            <div
+              role="status"
+              className={`${styles.banner} ${styles.bannerWarn}`}
+              style={{ maxWidth: 460, marginBottom: 'var(--space-5)' }}
+            >
+              <p className={styles.bannerTitle}>
+                Items in your cart became unavailable and were removed.
+              </p>
+            </div>
+          )}
           <h2 className={styles.emptyTitle}>Your cart is empty</h2>
-          <p className={styles.emptyDesc}>Discover the collection.</p>
+          <p className={styles.emptyDesc}>
+            {allRemoved
+              ? 'Browse the collection to add fresh picks.'
+              : 'Discover the collection.'}
+          </p>
           <Link
             href="/products"
             className="btn btn-primary"
@@ -126,26 +184,53 @@ export default function CartPage() {
     );
   }
 
-  function handleCheckout() {
-    if (isValidating) return;
-    // Defence in depth: even if the button is somehow clickable,
-    // never initiate the checkout flow with an unsellable line.
+  async function handleCheckout() {
+    if (isRouting) return;
     if (cartInvalid) return;
-    // Preserve the existing checkout entry contract:
-    //  - single-line carts pass product_id + size as URL params,
-    //  - multi-line carts go to /checkout?from=cart.
-    // We do NOT rewrite the checkout flow here; the checkout page
-    // re-runs validation immediately before order POST.
-    if (items.length === 1) {
-      const item = items[0];
-      const params = new URLSearchParams({
-        product_id: item.product_id,
-        size: item.size,
-      });
-      router.push(`/checkout?${params.toString()}`);
-      return;
+
+    // Always wait for the in-flight validation to settle before
+    // routing. Mobile users on slow networks frequently tap the
+    // button before the validate fetch has finished; without this
+    // await they’d hit /checkout with a stale snapshot, where the
+    // submit-time revalidation throws and the UX dies on a generic
+    // “verification failed”. We block here instead.
+    setIsRouting(true);
+    try {
+      if (validationPromiseRef.current) {
+        await validationPromiseRef.current;
+      }
+      // After the await, items / cartInvalid may have updated; the
+      // cartInvalid memo will re-evaluate on the next render but the
+      // local closure is stale, so re-read both flags via refs.
+      if (!validationOkRef.current) {
+        // Hard validation failure (network / 5xx). Do NOT navigate.
+        // The soft-warning banner is already on screen.
+        return;
+      }
+      // Re-pull the latest items synchronously: applyValidation may
+      // have just removed lines or clamped quantities.
+      const currentItems = items;
+      if (currentItems.length === 0) return;
+      if (currentItems.some(l => l.maxStock <= 0)) return;
+
+      // Preserve the existing checkout entry contract:
+      //  - single-line carts pass product_id + size as URL params,
+      //  - multi-line carts go to /checkout?from=cart.
+      // We do NOT rewrite the checkout flow here; the checkout page
+      // re-runs validation immediately before order POST.
+      if (currentItems.length === 1) {
+        const item = currentItems[0];
+        const params = new URLSearchParams({
+          product_id: item.product_id,
+          size: item.size,
+        });
+        router.push(`/checkout?${params.toString()}`);
+        return;
+      }
+      router.push('/checkout?from=cart');
+    } finally {
+      setIsRouting(false);
     }
-    router.push('/checkout?from=cart');
   }
 
   return (
@@ -312,13 +397,17 @@ export default function CartPage() {
         <button
           className="btn btn-primary"
           onClick={handleCheckout}
-          disabled={isValidating || cartInvalid}
+          disabled={
+            isValidating || isRouting || cartInvalid || softWarning
+          }
         >
-          {isValidating
+          {isValidating || isRouting
             ? 'CHECKING STOCK…'
             : cartInvalid
               ? 'REVIEW CART TO CONTINUE'
-              : `PROCEED TO CHECKOUT — ${formatPaise(totalPaise)}`}
+              : softWarning
+                ? 'STOCK CHECK FAILED — RELOAD'
+                : `PROCEED TO CHECKOUT — ${formatPaise(totalPaise)}`}
         </button>
       </div>
     </div>
