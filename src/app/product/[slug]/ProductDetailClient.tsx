@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import useEmblaCarousel from 'embla-carousel-react';
 import { useCart } from '@/lib/cart';
 import { formatPaise } from '@/lib/format';
+import { getPublicUrl } from '@/lib/media';
 import styles from './page.module.css';
 
 export interface ProductDetail {
@@ -151,7 +152,9 @@ export default function ProductDetailClient({
 
   function getImages() {
     const hasImages = product.images && product.images.length > 0 && product.images[0] !== '';
-    return hasImages ? product.images : ['/product-1.png', '/product-2.png', '/product-3.png'];
+    return hasImages
+      ? product.images.map((img) => getPublicUrl(img))
+      : ['/product-1.png', '/product-2.png', '/product-3.png'];
   }
 
   const images = getImages();

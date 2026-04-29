@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useCart, type CartValidationResult } from '@/lib/cart';
 import { formatPaise } from '@/lib/format';
+import { getPublicUrl } from '@/lib/media';
 import styles from './page.module.css';
 
 /**
@@ -305,7 +306,7 @@ export default function CartPage() {
                   href={`/product/${item.slug}`}
                   className={styles.itemImage}
                 >
-                  <img src={item.image} alt={item.name} />
+                  <img src={getPublicUrl(item.image)} alt={item.name} />
                 </Link>
                 <div className={styles.itemInfo}>
                   <Link

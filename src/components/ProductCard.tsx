@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { formatPaise } from '@/lib/format';
+import { getPublicUrl } from '@/lib/media';
 import styles from './ProductCard.module.css';
 
 export interface ProductCardData {
@@ -27,7 +28,7 @@ export interface ProductCardData {
 export default function ProductCard({ product }: { product: ProductCardData }) {
   const outOfStock = product.totalStock <= 0;
   const lowStock = !outOfStock && product.totalStock <= 5;
-  const cover = product.images?.[0] || '/product-1.png';
+  const cover = getPublicUrl(product.images?.[0]) || '/product-1.png';
 
   const inner = (
     <>

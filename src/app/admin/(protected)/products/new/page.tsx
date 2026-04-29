@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
+import MediaUploader from '@/components/admin/MediaUploader';
 
 const ALL_SIZES = ['XS', 'S', 'M', 'L', 'XL', 'XXL'];
 
@@ -15,7 +16,7 @@ export default function AdminNewProduct() {
   const [salePricePaise, setSalePricePaise] = useState('');
   const [sizes, setSizes] = useState<string[]>(['S', 'M', 'L', 'XL']);
   const [stock, setStock] = useState<Record<string, string>>({});
-  const [imageUrls, setImageUrls] = useState('');
+  const [images, setImages] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
@@ -36,8 +37,6 @@ export default function AdminNewProduct() {
 
     const supabase = createClient();
 
-    // Parse images
-    const images = imageUrls.split('\n').map(u => u.trim()).filter(Boolean);
     const price = Math.round(parseFloat(pricePaise) * 100);
     const salePrice = salePricePaise ? Math.round(parseFloat(salePricePaise) * 100) : null;
 
@@ -148,17 +147,12 @@ export default function AdminNewProduct() {
         </div>
 
         <div className="card" style={{ marginBottom: 'var(--space-5)' }}>
-          <div className="input-group">
-            <label className="input-label">Image URLs (one per line)</label>
-            <textarea
-              className="input-field"
-              value={imageUrls}
-              onChange={e => setImageUrls(e.target.value)}
-              rows={3}
-              placeholder={"/product-1.png\n/product-2.png"}
-              style={{ resize: 'vertical', minHeight: '60px' }}
-            />
-          </div>
+          <label className="input-label" style={{ marginBottom: 'var(--space-3)' }}>Product Images</label>
+          <MediaUploader
+            value={images}
+            onChange={setImages}
+            folder="products"
+          />
         </div>
 
         <button className={`btn btn-primary ${saving ? 'btn-loading' : ''}`} type="submit" disabled={saving}>

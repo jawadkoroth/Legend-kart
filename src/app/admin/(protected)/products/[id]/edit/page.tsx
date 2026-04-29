@@ -3,6 +3,7 @@
 import { useState, useEffect, use } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
+import MediaUploader from '@/components/admin/MediaUploader';
 
 const ALL_SIZES = ['XS', 'S', 'M', 'L', 'XL', 'XXL'];
 
@@ -34,7 +35,7 @@ export default function AdminEditProduct({ params }: { params: Promise<{ id: str
   const [price, setPrice] = useState('');
   const [salePrice, setSalePrice] = useState('');
   const [sizes, setSizes] = useState<string[]>([]);
-  const [imageUrls, setImageUrls] = useState('');
+  const [images, setImages] = useState<string[]>([]);
   const [isActive, setIsActive] = useState(true);
   const [inventory, setInventory] = useState<{ size: string; stock: number }[]>([]);
 
@@ -51,7 +52,7 @@ export default function AdminEditProduct({ params }: { params: Promise<{ id: str
       setPrice((p.price_paise / 100).toString());
       setSalePrice(p.sale_price_paise ? (p.sale_price_paise / 100).toString() : '');
       setSizes(p.sizes || []);
-      setImageUrls((p.images || []).join('\n'));
+      setImages(Array.isArray(p.images) ? p.images : []);
       setIsActive(p.is_active);
 
       const { data: inv } = await supabase
@@ -90,7 +91,7 @@ export default function AdminEditProduct({ params }: { params: Promise<{ id: str
     const supabase = createClient();
     const priceVal = Math.round(parseFloat(price) * 100);
     const salePriceVal = salePrice ? Math.round(parseFloat(salePrice) * 100) : null;
-    const images = imageUrls.split('\n').map(u => u.trim()).filter(Boolean);
+
 
     // Update product
     const { error: prodErr } = await supabase
@@ -205,16 +206,12 @@ export default function AdminEditProduct({ params }: { params: Promise<{ id: str
         </div>
 
         <div className="card" style={{ marginBottom: 'var(--space-5)' }}>
-          <div className="input-group">
-            <label className="input-label">Image URLs (one per line)</label>
-            <textarea
-              className="input-field"
-              value={imageUrls}
-              onChange={e => setImageUrls(e.target.value)}
-              rows={3}
-              style={{ resize: 'vertical', minHeight: '60px' }}
-            />
-          </div>
+          <label className="input-label" style={{ marginBottom: 'var(--space-3)' }}>Product Images</label>
+          <MediaUploader
+            value={images}
+            onChange={setImages}
+            folder="products"
+          />
         </div>
 
         <div style={{ display: 'flex', gap: 'var(--space-3)' }}>

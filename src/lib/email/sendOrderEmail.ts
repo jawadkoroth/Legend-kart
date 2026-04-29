@@ -1,5 +1,6 @@
 import { Resend } from 'resend';
 import { logEvent } from '@/lib/log';
+import { getPublicUrl } from '@/lib/media';
 
 /**
  * NOIR — order lifecycle email module (v1).
@@ -242,6 +243,9 @@ function normaliseImageUrl(raw?: string | null): string | null {
   if (/^https?:\/\//i.test(trimmed)) return trimmed;
   if (trimmed.startsWith('//')) return `https:${trimmed}`;
   if (trimmed.startsWith('/')) return `${siteUrl().replace(/\/$/, '')}${trimmed}`;
+  // Supabase storage relative path (e.g. "products/uuid.jpg")
+  const resolved = getPublicUrl(trimmed);
+  if (resolved && /^https?:\/\//i.test(resolved)) return resolved;
   return null;
 }
 
