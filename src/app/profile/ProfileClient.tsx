@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import styles from './page.module.css';
 
@@ -32,6 +32,19 @@ export default function ProfileClient({
   const [phone, setPhone] = useState(initialProfile.phone.replace('+91', ''));
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
+  // Track the toast clear-timer so we can cancel it on unmount and on
+  // re-scheduling, preventing the React 'state update on unmounted
+  // component' warning if the user navigates away within 3s.
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (toastTimerRef.current) {
+        clearTimeout(toastTimerRef.current);
+        toastTimerRef.current = null;
+      }
+    };
+  }, []);
 
   async function handleSave() {
     setSaving(true);
@@ -74,14 +87,28 @@ export default function ProfileClient({
       setProfile(prev => ({ ...prev, name: name.trim(), phone: formattedPhone }));
       setEditing(false);
       setMessage('Profile updated');
-      setTimeout(() => setMessage(''), 3000);
+      if (toastTimerRef.current) {
+        clearTimeout(toastTimerRef.current);
+      }
+      toastTimerRef.current = setTimeout(() => {
+        setMessage('');
+        toastTimerRef.current = null;
+      }, 3000);
     }
     setSaving(false);
   }
 
   return (
     <div>
-      {message && <div className={styles.toast}>{message}</div>}
+      {message && (
+        <div
+          className={styles.toast}
+          role="status"
+          aria-live="polite"
+        >
+          {message}
+        </div>
+      )}
 
       <div>
         {editing ? (
@@ -112,10 +139,17 @@ export default function ProfileClient({
               </div>
             </div>
             <div style={{ display: 'flex', gap: 'var(--space-3)' }}>
-              <button className={`btn btn-primary ${saving ? 'btn-loading' : ''}`} onClick={handleSave} disabled={saving} style={{ flex: 1 }}>
+              <button
+                type="button"
+                className={`btn btn-primary ${saving ? 'btn-loading' : ''}`}
+                onClick={handleSave}
+                disabled={saving}
+                style={{ flex: 1 }}
+              >
                 SAVE
               </button>
               <button
+                type="button"
                 className="btn btn-secondary"
                 onClick={() => {
                   setEditing(false);
@@ -142,7 +176,12 @@ export default function ProfileClient({
               <span className={styles.fieldLabel}>Phone</span>
               <span>{profile.phone || '—'}</span>
             </div>
-            <button className="btn btn-secondary" onClick={() => setEditing(true)} style={{ marginTop: 'var(--space-4)' }}>
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={() => setEditing(true)}
+              style={{ marginTop: 'var(--space-4)' }}
+            >
               EDIT PROFILE
             </button>
           </>
