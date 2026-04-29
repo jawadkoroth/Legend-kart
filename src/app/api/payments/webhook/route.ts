@@ -2,6 +2,10 @@ import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { logEvent } from '@/lib/log';
+import {
+  sendPaymentSuccessEmail,
+  sendPaymentFailedEmail,
+} from '@/lib/email';
 
 /**
  * POST /api/payments/webhook
@@ -126,10 +130,13 @@ export async function POST(req: NextRequest) {
 
   const supabase = createAdminClient();
 
+  // Pull the customer + total + payment_method too — we'll need them
+  // for the post-transition lifecycle email. Cheap addition; the row
+  // is already being read.
   const { data: order, error: lookupError } = await supabase
     .from('orders')
     .select(
-      'id, order_number, payment_status, webhook_event_id, product_id, size, quantity',
+      'id, order_number, payment_status, webhook_event_id, product_id, size, quantity, customer, shipping_address, total_paise, payment_method',
     )
     .eq('razorpay_order_id', payment.order_id)
     .single();
@@ -176,8 +183,10 @@ export async function POST(req: NextRequest) {
     // /api/payments/verify already raced us and won, the row is
     // already `paid` and we'd have short-circuited above; if it
     // landed between our two queries, the WHERE clause prevents a
-    // double-write.
-    const { error: updErr } = await supabase
+    // double-write. `.select('id')` lets us count actually-mutated
+    // rows so we only fire the success email on a genuine
+    // pending → paid transition (never twice).
+    const { data: capturedRows, error: updErr } = await supabase
       .from('orders')
       .update({
         payment_status: 'paid',
@@ -185,7 +194,8 @@ export async function POST(req: NextRequest) {
         webhook_event_id: eventId,
       })
       .eq('id', order.id)
-      .eq('payment_status', 'pending');
+      .eq('payment_status', 'pending')
+      .select('id');
 
     if (updErr) {
       logEvent('payment.webhook_update_failed', {
@@ -200,11 +210,33 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    if (!capturedRows || capturedRows.length === 0) {
+      // Concurrent verify already flipped this to `paid`. The
+      // state-dedupe block above usually catches this, but a tight
+      // race can land here. Stamp the event id and skip email — we
+      // never want to double-send on a non-transition.
+      await supabase
+        .from('orders')
+        .update({ webhook_event_id: eventId })
+        .eq('id', order.id);
+      logEvent('payment.webhook_noop', {
+        reason: 'state_changed_concurrently',
+        order_id: order.id,
+        event_id: eventId,
+      });
+      return NextResponse.json({ success: true, idempotent: true });
+    }
+
     logEvent('payment.captured', {
       order_id: order.id,
       order_number: order.order_number,
       event_id: eventId,
     });
+
+    // Fire-and-forget payment-success email. Lookup product name
+    // off the same admin client; cheap and avoids passing it down.
+    sendPaymentEmailFor(order, 'success', supabase).catch(() => { });
+
     return NextResponse.json({ success: true });
   }
 
@@ -273,5 +305,59 @@ export async function POST(req: NextRequest) {
     error_code: payment.error_code,
   });
 
+  // Fire-and-forget payment-failed email with retry guidance.
+  sendPaymentEmailFor(order, 'failed', supabase).catch(() => { });
+
   return NextResponse.json({ success: true });
+}
+
+/**
+ * Builds the email payload from the order row + product lookup and
+ * dispatches the right lifecycle email. Never throws — callers use
+ * `.catch(() => {})` defensively but `dispatch()` already swallows.
+ */
+async function sendPaymentEmailFor(
+  order: {
+    id: string;
+    order_number: string;
+    customer: { name: string; phone: string; email?: string };
+    shipping_address?: {
+      line1: string;
+      line2?: string;
+      city: string;
+      state: string;
+      pincode: string;
+    };
+    product_id: string;
+    size: string;
+    quantity: number;
+    total_paise: number;
+    payment_method: string;
+  },
+  kind: 'success' | 'failed',
+  supabase: ReturnType<typeof createAdminClient>,
+): Promise<void> {
+  const { data: product } = await supabase
+    .from('products')
+    .select('name')
+    .eq('id', order.product_id)
+    .single();
+
+  const payload = {
+    id: order.id,
+    order_number: order.order_number,
+    customer: order.customer,
+    product_name: product?.name || 'Product',
+    size: order.size,
+    quantity: order.quantity,
+    total_paise: order.total_paise,
+    payment_method: order.payment_method,
+    shipping_address: order.shipping_address,
+  };
+
+  if (kind === 'success') {
+    await sendPaymentSuccessEmail(payload);
+  } else {
+    await sendPaymentFailedEmail(payload);
+  }
 }

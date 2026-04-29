@@ -74,8 +74,14 @@ export default function AdminOrderDetail({ params }: { params: Promise<{ id: str
         await supabase.from('orders').update({ payment_status: 'verified' }).eq('id', id);
       }
 
+      // Track which actions transition order_status so we can fire
+      // the lifecycle email afterwards. Notes / payment-verify are
+      // not status transitions and skip the notify call.
+      let statusChanged = false;
+
       if (action === 'confirm') {
         await supabase.from('orders').update({ order_status: 'confirmed' }).eq('id', id);
+        statusChanged = true;
       }
 
       if (action === 'cancel') {
@@ -83,6 +89,7 @@ export default function AdminOrderDetail({ params }: { params: Promise<{ id: str
         await supabase.from('orders').update({ order_status: 'cancelled', cancel_reason: cancelReason }).eq('id', id);
         // Restore stock
         await supabase.rpc('restore_stock', { p_product_id: order.product_id, p_size: order.size, p_quantity: order.quantity });
+        statusChanged = true;
       }
 
       if (action === 'ship') {
@@ -93,14 +100,23 @@ export default function AdminOrderDetail({ params }: { params: Promise<{ id: str
           setActionLoading('');
           return;
         }
+        statusChanged = true;
       }
 
       if (action === 'deliver') {
         await supabase.from('orders').update({ order_status: 'delivered' }).eq('id', id);
+        statusChanged = true;
       }
 
       if (action === 'save-notes') {
         await supabase.from('orders').update({ notes: noteText }).eq('id', id);
+      }
+
+      // Fire-and-forget lifecycle email. Server route reads the
+      // current status from the DB so it's never spoofable from
+      // here. Errors are silently logged server-side.
+      if (statusChanged) {
+        fetch(`/api/admin/orders/${id}/notify-status`, { method: 'POST' }).catch(() => { });
       }
 
       await fetchOrder();

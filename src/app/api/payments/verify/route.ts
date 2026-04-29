@@ -2,7 +2,6 @@ import { NextRequest } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { apiSuccess, apiError } from '@/lib/api-response';
 import { verifyPaymentSignature } from '@/lib/razorpay';
-import { sendOrderConfirmation } from '@/lib/email';
 import { logEvent } from '@/lib/log';
 
 /**
@@ -110,24 +109,15 @@ export async function POST(req: NextRequest) {
       order_number: order.order_number,
     });
 
-    // 5. Fire-and-forget confirmation email. Safe to send even on
-    // a pending→paid race lost to the webhook because the webhook
-    // does not send email.
-    const { data: product } = await supabase
-      .from('products')
-      .select('name')
-      .eq('id', order.product_id)
-      .single();
-
-    sendOrderConfirmation({
-      id: order.id,
-      order_number: order.order_number,
-      customer: order.customer,
-      product_name: product?.name || '',
-      size: order.size,
-      total_paise: order.total_paise,
-      payment_method: order.payment_method,
-    }).catch(() => {});
+    // 5. NO email send here.
+    //
+    // The Razorpay webhook is the single source of truth for
+    // payment lifecycle email (`sendPaymentSuccessEmail` /
+    // `sendPaymentFailedEmail`). Sending from this browser fast
+    // path AND the webhook would risk a double-send on the
+    // verify-vs-webhook race — the webhook arrives within seconds
+    // anyway. The order-created email was already sent at
+    // /api/orders, so the customer is not silent in the meantime.
 
     return apiSuccess({ message: 'Payment verified successfully' });
   } catch (err) {

@@ -5,7 +5,7 @@ import { apiSuccess, apiError } from '@/lib/api-response';
 import { createOrderSchema } from '@/lib/validators';
 import { generateOrderNumber } from '@/lib/order-id';
 import { getRazorpay } from '@/lib/razorpay';
-import { sendOrderConfirmation } from '@/lib/email';
+import { sendOrderCreatedEmail } from '@/lib/email';
 import { logEvent } from '@/lib/log';
 
 /**
@@ -170,6 +170,22 @@ export async function POST(req: NextRequest) {
         payment_method,
         total_paise: total,
       });
+
+      // Order-created email for BOTH COD and online (online users
+      // also get a follow-up `payment.success` email from the
+      // webhook once Razorpay captures). Fire-and-forget: never
+      // blocks the API response, never throws.
+      sendOrderCreatedEmail({
+        id: orderId,
+        order_number: finalOrderNumber,
+        customer,
+        product_name: product.name,
+        size,
+        quantity,
+        total_paise: total,
+        payment_method,
+        shipping_address,
+      }).catch(() => { });
     }
 
     // 6. Online payment: create Razorpay order.
@@ -255,19 +271,9 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 7. COD: send confirmation email (fire-and-forget, only on
-    // first creation — replays already sent it).
-    if (!wasExisting) {
-      sendOrderConfirmation({
-        id: orderId,
-        order_number: finalOrderNumber,
-        customer,
-        product_name: product.name,
-        size,
-        total_paise: total,
-        payment_method,
-      }).catch(() => { });
-    }
+    // 7. (No second email here — `sendOrderCreatedEmail` was
+    // already fired above for both COD and online when this was a
+    // fresh creation; replays send nothing.)
 
     return apiSuccess(
       {
