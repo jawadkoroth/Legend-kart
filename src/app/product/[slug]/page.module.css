@@ -81,7 +81,7 @@
 
 .priceRow {
   display: flex;
-  align-items: center;
+  align-items: baseline;
   gap: var(--space-3);
   margin-bottom: var(--space-4);
 }
@@ -92,15 +92,7 @@
   font-size: 1rem;
   color: var(--text-muted);
   text-decoration: line-through;
-}
-
-.discountBadge {
-  font-size: 0.75rem;
-  font-weight: 600;
-  color: var(--success);
-  background: rgba(76, 175, 80, 0.15);
-  padding: 2px 8px;
-  border-radius: var(--radius-full);
+  opacity: 0.65;
 }
 
 .description {

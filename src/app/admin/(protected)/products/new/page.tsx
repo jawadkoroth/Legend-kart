@@ -76,7 +76,7 @@ export default function AdminNewProduct() {
       return;
     }
 
-    router.push('/admin/products');
+    router.push('/admin/products?saved=1');
   }
 
   return (

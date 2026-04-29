@@ -13,6 +13,7 @@ interface ProductRow {
   slug: string;
   description: string | null;
   price_paise: number;
+  sale_price_paise: number | null;
   images: unknown;
   sizes: unknown;
   is_active: boolean;
@@ -43,7 +44,7 @@ export default async function ProductDetailPage({
 
   const { data: productRow } = await supabase
     .from('products')
-    .select('id, name, slug, description, price_paise, images, sizes, is_active')
+    .select('id, name, slug, description, price_paise, sale_price_paise, images, sizes, is_active')
     .eq('slug', slug)
     .eq('is_active', true)
     .maybeSingle<ProductRow>();
@@ -67,6 +68,7 @@ export default async function ProductDetailPage({
     slug: productRow.slug,
     description: productRow.description ?? '',
     price_paise: productRow.price_paise,
+    sale_price_paise: productRow.sale_price_paise ?? null,
     images: Array.isArray(productRow.images) ? (productRow.images as string[]) : [],
     sizes: Array.isArray(productRow.sizes) ? (productRow.sizes as string[]) : [],
   };

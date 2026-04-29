@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { useToast } from '@/hooks/useToast';
 
@@ -19,10 +20,20 @@ export default function AdminProducts() {
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const { toast, showToast } = useToast();
+  const searchParams = useSearchParams();
 
   useEffect(() => {
     fetchProducts();
   }, []);
+
+  // Show success toast when redirected from create/edit
+  useEffect(() => {
+    if (searchParams.get('saved') === '1') {
+      showToast('Product saved successfully', 'success');
+      // Clean the URL so refreshing doesn't re-show the toast
+      window.history.replaceState({}, '', '/admin/products');
+    }
+  }, [searchParams, showToast]);
 
   async function fetchProducts() {
     const supabase = createClient();

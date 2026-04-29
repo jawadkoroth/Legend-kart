@@ -14,6 +14,7 @@ export interface ProductDetail {
   slug: string;
   description: string;
   price_paise: number;
+  sale_price_paise: number | null;
   images: string[];
   sizes: string[];
 }
@@ -68,9 +69,12 @@ export default function ProductDetailClient({
     return inventory.find(i => i.size === size)?.stock ?? 0;
   }, [inventory]);
 
-  const price = product.price_paise;
-  const discountAmount = Math.round(price * couponDiscount / 100);
-  const finalPrice = price - discountAmount;
+  // Pricing: sale price takes priority, coupon stacks on top
+  const originalPrice = product.price_paise;
+  const basePrice = product.sale_price_paise ?? originalPrice;
+  const hasSalePrice = product.sale_price_paise != null && product.sale_price_paise < originalPrice;
+  const discountAmount = Math.round(basePrice * couponDiscount / 100);
+  const finalPrice = basePrice - discountAmount;
 
   async function handleValidateCoupon() {
     if (!couponCode.trim()) return;
@@ -205,11 +209,8 @@ export default function ProductDetailClient({
             <h1 className={styles.productName}>{product.name}</h1>
             <div className={styles.priceRow}>
               <span className={styles.price}>{formatPaise(finalPrice)}</span>
-              {discountAmount > 0 && (
-                <>
-                  <span className={styles.originalPrice}>{formatPaise(price)}</span>
-                  <span className={styles.discountBadge}>-{couponDiscount}%</span>
-                </>
+              {(hasSalePrice || discountAmount > 0) && (
+                <span className={styles.originalPrice}>{formatPaise(hasSalePrice && discountAmount > 0 ? originalPrice : (hasSalePrice ? originalPrice : basePrice))}</span>
               )}
             </div>
 

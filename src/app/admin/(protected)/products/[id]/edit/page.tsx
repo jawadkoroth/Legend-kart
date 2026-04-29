@@ -26,7 +26,6 @@ export default function AdminEditProduct({ params }: { params: Promise<{ id: str
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
-  const [msg, setMsg] = useState('');
 
   // Form state
   const [name, setName] = useState('');
@@ -86,7 +85,6 @@ export default function AdminEditProduct({ params }: { params: Promise<{ id: str
     if (!name.trim() || !price) return;
     setSaving(true);
     setError('');
-    setMsg('');
 
     const supabase = createClient();
     const priceVal = Math.round(parseFloat(price) * 100);
@@ -131,9 +129,7 @@ export default function AdminEditProduct({ params }: { params: Promise<{ id: str
       }
     }
 
-    setMsg('Product updated!');
-    setTimeout(() => setMsg(''), 3000);
-    setSaving(false);
+    router.push('/admin/products?saved=1');
   }
 
   if (loading) return <div className="animate-pulse text-muted" style={{ textAlign: 'center', padding: 'var(--space-8)' }}>Loading...</div>;
@@ -152,7 +148,6 @@ export default function AdminEditProduct({ params }: { params: Promise<{ id: str
       </div>
 
       {error && <div className="warning-banner" style={{ marginBottom: 'var(--space-4)', color: 'var(--error)', borderColor: 'rgba(229,57,53,0.3)', background: 'rgba(229,57,53,0.1)' }}>{error}</div>}
-      {msg && <div className="warning-banner" style={{ marginBottom: 'var(--space-4)', color: 'var(--success)', borderColor: 'rgba(76,175,80,0.3)', background: 'rgba(76,175,80,0.1)' }}>{msg}</div>}
 
       <form onSubmit={handleSave}>
         <div className="card" style={{ marginBottom: 'var(--space-4)' }}>
