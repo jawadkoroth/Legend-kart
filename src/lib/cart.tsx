@@ -75,9 +75,16 @@ export interface CartValidationResult {
   items: CartValidationEntry[];
 }
 
+/**
+ * Result of `applyValidation` — reports exactly which lines were
+ * dropped (out-of-stock / inactive / removed) and which had their
+ * quantity reduced to fit available stock. Consumers use this to
+ * render explicit user-facing copy; the cart `items` array has
+ * already been mutated to match by the time this is returned.
+ */
 interface ApplyValidationSummary {
-  removed: CartItem[];
-  clamped: CartItem[];
+  removedItems: CartItem[];
+  clampedItems: CartItem[];
 }
 
 interface CartContextType {
@@ -313,7 +320,10 @@ export function CartProvider({ children }: { children: ReactNode }) {
 
   const applyValidation = useCallback(
     (result: CartValidationResult): ApplyValidationSummary => {
-      const summary: ApplyValidationSummary = { removed: [], clamped: [] };
+      const summary: ApplyValidationSummary = {
+        removedItems: [],
+        clampedItems: [],
+      };
 
       setItems(prev => {
         // Map by composite key for O(1) lookup against validation rows.
@@ -331,19 +341,30 @@ export function CartProvider({ children }: { children: ReactNode }) {
             next.push(line);
             continue;
           }
-          if (entry.removed) {
-            summary.removed.push(line);
+
+          // Hard-remove any line that the server says is unsellable.
+          // `removed` covers inactive products and missing inventory
+          // rows; `maxStock === 0` covers the common case of an
+          // active product whose size is currently out of stock
+          // (server returns removed=false, maxStock=0). Both must
+          // drop the line outright — never clamp to 1, never keep
+          // a ghost line that would block checkout downstream.
+          if (entry.removed || entry.maxStock <= 0) {
+            summary.removedItems.push(line);
             continue;
           }
+
           const clampedQty = entry.clampedQuantity;
           if (clampedQty !== line.quantity || entry.maxStock !== line.maxStock) {
             const updated = {
               ...line,
+              // Safe floor of 1 here only because the entry has
+              // already been proven sellable (maxStock > 0).
               quantity: Math.max(1, clampedQty),
               maxStock: entry.maxStock,
             };
             if (clampedQty < line.quantity) {
-              summary.clamped.push(updated);
+              summary.clampedItems.push(updated);
             }
             next.push(updated);
           } else {

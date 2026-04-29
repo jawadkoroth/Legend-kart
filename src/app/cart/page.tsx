@@ -31,6 +31,18 @@ export default function CartPage() {
   } | null>(null);
   const [softWarning, setSoftWarning] = useState(false);
 
+  // True when any line in the cart is currently unsellable
+  // (maxStock <= 0). Belt-and-braces: applyValidation already drops
+  // these lines, but a stale localStorage entry written before this
+  // build could still surface a maxStock=0 row that escaped the
+  // server round-trip (e.g. validate request failed). The checkout
+  // button is gated on this so the user can never proceed with a
+  // ghost item, even if the validate fetch has not landed yet.
+  const cartInvalid = useMemo(
+    () => items.some(line => line.maxStock <= 0),
+    [items],
+  );
+
   // Revalidate exactly once per mount, only after the provider has
   // hydrated from localStorage and there is something to check.
   const validatedRef = useRef(false);
@@ -62,11 +74,16 @@ export default function CartPage() {
         if (cancelled) return;
 
         const summary = applyValidation(data);
-        if (summary.removed.length > 0 || summary.clamped.length > 0) {
+        if (
+          summary.removedItems.length > 0 ||
+          summary.clampedItems.length > 0
+        ) {
           setAdjusted({
-            removed: summary.removed.map(i => `${i.name} (${i.size})`),
-            clamped: summary.clamped.map(
-              i => `${i.name} (${i.size}) → ${i.quantity}`,
+            removed: summary.removedItems.map(
+              i => `${i.name} (Size ${i.size})`,
+            ),
+            clamped: summary.clampedItems.map(
+              i => `${i.name} (Size ${i.size}) → ${i.quantity}`,
             ),
           });
         }
@@ -111,6 +128,9 @@ export default function CartPage() {
 
   function handleCheckout() {
     if (isValidating) return;
+    // Defence in depth: even if the button is somehow clickable,
+    // never initiate the checkout flow with an unsellable line.
+    if (cartInvalid) return;
     // Preserve the existing checkout entry contract:
     //  - single-line carts pass product_id + size as URL params,
     //  - multi-line carts go to /checkout?from=cart.
@@ -136,25 +156,42 @@ export default function CartPage() {
           <span className={styles.count}>({items.length})</span>
         </h1>
 
-        {adjusted && (
+        {/* Explicit, item-named feedback so the user knows exactly
+            what changed and why — never the vague “we adjusted your
+            cart” copy. Two separate banners because the actions
+            (removed vs reduced) demand different mental models. */}
+        {adjusted && adjusted.removed.length > 0 && (
           <div
             role="status"
             className={`${styles.banner} ${styles.bannerWarn}`}
           >
             <div>
               <p className={styles.bannerTitle}>
-                We adjusted your cart based on current stock.
+                Some items were removed because they are out of stock.
               </p>
-              {(adjusted.removed.length > 0 || adjusted.clamped.length > 0) && (
-                <ul className={styles.bannerList}>
-                  {adjusted.removed.map(label => (
-                    <li key={`r-${label}`}>{label} — no longer available</li>
-                  ))}
-                  {adjusted.clamped.map(label => (
-                    <li key={`c-${label}`}>{label}</li>
-                  ))}
-                </ul>
-              )}
+              <ul className={styles.bannerList}>
+                {adjusted.removed.map(label => (
+                  <li key={`r-${label}`}>{label}</li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        )}
+
+        {adjusted && adjusted.clamped.length > 0 && (
+          <div
+            role="status"
+            className={`${styles.banner} ${styles.bannerWarn}`}
+          >
+            <div>
+              <p className={styles.bannerTitle}>
+                Quantity updated due to limited stock.
+              </p>
+              <ul className={styles.bannerList}>
+                {adjusted.clamped.map(label => (
+                  <li key={`c-${label}`}>{label}</li>
+                ))}
+              </ul>
             </div>
           </div>
         )}
@@ -260,14 +297,28 @@ export default function CartPage() {
           </div>
         </div>
 
+        {cartInvalid && (
+          <div
+            role="alert"
+            className={`${styles.banner} ${styles.bannerWarn}`}
+            style={{ marginTop: 0 }}
+          >
+            <p className={styles.bannerTitle}>
+              Please review your cart before proceeding.
+            </p>
+          </div>
+        )}
+
         <button
           className="btn btn-primary"
           onClick={handleCheckout}
-          disabled={isValidating}
+          disabled={isValidating || cartInvalid}
         >
           {isValidating
             ? 'CHECKING STOCK…'
-            : `PROCEED TO CHECKOUT — ${formatPaise(totalPaise)}`}
+            : cartInvalid
+              ? 'REVIEW CART TO CONTINUE'
+              : `PROCEED TO CHECKOUT — ${formatPaise(totalPaise)}`}
         </button>
       </div>
     </div>
