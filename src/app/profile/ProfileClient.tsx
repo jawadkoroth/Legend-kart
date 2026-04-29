@@ -1,7 +1,6 @@
 'use client';
 
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import styles from './page.module.css';
 
@@ -11,6 +10,15 @@ interface Profile {
   phone: string;
 }
 
+/**
+ * Profile editor card body for the dashboard's Profile section.
+ *
+ * The avatar / name / email header and the sign-out action live in
+ * the sidebar `ProfileCard` now — this component is intentionally
+ * trimmed to ONLY the editable form so it can slot into the new
+ * dashboard's section body without doubling up on those affordances.
+ * Save / validate / phone-uniqueness logic is unchanged.
+ */
 export default function ProfileClient({
   initialProfile,
   userId,
@@ -18,7 +26,6 @@ export default function ProfileClient({
   initialProfile: Profile;
   userId: string;
 }) {
-  const router = useRouter();
   const [profile, setProfile] = useState<Profile>(initialProfile);
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(initialProfile.name);
@@ -72,94 +79,74 @@ export default function ProfileClient({
     setSaving(false);
   }
 
-  async function handleLogout() {
-    const supabase = createClient();
-    await supabase.auth.signOut();
-    router.replace('/');
-    router.refresh();
-  }
-
   return (
-    <div className={styles.page}>
-      <div className={styles.content}>
-        <div className={styles.avatar}>
-          {(profile.name || 'U').charAt(0).toUpperCase()}
-        </div>
+    <div>
+      {message && <div className={styles.toast}>{message}</div>}
 
-        <h1 className={styles.title}>{profile.name || 'Your Profile'}</h1>
-        <p className={styles.email}>{profile.email}</p>
-
-        {message && <div className={styles.toast}>{message}</div>}
-
-        <div className={styles.card}>
-          {editing ? (
-            <>
-              <div className="input-group" style={{ marginBottom: 'var(--space-3)' }}>
-                <label className="input-label">Name</label>
-                <input className="input-field" value={name} onChange={e => setName(e.target.value)} placeholder="Your name" />
+      <div>
+        {editing ? (
+          <>
+            <div className="input-group" style={{ marginBottom: 'var(--space-3)' }}>
+              <label className="input-label">Name</label>
+              <input className="input-field" value={name} onChange={e => setName(e.target.value)} placeholder="Your name" />
+            </div>
+            <div className="input-group" style={{ marginBottom: 'var(--space-3)' }}>
+              <label className="input-label">Email</label>
+              <input className="input-field" value={profile.email} disabled style={{ opacity: 0.5 }} />
+            </div>
+            <div className="input-group" style={{ marginBottom: 'var(--space-5)' }}>
+              <label className="input-label">Mobile Number *</label>
+              <p className="text-xs text-muted" style={{ marginBottom: 'var(--space-2)' }}>⚠ This is your primary account identity.</p>
+              <div style={{ display: 'flex', alignItems: 'center', background: 'var(--bg-input)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-sm)' }}>
+                <span style={{ padding: '0 var(--space-3)', color: 'var(--text-muted)', borderRight: '1px solid var(--border-color)' }}>+91</span>
+                <input
+                  className="input-field"
+                  style={{ border: 'none' }}
+                  value={phone}
+                  onChange={e => setPhone(e.target.value.replace(/\D/g, '').slice(0, 10))}
+                  placeholder="10-digit phone"
+                  inputMode="numeric"
+                  maxLength={10}
+                  required
+                />
               </div>
-              <div className="input-group" style={{ marginBottom: 'var(--space-3)' }}>
-                <label className="input-label">Email</label>
-                <input className="input-field" value={profile.email} disabled style={{ opacity: 0.5 }} />
-              </div>
-              <div className="input-group" style={{ marginBottom: 'var(--space-5)' }}>
-                <label className="input-label">Mobile Number *</label>
-                <p className="text-xs text-muted" style={{ marginBottom: 'var(--space-2)' }}>⚠ This is your primary account identity.</p>
-                <div style={{ display: 'flex', alignItems: 'center', background: 'var(--bg-input)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-sm)' }}>
-                  <span style={{ padding: '0 var(--space-3)', color: 'var(--text-muted)', borderRight: '1px solid var(--border-color)' }}>+91</span>
-                  <input
-                    className="input-field"
-                    style={{ border: 'none' }}
-                    value={phone}
-                    onChange={e => setPhone(e.target.value.replace(/\D/g, '').slice(0, 10))}
-                    placeholder="10-digit phone"
-                    inputMode="numeric"
-                    maxLength={10}
-                    required
-                  />
-                </div>
-              </div>
-              <div style={{ display: 'flex', gap: 'var(--space-3)' }}>
-                <button className={`btn btn-primary ${saving ? 'btn-loading' : ''}`} onClick={handleSave} disabled={saving} style={{ flex: 1 }}>
-                  SAVE
-                </button>
-                <button
-                  className="btn btn-secondary"
-                  onClick={() => {
-                    setEditing(false);
-                    setName(profile.name);
-                    setPhone(profile.phone.replace('+91', ''));
-                  }}
-                  style={{ flex: 1 }}
-                >
-                  CANCEL
-                </button>
-              </div>
-            </>
-          ) : (
-            <>
-              <div className={styles.field}>
-                <span className={styles.fieldLabel}>Name</span>
-                <span>{profile.name || '—'}</span>
-              </div>
-              <div className={styles.field}>
-                <span className={styles.fieldLabel}>Email</span>
-                <span>{profile.email || '—'}</span>
-              </div>
-              <div className={styles.field}>
-                <span className={styles.fieldLabel}>Phone</span>
-                <span>{profile.phone || '—'}</span>
-              </div>
-              <button className="btn btn-secondary" onClick={() => setEditing(true)} style={{ marginTop: 'var(--space-4)' }}>
-                EDIT PROFILE
+            </div>
+            <div style={{ display: 'flex', gap: 'var(--space-3)' }}>
+              <button className={`btn btn-primary ${saving ? 'btn-loading' : ''}`} onClick={handleSave} disabled={saving} style={{ flex: 1 }}>
+                SAVE
               </button>
-            </>
-          )}
-        </div>
-
-        <button className={styles.logoutBtn} onClick={handleLogout}>
-          Sign Out
-        </button>
+              <button
+                className="btn btn-secondary"
+                onClick={() => {
+                  setEditing(false);
+                  setName(profile.name);
+                  setPhone(profile.phone.replace('+91', ''));
+                }}
+                style={{ flex: 1 }}
+              >
+                CANCEL
+              </button>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className={styles.field}>
+              <span className={styles.fieldLabel}>Name</span>
+              <span>{profile.name || '—'}</span>
+            </div>
+            <div className={styles.field}>
+              <span className={styles.fieldLabel}>Email</span>
+              <span>{profile.email || '—'}</span>
+            </div>
+            <div className={styles.field}>
+              <span className={styles.fieldLabel}>Phone</span>
+              <span>{profile.phone || '—'}</span>
+            </div>
+            <button className="btn btn-secondary" onClick={() => setEditing(true)} style={{ marginTop: 'var(--space-4)' }}>
+              EDIT PROFILE
+            </button>
+          </>
+        )}
       </div>
     </div>
   );

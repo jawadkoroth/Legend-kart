@@ -1,0 +1,379 @@
+/*
+ * NOIR — scoped styling for the /profile dashboard.
+ *
+ * Lives entirely in this CSS Module — class names are hashed at
+ * build time so they never collide with `.card`, `.btn`, etc. used
+ * by other surfaces. The brand palette is reused via existing CSS
+ * variables; the only locally-defined accent is a very faint gold
+ * glow used for hover affordance.
+ */
+
+.page {
+  --account-accent: #C9A86A;
+  --account-glow: rgba(201, 168, 106, 0.10);
+
+  --account-surface: var(--bg-secondary, #0F0F11);
+  --account-border: var(--border-color, rgba(255, 255, 255, 0.08));
+  --account-border-strong: var(--border-light, rgba(255, 255, 255, 0.14));
+  --account-text: var(--text-primary, #F5F5F5);
+  --account-muted: var(--text-muted, #9A9A9A);
+
+  --account-radius: 14px;
+  --account-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --account-dur: 200ms;
+
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: var(--space-6, 32px) var(--space-4, 16px);
+  color: var(--account-text);
+}
+
+/* ------------------------------------------------------------------ */
+/* Layout                                                              */
+/* ------------------------------------------------------------------ */
+
+.layout {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 20px;
+}
+
+@media (min-width: 900px) {
+  .layout {
+    grid-template-columns: 300px 1fr;
+    gap: 32px;
+    align-items: start;
+  }
+}
+
+.sidebar {
+  position: relative;
+}
+
+@media (min-width: 900px) {
+  .sidebar {
+    position: sticky;
+    top: 32px;
+  }
+}
+
+.main {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* ------------------------------------------------------------------ */
+/* Profile summary card (sidebar / mobile top)                         */
+/* ------------------------------------------------------------------ */
+
+.summary {
+  background: linear-gradient(
+    180deg,
+    var(--account-surface) 0%,
+    color-mix(in oklab, var(--account-surface) 92%, #000) 100%
+  );
+  border: 1px solid var(--account-border);
+  border-radius: var(--account-radius);
+  padding: 24px 20px;
+  text-align: center;
+}
+
+.avatar {
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  background: var(--bg-elevated, #17171A);
+  border: 1px solid var(--account-border-strong);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-serif, 'Playfair Display', Georgia, serif);
+  font-size: 1.625rem;
+  font-weight: 500;
+  color: var(--account-text);
+  margin: 0 auto 16px;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.02);
+}
+
+.summaryName {
+  font-family: var(--font-serif, 'Playfair Display', Georgia, serif);
+  font-size: 1.25rem;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  margin: 0 0 4px;
+}
+
+.summaryEmail {
+  font-size: 0.8125rem;
+  color: var(--account-muted);
+  margin: 0;
+  word-break: break-all;
+}
+
+.summaryDivider {
+  height: 1px;
+  background: var(--account-border);
+  margin: 18px 0 14px;
+}
+
+.signOut {
+  background: none;
+  border: none;
+  font-size: 0.75rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--account-muted);
+  cursor: pointer;
+  padding: 6px 8px;
+  border-radius: 999px;
+  transition:
+    color var(--account-dur) var(--account-ease),
+    background var(--account-dur) var(--account-ease);
+}
+
+.signOut:hover {
+  color: var(--account-text);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.signOut:focus-visible {
+  outline: 2px solid var(--account-accent);
+  outline-offset: 3px;
+}
+
+/* ------------------------------------------------------------------ */
+/* Section card                                                        */
+/* ------------------------------------------------------------------ */
+
+.section {
+  background: var(--account-surface);
+  border: 1px solid var(--account-border);
+  border-radius: var(--account-radius);
+  padding: 22px 22px;
+  transition:
+    transform var(--account-dur) var(--account-ease),
+    border-color var(--account-dur) var(--account-ease),
+    box-shadow var(--account-dur) var(--account-ease);
+}
+
+.section:hover {
+  transform: translateY(-1px);
+  border-color: var(--account-border-strong);
+  /* Very faint gold halo + soft drop, no harsh shadow. */
+  box-shadow:
+    0 8px 22px -18px rgba(0, 0, 0, 0.45),
+    0 0 0 1px var(--account-glow);
+}
+
+.sectionDisabled {
+  opacity: 0.7;
+}
+
+.sectionDisabled:hover {
+  transform: none;
+  box-shadow: none;
+  border-color: var(--account-border);
+}
+
+.sectionHeader {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 6px;
+}
+
+.sectionIcon {
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  background: rgba(201, 168, 106, 0.06);
+  color: var(--account-accent);
+  border: 1px solid rgba(201, 168, 106, 0.18);
+}
+
+.sectionIcon svg {
+  width: 16px;
+  height: 16px;
+  stroke-width: 1.6;
+}
+
+.sectionTitle {
+  font-family: var(--font-serif, 'Playfair Display', Georgia, serif);
+  font-size: 1.0625rem;
+  font-weight: 500;
+  letter-spacing: -0.005em;
+  margin: 0;
+  color: var(--account-text);
+}
+
+.sectionDescription {
+  font-size: 0.8125rem;
+  color: var(--account-muted);
+  margin: 4px 0 0;
+  line-height: 1.55;
+}
+
+.sectionBody {
+  margin-top: 16px;
+}
+
+.sectionFooter {
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid var(--account-border);
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 10px;
+}
+
+/* CTA: minimal text-link with arrow ------------------------------ */
+
+.cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  font-size: 0.75rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  font-weight: 600;
+  color: var(--account-text);
+  border: 1px solid var(--account-border-strong);
+  border-radius: 999px;
+  text-decoration: none;
+  transition:
+    color var(--account-dur) var(--account-ease),
+    border-color var(--account-dur) var(--account-ease);
+}
+
+.cta:hover {
+  color: var(--account-accent);
+  border-color: var(--account-accent);
+}
+
+.cta:focus-visible {
+  outline: 2px solid var(--account-accent);
+  outline-offset: 3px;
+}
+
+.ctaDisabled {
+  color: var(--account-muted);
+  border-color: var(--account-border);
+  cursor: not-allowed;
+}
+
+.ctaDisabled:hover {
+  color: var(--account-muted);
+  border-color: var(--account-border);
+}
+
+/* ------------------------------------------------------------------ */
+/* Recent orders preview                                               */
+/* ------------------------------------------------------------------ */
+
+.recentList {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.recentRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  background: var(--bg-elevated, #17171A);
+  border: 1px solid var(--account-border);
+  border-radius: 10px;
+  text-decoration: none;
+  color: inherit;
+  transition:
+    border-color var(--account-dur) var(--account-ease),
+    background var(--account-dur) var(--account-ease);
+}
+
+.recentRow:hover {
+  border-color: var(--account-border-strong);
+  background: color-mix(in oklab, var(--bg-elevated, #17171A) 85%, #000);
+}
+
+.recentRow:focus-visible {
+  outline: 2px solid var(--account-accent);
+  outline-offset: 2px;
+}
+
+.recentLeft {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.recentNumber {
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.recentMeta {
+  font-size: 0.6875rem;
+  color: var(--account-muted);
+}
+
+.recentRight {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.recentTotal {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.statusDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--account-muted);
+  flex-shrink: 0;
+}
+
+.statusDot_pending   { background: #E8C988; }
+.statusDot_confirmed { background: #A9C7FF; }
+.statusDot_shipped   { background: #C8AEEB; }
+.statusDot_delivered { background: #9FD6B0; }
+.statusDot_cancelled { background: #E59B9B; }
+
+.recentEmpty {
+  font-size: 0.8125rem;
+  color: var(--account-muted);
+  margin: 0;
+  padding: 10px 0;
+}
+
+/* ------------------------------------------------------------------ */
+/* Reduced motion                                                      */
+/* ------------------------------------------------------------------ */
+
+@media (prefers-reduced-motion: reduce) {
+  .section,
+  .recentRow,
+  .signOut,
+  .cta {
+    transition: none;
+  }
+  .section:hover {
+    transform: none;
+  }
+}
