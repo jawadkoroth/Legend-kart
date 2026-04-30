@@ -75,7 +75,7 @@ export async function POST(req: NextRequest) {
     // 2. Verify product exists and is active.
     const { data: product, error: productError } = await supabase
       .from('products')
-      .select('id, name, price_paise, is_active, images')
+      .select('id, name, price_paise, sale_price_paise, is_active, images')
       .eq('id', product_id)
       .single();
 
@@ -103,7 +103,13 @@ export async function POST(req: NextRequest) {
     }
 
     // 4. Compute totals.
-    const unitPrice = product.price_paise;
+    // Honor sale price when present and strictly lower than the
+    // regular price; coupon discounts then stack on top of that.
+    const salePrice = (product as { sale_price_paise?: number | null }).sale_price_paise;
+    const unitPrice =
+      salePrice != null && salePrice < product.price_paise
+        ? salePrice
+        : product.price_paise;
     const subtotal = unitPrice * quantity;
     const discount = Math.round((subtotal * discountPercent) / 100);
     const total = subtotal - discount;

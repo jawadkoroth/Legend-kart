@@ -3,6 +3,11 @@ import { createAdminClient } from '@/lib/supabase/admin';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { apiSuccess, apiError } from '@/lib/api-response';
 
+// Force Node runtime — we read multipart bodies and use the
+// service-role client; both require Node, not Edge.
+export const runtime = 'nodejs';
+export const maxDuration = 30;
+
 /**
  * Admin-only media upload/delete API.
  *
@@ -21,7 +26,11 @@ const ALLOWED_TYPES = new Set([
   'image/webp',
 ]);
 
-const MAX_SIZE_BYTES = 5 * 1024 * 1024; // 5 MB
+// Vercel's serverless functions enforce ~4.5 MB request body cap on
+// the Node runtime, so the platform would reject larger uploads
+// before our handler runs. We cap at 4 MB to keep the user-facing
+// error from this route, not from the platform's generic 413.
+const MAX_SIZE_BYTES = 4 * 1024 * 1024; // 4 MB
 
 function getExtension(mimeType: string): string {
   const map: Record<string, string> = {
@@ -77,7 +86,11 @@ export async function POST(req: NextRequest) {
     // 2. Parse multipart form data
     const formData = await req.formData();
     const file = formData.get('file') as File | null;
-    const folder = (formData.get('folder') as string | null) || 'misc';
+    // Sanitize folder: whitelist [A-Za-z0-9_-], cap length, fall back
+    // to 'misc' if nothing usable remains. Defence-in-depth against
+    // path traversal even though Supabase Storage normalizes keys.
+    const rawFolder = (formData.get('folder') as string | null) || 'misc';
+    const folder = rawFolder.replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 32) || 'misc';
 
     if (!file) {
       return apiError(400, 'No file provided');
@@ -90,7 +103,7 @@ export async function POST(req: NextRequest) {
 
     // 4. Validate file size
     if (file.size > MAX_SIZE_BYTES) {
-      return apiError(400, `File too large (${(file.size / 1024 / 1024).toFixed(1)}MB). Max: 5MB`);
+      return apiError(400, `File too large (${(file.size / 1024 / 1024).toFixed(1)}MB). Max: 4MB`);
     }
 
     // 5. Generate storage path (relative — does NOT include "products/")

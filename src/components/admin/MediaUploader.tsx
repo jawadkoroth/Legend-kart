@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useCallback, type DragEvent, type ChangeEvent } from 'react';
+import { useState, useRef, useEffect, useCallback, type DragEvent, type ChangeEvent } from 'react';
 import { uploadFile, deleteFile, getPublicUrl } from '@/lib/media';
 import styles from './MediaUploader.module.css';
 
@@ -50,6 +50,27 @@ export default function MediaUploader({
   const [dragActive, setDragActive] = useState(false);
   const [uploading, setUploading] = useState<UploadingEntry[]>([]);
   const [error, setError] = useState('');
+
+  // Always-fresh snapshot of `value` so concurrent upload batches
+  // (e.g. user drops a second batch while the first is still in
+  // flight) merge correctly instead of overwriting each other via
+  // a stale `useCallback` closure.
+  const valueRef = useRef(value);
+  useEffect(() => {
+    valueRef.current = value;
+  }, [value]);
+
+  // Revoke any in-flight preview Object URLs if the component
+  // unmounts mid-upload — otherwise the underlying File blob is
+  // pinned in memory until the tab closes.
+  useEffect(() => {
+    return () => {
+      setUploading((prev) => {
+        prev.forEach((e) => URL.revokeObjectURL(e.previewUrl));
+        return prev;
+      });
+    };
+  }, []);
 
   const remaining = maxFiles - value.length - uploading.length;
   const isMaxed = remaining <= 0;
@@ -128,7 +149,9 @@ export default function MediaUploader({
       }
 
       if (newPaths.length > 0) {
-        onChange([...value, ...newPaths]);
+        // Read latest value via ref to avoid clobbering a parallel
+        // batch that resolved between this batch's start and end.
+        onChange([...valueRef.current, ...newPaths]);
       }
 
       if (errors.length > 0) {
@@ -296,7 +319,7 @@ export default function MediaUploader({
             ? `Maximum ${maxFiles} images reached`
             : 'Drag & drop images here or click to browse'}
         </p>
-        <p className={styles.dropHint}>JPG, PNG, WebP · Max 5MB each</p>
+        <p className={styles.dropHint}>JPG, PNG, WebP · Max 4MB each</p>
         <input
           ref={fileInputRef}
           type="file"

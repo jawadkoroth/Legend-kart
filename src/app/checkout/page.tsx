@@ -52,7 +52,7 @@ function CheckoutContent() {
   const size = searchParams.get('size') || '';
   const couponCode = searchParams.get('coupon') || '';
 
-  const [product, setProduct] = useState<{ id: string; name: string; price_paise: number } | null>(null);
+  const [product, setProduct] = useState<{ id: string; name: string; price_paise: number; sale_price_paise: number | null } | null>(null);
   const [discount, setDiscount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -192,7 +192,13 @@ function CheckoutContent() {
     );
   }
 
-  const price = product.price_paise;
+  // Mirror server-side pricing: sale_price wins when strictly lower,
+  // coupon stacks on top. Keeps the displayed total identical to the
+  // amount /api/orders will charge.
+  const price =
+    product.sale_price_paise != null && product.sale_price_paise < product.price_paise
+      ? product.sale_price_paise
+      : product.price_paise;
   const discountAmount = Math.round(price * discount / 100);
   const total = price - discountAmount;
 
