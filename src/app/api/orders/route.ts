@@ -8,6 +8,7 @@ import { getRazorpay } from '@/lib/razorpay';
 import { sendOrderCreatedEmail } from '@/lib/email';
 import { logEvent } from '@/lib/log';
 import { calcShipping } from '@/lib/shipping/calcShipping';
+import { evaluateCoupon } from '@/lib/coupons/evaluateCoupon';
 
 /**
  * POST /api/orders
@@ -85,54 +86,10 @@ export async function POST(req: NextRequest) {
       return apiError(404, 'Product not found or unavailable');
     }
 
-    // 3. Resolve coupon (best-effort; invalid codes silently no-op).
-    let discountPercent = 0;
-    let appliedCoupon = '';
-
-    if (coupon_code && coupon_code.trim()) {
-      const { data: coupon } = await supabase
-        .from('coupons')
-        .select('code, discount_percent, is_active, new_users_only')
-        .eq('code', coupon_code.toUpperCase())
-        .eq('is_active', true)
-        .single();
-
-      if (coupon) {
-        // Re-enforce new_users_only here so a client that
-        // submits the order without going through the validate
-        // route can't bypass the restriction.
-        if ((coupon as { new_users_only?: boolean }).new_users_only) {
-          if (!userId) {
-            // Drop the discount silently for guests; the front
-            // door (validate route) returns a clear 403, so by
-            // the time we get here without a userId either the
-            // session expired or the client tampered. Either way,
-            // proceed without the discount rather than failing
-            // the whole order.
-            discountPercent = 0;
-            appliedCoupon = '';
-          } else {
-            const { count: priorOrders } = await supabase
-              .from('orders')
-              .select('id', { count: 'exact', head: true })
-              .eq('user_id', userId)
-              .neq('order_status', 'cancelled');
-            if ((priorOrders ?? 0) > 0) {
-              discountPercent = 0;
-              appliedCoupon = '';
-            } else {
-              discountPercent = coupon.discount_percent;
-              appliedCoupon = coupon.code;
-            }
-          }
-        } else {
-          discountPercent = coupon.discount_percent;
-          appliedCoupon = coupon.code;
-        }
-      }
-    }
-
-    // 4. Compute totals.
+    // 3. Compute subtotal first — `evaluateCoupon` needs the
+    // post-sale-price subtotal to enforce min_cart_paise and to
+    // cap the discount at max_discount_paise.
+    //
     // Honor sale price when present and strictly lower than the
     // regular price; coupon discounts then stack on top.
     const salePrice = (product as { sale_price_paise?: number | null }).sale_price_paise;
@@ -141,7 +98,31 @@ export async function POST(req: NextRequest) {
         ? salePrice
         : product.price_paise;
     const subtotal = unitPrice * quantity;
-    const discount = Math.round((subtotal * discountPercent) / 100);
+
+    // 4. Resolve coupon via the shared evaluator. On any rejection
+    // we silently drop the discount rather than failing the whole
+    // order — the validate route is the front door for user-facing
+    // copy, and an order in flight should never error out because
+    // a coupon's per_user_limit just tipped over by a stale tab.
+    let appliedCoupon = '';
+    let discount = 0;
+    if (coupon_code && coupon_code.trim()) {
+      const evalResult = await evaluateCoupon(supabase, {
+        code: coupon_code,
+        subtotalPaise: subtotal,
+        userId,
+      });
+      if (evalResult.ok) {
+        appliedCoupon = evalResult.coupon.code;
+        discount = evalResult.discountPaise;
+      } else {
+        logEvent('order.coupon_rejected', {
+          code: coupon_code.toUpperCase().trim(),
+          reason: evalResult.reason,
+        });
+      }
+    }
+
     const postDiscountSubtotal = subtotal - discount;
 
     // Server-authoritative shipping + COD fee. Settings are loaded

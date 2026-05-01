@@ -36,6 +36,12 @@ interface Coupon {
   show_on_homepage: boolean;
   homepage_text: string | null;
   homepage_accent: string | null;
+  min_cart_paise: number | null;
+  max_discount_paise: number | null;
+  starts_at: string | null;
+  expires_at: string | null;
+  per_user_limit: number | null;
+  usage_limit: number | null;
   created_at: string;
 }
 
@@ -46,6 +52,14 @@ interface DraftState {
   showOnHomepage: boolean;
   homepageText: string;
   homepageAccent: string;
+  /** Rupees in the form, paise in the DB. */
+  minCartRupees: string;
+  maxDiscountRupees: string;
+  /** datetime-local strings; converted to ISO on save. */
+  startsAt: string;
+  expiresAt: string;
+  perUserLimit: string;
+  usageLimit: string;
 }
 
 const EMPTY_DRAFT: DraftState = {
@@ -55,7 +69,35 @@ const EMPTY_DRAFT: DraftState = {
   showOnHomepage: false,
   homepageText: '',
   homepageAccent: 'gold',
+  minCartRupees: '',
+  maxDiscountRupees: '',
+  startsAt: '',
+  expiresAt: '',
+  perUserLimit: '',
+  usageLimit: '',
 };
+
+function toLocalInput(iso: string | null): string {
+  if (!iso) return '';
+  // Strip seconds + Z so <input type=datetime-local> accepts it.
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function parseLocalInput(value: string): string | null {
+  if (!value.trim()) return null;
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? null : d.toISOString();
+}
+
+function parsePositiveInt(value: string): number | null {
+  const v = value.trim();
+  if (!v) return null;
+  const n = parseInt(v, 10);
+  return Number.isFinite(n) && n >= 1 ? n : null;
+}
 
 export default function AdminCoupons() {
   const [coupons, setCoupons] = useState<Coupon[]>([]);
@@ -75,7 +117,7 @@ export default function AdminCoupons() {
     const { data } = await supabase
       .from('coupons')
       .select(
-        'id, code, discount_percent, is_active, new_users_only, show_on_homepage, homepage_text, homepage_accent, created_at',
+        'id, code, discount_percent, is_active, new_users_only, show_on_homepage, homepage_text, homepage_accent, min_cart_paise, max_discount_paise, starts_at, expires_at, per_user_limit, usage_limit, created_at',
       )
       .order('created_at', { ascending: false });
     setCoupons((data as Coupon[]) ?? []);
@@ -97,6 +139,12 @@ export default function AdminCoupons() {
       showOnHomepage: c.show_on_homepage,
       homepageText: c.homepage_text ?? '',
       homepageAccent: c.homepage_accent ?? 'gold',
+      minCartRupees: c.min_cart_paise ? String(c.min_cart_paise / 100) : '',
+      maxDiscountRupees: c.max_discount_paise ? String(c.max_discount_paise / 100) : '',
+      startsAt: toLocalInput(c.starts_at),
+      expiresAt: toLocalInput(c.expires_at),
+      perUserLimit: c.per_user_limit ? String(c.per_user_limit) : '',
+      usageLimit: c.usage_limit ? String(c.usage_limit) : '',
     });
     setShowForm(true);
     setError('');
@@ -110,6 +158,42 @@ export default function AdminCoupons() {
       return setError('Discount must be between 1 and 100');
     }
 
+    // Optional numeric / date fields. Empty input = NULL in the
+    // DB which means "no constraint".
+    const minCartRupees = draft.minCartRupees.trim();
+    const maxDiscountRupees = draft.maxDiscountRupees.trim();
+    const minCartPaise = minCartRupees
+      ? Math.round(parseFloat(minCartRupees) * 100)
+      : null;
+    const maxDiscountPaise = maxDiscountRupees
+      ? Math.round(parseFloat(maxDiscountRupees) * 100)
+      : null;
+    if (minCartPaise !== null && (Number.isNaN(minCartPaise) || minCartPaise < 0)) {
+      return setError('Minimum cart must be a positive number');
+    }
+    if (maxDiscountPaise !== null && (Number.isNaN(maxDiscountPaise) || maxDiscountPaise < 0)) {
+      return setError('Maximum discount must be a positive number');
+    }
+
+    const startsAtIso = parseLocalInput(draft.startsAt);
+    const expiresAtIso = parseLocalInput(draft.expiresAt);
+    if (
+      startsAtIso &&
+      expiresAtIso &&
+      new Date(startsAtIso).getTime() > new Date(expiresAtIso).getTime()
+    ) {
+      return setError('Start must be before expiry');
+    }
+
+    const perUserLimit = parsePositiveInt(draft.perUserLimit);
+    if (draft.perUserLimit.trim() && perUserLimit === null) {
+      return setError('Per-user limit must be 1 or higher');
+    }
+    const usageLimit = parsePositiveInt(draft.usageLimit);
+    if (draft.usageLimit.trim() && usageLimit === null) {
+      return setError('Usage limit must be 1 or higher');
+    }
+
     setSaving(true);
     setError('');
     const supabase = createClient();
@@ -120,6 +204,12 @@ export default function AdminCoupons() {
       show_on_homepage: draft.showOnHomepage,
       homepage_text: draft.homepageText.trim() || null,
       homepage_accent: draft.showOnHomepage ? draft.homepageAccent : null,
+      min_cart_paise: minCartPaise,
+      max_discount_paise: maxDiscountPaise,
+      starts_at: startsAtIso,
+      expires_at: expiresAtIso,
+      per_user_limit: perUserLimit,
+      usage_limit: usageLimit,
     };
 
     const result = editingId
@@ -197,6 +287,86 @@ export default function AdminCoupons() {
               value={draft.percent}
               onChange={(e) => setDraft({ ...draft, percent: e.target.value })}
             />
+          </div>
+
+          {/* Advanced rules — all optional. Leave blank for "no
+              constraint". Stored as paise / int / TIMESTAMPTZ. */}
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: '1fr 1fr',
+              gap: 'var(--space-3)',
+              marginBottom: 'var(--space-3)',
+            }}
+          >
+            <div className="input-group">
+              <label className="input-label">Min cart (₹)</label>
+              <input
+                className="input-field"
+                type="number"
+                min="0"
+                step="1"
+                placeholder="e.g. 999"
+                value={draft.minCartRupees}
+                onChange={(e) => setDraft({ ...draft, minCartRupees: e.target.value })}
+              />
+            </div>
+            <div className="input-group">
+              <label className="input-label">Max discount (₹)</label>
+              <input
+                className="input-field"
+                type="number"
+                min="0"
+                step="1"
+                placeholder="No cap"
+                value={draft.maxDiscountRupees}
+                onChange={(e) => setDraft({ ...draft, maxDiscountRupees: e.target.value })}
+              />
+            </div>
+            <div className="input-group">
+              <label className="input-label">Starts at</label>
+              <input
+                className="input-field"
+                type="datetime-local"
+                value={draft.startsAt}
+                onChange={(e) => setDraft({ ...draft, startsAt: e.target.value })}
+                style={{ colorScheme: 'dark' }}
+              />
+            </div>
+            <div className="input-group">
+              <label className="input-label">Expires at</label>
+              <input
+                className="input-field"
+                type="datetime-local"
+                value={draft.expiresAt}
+                onChange={(e) => setDraft({ ...draft, expiresAt: e.target.value })}
+                style={{ colorScheme: 'dark' }}
+              />
+            </div>
+            <div className="input-group">
+              <label className="input-label">Per-user limit</label>
+              <input
+                className="input-field"
+                type="number"
+                min="1"
+                step="1"
+                placeholder="Unlimited"
+                value={draft.perUserLimit}
+                onChange={(e) => setDraft({ ...draft, perUserLimit: e.target.value })}
+              />
+            </div>
+            <div className="input-group">
+              <label className="input-label">Total usage limit</label>
+              <input
+                className="input-field"
+                type="number"
+                min="1"
+                step="1"
+                placeholder="Unlimited"
+                value={draft.usageLimit}
+                onChange={(e) => setDraft({ ...draft, usageLimit: e.target.value })}
+              />
+            </div>
           </div>
 
           <label
