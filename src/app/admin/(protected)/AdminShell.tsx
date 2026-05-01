@@ -4,6 +4,8 @@ import { useState } from 'react';
 import { usePathname } from 'next/navigation';
 import Link from 'next/link';
 import AdminFeedbackDrawer from '@/components/AdminFeedbackDrawer';
+import AdminRealtimeProvider from '@/components/admin/AdminRealtimeProvider';
+import AdminPushPrompt from '@/components/admin/AdminPushPrompt';
 
 const NAV_ITEMS = [
   { href: '/admin/dashboard', label: 'Home', icon: '📊' },
@@ -32,18 +34,23 @@ export default function AdminShell({
           <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)', letterSpacing: '0.15em' }}>ADMIN</span>
         </div>
 
-        <button
-          onClick={() => setIsFeedbackOpen(true)}
-          style={{ background: 'none', border: 'none', cursor: 'pointer', position: 'relative', display: 'flex', alignItems: 'center' }}
-        >
-          <span style={{ fontSize: '1.25rem' }}>💬</span>
-          {unreadCount > 0 && (
-            <span style={{ position: 'absolute', top: '-4px', right: '-8px', background: 'var(--error)', color: 'white', fontSize: '10px', fontWeight: 'bold', padding: '2px 6px', borderRadius: '10px' }}>
-              {unreadCount}
-            </span>
-          )}
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center' }}>
+          <AdminPushPrompt />
+          <button
+            onClick={() => setIsFeedbackOpen(true)}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', position: 'relative', display: 'flex', alignItems: 'center' }}
+          >
+            <span style={{ fontSize: '1.25rem' }}>💬</span>
+            {unreadCount > 0 && (
+              <span style={{ position: 'absolute', top: '-4px', right: '-8px', background: 'var(--error)', color: 'white', fontSize: '10px', fontWeight: 'bold', padding: '2px 6px', borderRadius: '10px' }}>
+                {unreadCount}
+              </span>
+            )}
+          </button>
+        </div>
       </div>
+
+      <AdminRealtimeProvider />
 
       <div className="admin-content">{children}</div>
 
