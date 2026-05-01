@@ -9,13 +9,13 @@
 /* ------------------------------------------------------------------ */
 
 .dropZone {
-  border: 2px dashed rgba(255, 255, 255, 0.12);
+  border: 2px dashed var(--subtle-border-strong);
   border-radius: 10px;
   padding: var(--space-6) var(--space-4);
   text-align: center;
   cursor: pointer;
   transition: border-color 0.2s ease, background 0.2s ease;
-  background: rgba(255, 255, 255, 0.02);
+  background: var(--surface-tint);
 }
 
 .dropZone:hover {
@@ -75,13 +75,13 @@
   position: relative;
   border-radius: 8px;
   overflow: hidden;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--subtle-border);
+  background: var(--surface-tint);
   transition: border-color 0.2s ease;
 }
 
 .imageCard:hover {
-  border-color: rgba(255, 255, 255, 0.16);
+  border-color: var(--subtle-border-strong);
 }
 
 .imageCard:first-child {
@@ -128,14 +128,16 @@
 .spinner {
   width: 24px;
   height: 24px;
-  border: 2px solid rgba(255, 255, 255, 0.15);
+  border: 2px solid var(--subtle-border-strong);
   border-top-color: var(--gold, #C9A86A);
   border-radius: 50%;
   animation: spin 0.7s linear infinite;
 }
 
 @keyframes spin {
-  to { transform: rotate(360deg); }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 /* ------------------------------------------------------------------ */
@@ -163,8 +165,8 @@
 }
 
 .actionBtn:hover {
-  color: #F5F5F5;
-  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-primary);
+  background: var(--hover-wash-strong);
 }
 
 .actionBtnRemove:hover {

@@ -38,10 +38,11 @@
   border-radius: var(--radius-full);
   transition: all var(--duration-fast) var(--ease-out);
 }
+
 .navLink:hover {
   color: var(--text-primary);
   border-color: var(--text-primary);
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--hover-wash);
 }
 
 /* ---------- Hero ---------- */
@@ -52,7 +53,8 @@
   display: flex;
   align-items: flex-end;
   overflow: hidden;
-  background-color: var(--bg-primary); /* Ensures cinematic dark overlay before video boots */
+  background-color: var(--bg-primary);
+  /* Ensures cinematic dark overlay before video boots */
 }
 
 .heroVideo {
@@ -74,13 +76,11 @@
 .heroOverlay {
   position: absolute;
   inset: 0;
-  background: linear-gradient(
-    to top,
-    rgba(11, 11, 11, 0.95) 0%,
-    rgba(11, 11, 11, 0.6) 40%,
-    rgba(11, 11, 11, 0.2) 70%,
-    transparent 100%
-  );
+  background: linear-gradient(to top,
+      rgba(11, 11, 11, 0.95) 0%,
+      rgba(11, 11, 11, 0.6) 40%,
+      rgba(11, 11, 11, 0.2) 70%,
+      transparent 100%);
   z-index: 1;
 }
 
@@ -132,6 +132,7 @@
   border-radius: var(--radius-md);
   transition: all var(--duration-normal) var(--ease-out);
 }
+
 .heroCta:hover {
   background: #E0E0E0;
   transform: translateY(-2px);
@@ -177,25 +178,29 @@
 
 .storyStackContainer {
   position: relative;
-  height: 480px; /* Base mobile height */
+  height: 480px;
+  /* Base mobile height */
   width: 100%;
   max-width: 1000px;
   margin: 0 auto;
   display: flex;
   justify-content: center;
   align-items: center;
-  overflow: hidden; /* Prevent horizontal scrollbars causing layout shifts */
-  touch-action: pan-y; /* Allow vertical scroll, hijack horizontal in JS */
+  overflow: hidden;
+  /* Prevent horizontal scrollbars causing layout shifts */
+  touch-action: pan-y;
+  /* Allow vertical scroll, hijack horizontal in JS */
 }
 
 .storyCardWrapper {
   position: absolute;
-  width: 310px; /* Mobile width */
+  width: 310px;
+  /* Mobile width */
   height: 420px;
   transform-style: preserve-3d;
-  transition: transform 0.5s cubic-bezier(0.25, 1, 0.5, 1), 
-              opacity 0.5s ease, 
-              filter 0.5s ease;
+  transition: transform 0.5s cubic-bezier(0.25, 1, 0.5, 1),
+    opacity 0.5s ease,
+    filter 0.5s ease;
   will-change: transform, opacity, filter;
   cursor: pointer;
 }
@@ -232,7 +237,7 @@
 .storyOverlay {
   position: absolute;
   inset: 0;
-  background: linear-gradient(to top, rgba(11,11,11,0.5) 0%, transparent 50%);
+  background: linear-gradient(to top, rgba(11, 11, 11, 0.5) 0%, transparent 50%);
   pointer-events: none;
 }
 
@@ -255,7 +260,8 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
-  text-align: left; /* Explicit strict left anchor preventing shrink shifts */
+  text-align: left;
+  /* Explicit strict left anchor preventing shrink shifts */
   flex: 1;
 }
 
@@ -369,9 +375,10 @@
   transition: all var(--duration-normal) var(--ease-out);
   align-self: flex-start;
 }
+
 .featuredCta:hover {
   border-color: var(--text-primary);
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--hover-wash);
   transform: translateY(-1px);
 }
 
@@ -395,6 +402,7 @@
   border-radius: var(--radius-lg);
   transition: border-color var(--duration-normal) var(--ease-out);
 }
+
 .valueCard:hover {
   border-color: var(--border-light);
 }
@@ -520,16 +528,18 @@
 
   .storyStackContainer {
     height: 600px;
-    overflow: visible; /* Let stacked desk cards peek softly */
+    overflow: visible;
+    /* Let stacked desk cards peek softly */
   }
 
   .storyCardWrapper {
-    width: 400px; 
+    width: 400px;
     height: 540px;
   }
-  
+
   .storyImgWrap {
-    height: 400px; /* Force proportional desktop image height */
+    height: 400px;
+    /* Force proportional desktop image height */
   }
 
   .featured {

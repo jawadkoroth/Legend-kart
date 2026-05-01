@@ -13,8 +13,8 @@
   --account-glow: rgba(201, 168, 106, 0.10);
 
   --account-surface: var(--bg-secondary, #0F0F11);
-  --account-border: var(--border-color, rgba(255, 255, 255, 0.08));
-  --account-border-strong: var(--border-light, rgba(255, 255, 255, 0.14));
+  --account-border: var(--border-color, var(--subtle-border));
+  --account-border-strong: var(--border-light, var(--subtle-border-strong));
   --account-text: var(--text-primary, #F5F5F5);
   --account-muted: var(--text-muted, #9A9A9A);
 
@@ -132,7 +132,7 @@
 
 .signOut:hover {
   color: var(--account-text);
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--hover-wash);
 }
 
 .signOut:focus-visible {
@@ -211,7 +211,7 @@
 }
 
 .sectionHeaderBtn:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.02);
+  background: var(--surface-tint);
 }
 
 .sectionHeaderBtn:focus-visible {

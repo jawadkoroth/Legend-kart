@@ -18,7 +18,7 @@
 .card:focus-visible {
   transform: translateY(-2px);
   border-color: var(--accent-gold, #c9a86a);
-  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.35);
+  box-shadow: var(--shadow-lg);
 }
 
 .card:hover .name,
@@ -68,7 +68,7 @@
   font-weight: 600;
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  border: 1px solid var(--subtle-border-strong);
 }
 
 .body {

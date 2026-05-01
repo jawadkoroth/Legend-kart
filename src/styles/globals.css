@@ -57,6 +57,28 @@
   --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.5);
   --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.6);
 
+  /* Theme-aware surface tokens.
+   *
+   * Page-level CSS modules historically baked
+   * `rgba(255,255,255,...)` straight into hover and subtle-border
+   * states. Those go invisible against the warm light bg, breaking
+   * the premium feel. Consume these tokens instead so a single
+   * source flips both modes. Light overrides live in the
+   * `[data-theme='light']` block at the bottom of this file.
+   *
+   *   --hover-wash         soft hover background tint
+   *   --hover-wash-strong  used on focused/active interactive
+   *                        surfaces or strong hover affordances
+   *   --subtle-border      faint divider / outline (cards, rows)
+   *   --subtle-border-strong  hover-state border emphasis
+   *   --surface-tint       barely-there surface wash (drop zones)
+   */
+  --hover-wash: rgba(255, 255, 255, 0.05);
+  --hover-wash-strong: rgba(255, 255, 255, 0.12);
+  --subtle-border: rgba(255, 255, 255, 0.08);
+  --subtle-border-strong: rgba(255, 255, 255, 0.18);
+  --surface-tint: rgba(255, 255, 255, 0.02);
+
   --ease-out: cubic-bezier(0.25, 0.46, 0.45, 0.94);
   --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
   --duration-fast: 150ms;
@@ -1051,4 +1073,53 @@ img {
 
 [data-theme='light'] .btn-loading::after {
   border-top-color: #FAF7F2;
+}
+
+/* Theme-aware token overrides — flip the surface tints from
+ * rgba-on-dark to rgba-on-light. All consumers (CSS modules + this
+ * file) inherit the new values automatically. */
+[data-theme='light'] {
+  --hover-wash: rgba(31, 27, 23, 0.045);
+  --hover-wash-strong: rgba(31, 27, 23, 0.09);
+  --subtle-border: rgba(31, 27, 23, 0.10);
+  --subtle-border-strong: rgba(31, 27, 23, 0.22);
+  --surface-tint: rgba(31, 27, 23, 0.03);
+}
+
+/* Gallery slide dots: white on a black bg in dark mode is fine,
+ * but `rgba(255,255,255,0.4)` and solid `white` go invisible
+ * against the warm light surface. Flip to charcoal in light. */
+[data-theme='light'] .gallery-dot {
+  background: rgba(31, 27, 23, 0.35);
+}
+
+[data-theme='light'] .gallery-dot-active {
+  background: #1F1B17;
+}
+
+/* Premium toggle slider shadow: a black drop on a light bg looks
+ * like a smudge. Soften it so the slider reads "lifted" without
+ * the heavy shadow. */
+[data-theme='light'] .premium-toggle-slider::before,
+[data-theme='light'] .premium-toggle-slider:before {
+  box-shadow: 0 1px 2px rgba(60, 45, 25, 0.10);
+}
+
+/* Stat / order card hover shadows are calibrated for a deep dark
+ * surface; on warm linen they read as bruise-purple. Use the
+ * warm shadow tokens we already defined for light mode. */
+[data-theme='light'] .stat-card:hover,
+[data-theme='light'] .order-card:hover {
+  box-shadow: 0 10px 26px rgba(60, 45, 25, 0.10);
+}
+
+/* Scrollbar thumb: bg-tertiary in light mode is too close to
+ * bg-primary, leaving the scrollbar nearly invisible. Anchor it
+ * to a beige that has clear contrast against the page. */
+[data-theme='light'] ::-webkit-scrollbar-thumb {
+  background: #C9BBA3;
+}
+
+[data-theme='light'] ::-webkit-scrollbar-thumb:hover {
+  background: #B8A88B;
 }
