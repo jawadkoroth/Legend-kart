@@ -9,6 +9,7 @@ import { sendOrderCreatedEmail } from '@/lib/email';
 import { logEvent } from '@/lib/log';
 import { calcShipping } from '@/lib/shipping/calcShipping';
 import { evaluateCoupon } from '@/lib/coupons/evaluateCoupon';
+import { notifyAdmins } from '@/lib/push/webPush';
 
 /**
  * POST /api/orders
@@ -243,6 +244,15 @@ export async function POST(req: NextRequest) {
         shipping_address,
         image_url: firstImage,
       }).catch(() => { });
+
+      // Background push to all admin subscriptions (if configured).
+      // Fire-and-forget: never blocks the API response.
+      notifyAdmins(supabase, {
+        title: `New order #${finalOrderNumber}`,
+        body: `${customer.name || 'A customer'} ordered ₹${total / 100} · ${payment_method.toUpperCase()}`,
+        url: '/admin/orders',
+        tag: orderId,
+      }).catch((err) => console.error('[ORDER_PUSH_FANOUT]', err));
     }
 
     // 6. Online payment: create Razorpay order.
