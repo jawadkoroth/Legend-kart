@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import Link from 'next/link';
+import HomepageCouponBanner from '@/components/HomepageCouponBanner';
 import styles from './page.module.css';
 
 const STORY_STEPS = [
@@ -19,9 +20,9 @@ export default function LandingPage() {
   const [isDragging, setIsDragging] = useState(false);
   const [isVideoReady, setIsVideoReady] = useState(false);
   const [storyVisible, setStoryVisible] = useState(false);
-  
+
   const touchStartPos = useRef({ x: 0, y: 0, time: 0 });
-  
+
   const storyRef = useRef<HTMLElement>(null);
   const audioPool = useRef<HTMLAudioElement[]>([]);
   const poolIndex = useRef(0);
@@ -44,7 +45,7 @@ export default function LandingPage() {
     const unlockAudio = () => {
       if (audioUnlocked.current) return;
       audioUnlocked.current = true;
-      
+
       pool.forEach(audio => {
         audio.muted = true;
         const playPromise = audio.play();
@@ -53,7 +54,7 @@ export default function LandingPage() {
             audio.pause();
             audio.currentTime = 0;
             audio.muted = false;
-          }).catch(() => {});
+          }).catch(() => { });
         }
       });
 
@@ -78,18 +79,18 @@ export default function LandingPage() {
     if (!audioUnlocked.current) return; // Prevent spamming rejected promises
 
     const now = Date.now();
-    
+
     // 50ms micro-throttle prevents digital distortion but permits rapid flurries
     if (now - lastPlay.current > 50) {
       if (audioPool.current.length > 0) {
         const audio = audioPool.current[poolIndex.current];
-        
+
         audio.currentTime = 0;
         // Subtle pitch variation for organic mechanics (0.95 to 1.05)
         audio.playbackRate = 0.95 + Math.random() * 0.1;
-        
-        audio.play().catch(() => {});
-        
+
+        audio.play().catch(() => { });
+
         // Cycle securely through hardware pool
         poolIndex.current = (poolIndex.current + 1) % audioPool.current.length;
         lastPlay.current = now;
@@ -113,7 +114,7 @@ export default function LandingPage() {
 
   // Desktop Hover Handler
   const handleHover = (idx: number) => {
-    if (window.innerWidth < 1024) return; 
+    if (window.innerWidth < 1024) return;
     if (idx !== activeIndex) {
       setActiveIndex(idx);
       playSound();
@@ -134,9 +135,9 @@ export default function LandingPage() {
     if (!isDragging) return;
     const currentX = e.touches[0].clientX;
     const diffX = touchStartPos.current.x - currentX;
-    
+
     // Fractional mapping: roughly 300px drag equals 1 full card shift
-    let offset = diffX / 300; 
+    let offset = diffX / 300;
 
     // Edge friction (rubber banding resistance)
     if (activeIndex === 0 && offset < 0) offset *= 0.25;
@@ -147,12 +148,12 @@ export default function LandingPage() {
 
   const handleTouchEnd = (e: React.TouchEvent) => {
     setIsDragging(false);
-    
+
     const endX = e.changedTouches[0].clientX;
     const diffX = touchStartPos.current.x - endX;
     const timeDiff = Date.now() - touchStartPos.current.time;
-    
-    const velocity = Math.abs(diffX) / timeDiff; 
+
+    const velocity = Math.abs(diffX) / timeDiff;
     const didCrossThreshold = Math.abs(diffX) > 60; // Distance threshold (~20% card)
     const isFastSwipe = velocity > 0.4 && Math.abs(diffX) > 20;
 
@@ -167,7 +168,7 @@ export default function LandingPage() {
       setActiveIndex(targetIndex);
       playSound();
     }
-    
+
     setTouchOffset(0);
   };
 
@@ -176,6 +177,11 @@ export default function LandingPage() {
 
   return (
     <div className={styles.page}>
+      {/* Promotional strip — admin-controlled, dismissible per session.
+          Mounted before the hero so it docks directly under the navbar
+          without overlapping the autoplay video. */}
+      <HomepageCouponBanner />
+
       {/* Hero Section */}
       <section className={styles.hero}>
         <div className={styles.heroOverlay} />
@@ -199,7 +205,7 @@ export default function LandingPage() {
       </section>
 
       {/* Brand Story Slider */}
-      <section 
+      <section
         className={`${styles.storySection} ${storyVisible ? styles.storySectionVisible : ''}`}
         ref={storyRef}
       >
@@ -208,8 +214,8 @@ export default function LandingPage() {
             <p className={styles.storySub}>Our Process</p>
             <h2 className={styles.storyTitle}>From Thread to Tailor</h2>
           </div>
-          
-          <div 
+
+          <div
             className={styles.storyStackContainer}
             onTouchStart={handleTouchStart}
             onTouchMove={handleTouchMove}
@@ -240,7 +246,7 @@ export default function LandingPage() {
               }
 
               const transformString = `perspective(1000px) translateX(${translateX}%) scale(${scale}) rotateY(${rotateY}deg)`;
-              
+
               // We derive pseudo 'active' status when exact or closest
               const isActive = absDiff < 0.3;
 

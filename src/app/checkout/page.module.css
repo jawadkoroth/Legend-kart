@@ -90,6 +90,51 @@
   font-size: 0.8125rem;
 }
 
+/* COD fee row: slides in when COD is selected.
+   The `key` on the React node forces a remount when the
+   amount changes, replaying the animation each time. */
+.codFeeRow {
+  color: var(--warning);
+  animation: codFeeSlideIn 240ms cubic-bezier(0.25, 0.46, 0.45, 0.94);
+}
+
+@keyframes codFeeSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Total amount: subtle pulse + scale when the figure changes
+   so users notice the update without a jarring number flip. */
+.totalAmount {
+  display: inline-block;
+  animation: totalPulse 320ms cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+@keyframes totalPulse {
+  0% {
+    transform: scale(1);
+  }
+  40% {
+    transform: scale(1.06);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .codFeeRow,
+  .totalAmount {
+    animation: none;
+  }
+}
+
 .formSection {
   margin-bottom: var(--space-6);
   display: flex;

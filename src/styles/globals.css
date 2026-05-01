@@ -958,24 +958,97 @@ img {
   animation: pulse 2s ease-in-out infinite;
 }
 
-/* ---------- Light Theme Overrides ---------- */
+/* ---------- Light Theme — Warm Luxury Palette ----------
+ *
+ * Designed to preserve the NOIR premium feel without resorting to
+ * a corporate white-and-blue look. All values are derived from a
+ * single warm neutral family (sandstone / linen) so the surface
+ * hierarchy stays calm and readable:
+ *
+ *   bg-primary    page background (slightly warmer than card)
+ *   bg-secondary  card surface (lifted, brighter)
+ *   bg-tertiary   subtle wash for muted regions
+ *   bg-elevated   modal / floating surface (closest to white)
+ *   bg-input      input background (matches elevated)
+ *
+ * Text is soft charcoal — never pure black — to avoid harsh edges
+ * against the warm bg. Borders are muted beige/stone, NOT grey.
+ * Accent gold is darkened just enough to retain contrast on the
+ * sand background.
+ *
+ * Dark mode tokens above remain untouched.
+ */
 [data-theme='light'] {
-  --bg-primary: #FAFAFA;
-  --bg-secondary: #F0F0F0;
-  --bg-tertiary: #E8E8E8;
-  --bg-elevated: #FFFFFF;
-  --bg-input: #FFFFFF;
+  --bg-primary: #F5F1EA;
+  /* page bg: warm sandstone */
+  --bg-secondary: #FAF7F2;
+  /* cards: lifted ivory */
+  --bg-tertiary: #F0EBE1;
+  /* muted wash: subtle linen */
+  --bg-elevated: #FFFEFB;
+  /* modal / float: near-white but warm */
+  --bg-input: #FFFEFB;
 
-  --text-primary: #111111;
-  --text-secondary: #444444;
-  --text-muted: #777777;
-  --text-accent: #B8860B;
-  /* slightly darker gold for white bg */
+  --text-primary: #1F1B17;
+  /* soft charcoal, not pure black */
+  --text-secondary: #54483D;
+  /* warm slate */
+  --text-muted: #8F8377;
+  /* stone */
+  --text-accent: #A88532;
+  /* deeper gold for legibility on sand */
 
-  --border-color: #E2E2E2;
-  --border-light: #CCCCCC;
+  --border-color: #E2D9CB;
+  /* warm beige */
+  --border-light: #D2C7B5;
+  /* slightly stronger beige */
 
-  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.1);
-  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.1);
-  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.15);
+  /* Subtle gold accent reserved for hover/limited-stock cues. */
+  --accent-gold: #B89858;
+
+  --shadow-sm: 0 1px 3px rgba(60, 45, 25, 0.06);
+  --shadow-md: 0 4px 14px rgba(60, 45, 25, 0.08);
+  --shadow-lg: 0 10px 28px rgba(60, 45, 25, 0.12);
+}
+
+/* Light-mode admin glass: tuned to the warm palette so the
+ * sticky header and card surfaces don't read as cold grey. */
+[data-theme='light'] .admin-layout {
+  --admin-glass-bg: rgba(250, 247, 242, 0.78);
+  --admin-glass-border: rgba(95, 75, 45, 0.10);
+  --admin-glass-shadow: 0 4px 16px rgba(60, 45, 25, 0.05);
+}
+
+[data-theme='light'] body {
+  /* Pure-white selection looks harsh on warm bg; tint it. */
+  background-color: var(--bg-primary);
+}
+
+[data-theme='light'] ::selection {
+  background: rgba(168, 133, 50, 0.22);
+  color: var(--text-primary);
+}
+
+/* btn-primary in dark mode is white-on-black. In light mode the
+ * same tokens flip to dark-on-light, which collides with the
+ * surrounding sand surfaces (poor visual hierarchy). Anchor the
+ * primary button to a deep espresso so it remains the strongest
+ * call-to-action on every screen without re-implementing it on
+ * every page. */
+[data-theme='light'] .btn-primary {
+  background: #1F1B17;
+  color: #FAF7F2;
+}
+
+[data-theme='light'] .btn-primary:hover {
+  background: #2C261F;
+}
+
+[data-theme='light'] .btn-primary:disabled {
+  background: var(--bg-tertiary);
+  color: var(--text-muted);
+}
+
+[data-theme='light'] .btn-loading::after {
+  border-top-color: #FAF7F2;
 }

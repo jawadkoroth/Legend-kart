@@ -5,11 +5,13 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense } from 'react';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
+import { useCart } from '@/lib/cart';
 import styles from './page.module.css';
 
 function CheckoutContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { removeItem: removeCartItem } = useCart();
 
   // Per-submit race controls.
   //
@@ -482,11 +484,26 @@ function CheckoutContent() {
 
       if (paymentMethod === 'online') {
         // Hand off to Razorpay; the id is consumed once payment
-        // succeeds or the user dismisses the modal.
+        // succeeds or the user dismisses the modal. The cart line
+        // is NOT cleared here — only after payment verification
+        // succeeds inside the Razorpay handler. A user who
+        // dismisses the modal or whose payment fails must still
+        // be able to retry against the same cart line.
         clientRequestIdRef.current = null;
         await openRazorpay(data);
       } else {
+        // COD: order is "placed" the moment the row exists. This
+        // is the only success-path for COD, so clear the matching
+        // cart line now (before navigation; the matching key is
+        // product.id + size, the same shape /checkout was opened
+        // with). Other lines in the cart are preserved — user
+        // checked out a single line, not the whole cart.
         clientRequestIdRef.current = null;
+        try {
+          removeCartItem(product.id, size);
+        } catch (err) {
+          console.error('[CART_CLEAR_COD]', err);
+        }
         router.push(`/order/${data.order_id}`);
       }
     } catch (err) {
@@ -532,6 +549,12 @@ function CheckoutContent() {
 
     const RazorpayClass = (window as unknown as { Razorpay: new (options: Record<string, unknown>) => { open: () => void } }).Razorpay;
 
+    // Capture the cart-line key locally. We're inside the submit
+    // closure where `product` was already guaranteed non-null,
+    // but TS loses the narrowing through the async handler below.
+    const cartLineProductId = product?.id ?? null;
+    const cartLineSize = size;
+
     const rzp = new RazorpayClass({
       key: orderData.key_id,
       amount: orderData.amount,
@@ -558,6 +581,18 @@ function CheckoutContent() {
           });
           const verifyData = await verifyRes.json();
           if (verifyData.success) {
+            // Payment captured AND server-side signature verified —
+            // this is the ONLY online-payment success path. Clearing
+            // here (and nowhere else) ensures a user who dismisses
+            // the modal or whose payment ultimately fails keeps
+            // their cart intact for a retry.
+            try {
+              if (cartLineProductId) {
+                removeCartItem(cartLineProductId, cartLineSize);
+              }
+            } catch (err) {
+              console.error('[CART_CLEAR_ONLINE]', err);
+            }
             router.push(`/order/${orderData.order_id}`);
           } else {
             router.push(`/order/${orderData.order_id}?payment=failed`);
@@ -621,14 +656,22 @@ function CheckoutContent() {
                   : 'FREE'}
             </span>
           </div>
+          {paymentMethod === 'cod' && quote && !quote.codEnabled && (
+            <div className={styles.summaryRow} style={{ color: 'var(--warning)' }}>
+              <span>Cash on Delivery unavailable</span>
+            </div>
+          )}
           {codFeePaise > 0 && (
-            <div className={styles.summaryRow}>
-              <span>COD fee</span>
-              <span>{formatPrice(codFeePaise)}</span>
+            <div
+              className={`${styles.summaryRow} ${styles.codFeeRow}`}
+              key={`cod-${codFeePaise}`}
+            >
+              <span>Cash on Delivery fee</span>
+              <span>+ {formatPrice(codFeePaise)}</span>
             </div>
           )}
           <div className={styles.summaryTotal}>
-            Total: <strong>{formatPrice(total)}</strong>
+            Total: <strong key={`total-${total}`} className={styles.totalAmount}>{formatPrice(total)}</strong>
           </div>
         </div>
 

@@ -92,14 +92,43 @@ export async function POST(req: NextRequest) {
     if (coupon_code && coupon_code.trim()) {
       const { data: coupon } = await supabase
         .from('coupons')
-        .select('code, discount_percent, is_active')
+        .select('code, discount_percent, is_active, new_users_only')
         .eq('code', coupon_code.toUpperCase())
         .eq('is_active', true)
         .single();
 
       if (coupon) {
-        discountPercent = coupon.discount_percent;
-        appliedCoupon = coupon.code;
+        // Re-enforce new_users_only here so a client that
+        // submits the order without going through the validate
+        // route can't bypass the restriction.
+        if ((coupon as { new_users_only?: boolean }).new_users_only) {
+          if (!userId) {
+            // Drop the discount silently for guests; the front
+            // door (validate route) returns a clear 403, so by
+            // the time we get here without a userId either the
+            // session expired or the client tampered. Either way,
+            // proceed without the discount rather than failing
+            // the whole order.
+            discountPercent = 0;
+            appliedCoupon = '';
+          } else {
+            const { count: priorOrders } = await supabase
+              .from('orders')
+              .select('id', { count: 'exact', head: true })
+              .eq('user_id', userId)
+              .neq('order_status', 'cancelled');
+            if ((priorOrders ?? 0) > 0) {
+              discountPercent = 0;
+              appliedCoupon = '';
+            } else {
+              discountPercent = coupon.discount_percent;
+              appliedCoupon = coupon.code;
+            }
+          }
+        } else {
+          discountPercent = coupon.discount_percent;
+          appliedCoupon = coupon.code;
+        }
       }
     }
 
