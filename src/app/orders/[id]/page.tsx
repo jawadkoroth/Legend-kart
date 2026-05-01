@@ -25,6 +25,8 @@ type OrderDetail = {
   unit_price_paise: number;
   subtotal_paise: number;
   discount_paise: number;
+  shipping_paise: number | null;
+  cod_fee_paise: number | null;
   total_paise: number;
   coupon_code: string | null;
   payment_method: string;
@@ -112,7 +114,7 @@ export default async function OrderDetailPage({
     .select(
       `
       id, order_number, user_id, product_id, size, quantity,
-      unit_price_paise, subtotal_paise, discount_paise, total_paise,
+      unit_price_paise, subtotal_paise, discount_paise, shipping_paise, cod_fee_paise, total_paise,
       coupon_code, payment_method, payment_status, order_status,
       customer, shipping_address, cancel_reason, created_at, updated_at,
       products ( name, images )
@@ -280,6 +282,18 @@ export default async function OrderDetailPage({
               Discount{order.coupon_code ? ` (${order.coupon_code})` : ''}
             </span>
             <span>− {formatPrice(order.discount_paise)}</span>
+          </div>
+        )}
+        {(order.shipping_paise ?? 0) > 0 && (
+          <div className={`${styles.totalsRow} ${styles.totalsRowMuted}`}>
+            <span>Shipping</span>
+            <span>{formatPrice(order.shipping_paise ?? 0)}</span>
+          </div>
+        )}
+        {(order.cod_fee_paise ?? 0) > 0 && (
+          <div className={`${styles.totalsRow} ${styles.totalsRowMuted}`}>
+            <span>COD fee</span>
+            <span>{formatPrice(order.cod_fee_paise ?? 0)}</span>
           </div>
         )}
         <div className={styles.totalsTotal}>

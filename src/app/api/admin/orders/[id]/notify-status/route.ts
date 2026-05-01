@@ -51,7 +51,7 @@ export async function POST(
     const { data: order, error } = await supabase
       .from('orders')
       .select(
-        'id, order_number, customer, shipping_address, product_id, size, quantity, total_paise, payment_method, order_status',
+        'id, order_number, customer, shipping_address, product_id, size, quantity, subtotal_paise, discount_paise, shipping_paise, cod_fee_paise, total_paise, payment_method, order_status',
       )
       .eq('id', id)
       .single();
@@ -93,6 +93,10 @@ export async function POST(
         product_name: product?.name || 'Product',
         size: order.size,
         quantity: order.quantity,
+        subtotal_paise: (order as { subtotal_paise?: number | null }).subtotal_paise,
+        discount_paise: (order as { discount_paise?: number | null }).discount_paise,
+        shipping_paise: (order as { shipping_paise?: number | null }).shipping_paise,
+        cod_fee_paise: (order as { cod_fee_paise?: number | null }).cod_fee_paise,
         total_paise: order.total_paise,
         payment_method: order.payment_method,
         shipping_address: order.shipping_address,

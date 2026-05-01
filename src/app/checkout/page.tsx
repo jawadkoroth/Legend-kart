@@ -79,6 +79,19 @@ function CheckoutContent() {
   const [selectedSavedId, setSelectedSavedId] = useState<string | null>(null);
   const [saveToBook, setSaveToBook] = useState(false);
 
+  // Shipping quote (refetched whenever subtotal or paymentMethod
+  // changes). The server is still the final authority — this is a
+  // display-only estimate so the user sees the real total before
+  // clicking PLACE ORDER.
+  const [quote, setQuote] = useState<{
+    shippingPaise: number;
+    codFeePaise: number;
+    totalPaise: number;
+    codAllowed: boolean;
+    codEnabled: boolean;
+  } | null>(null);
+  const [quoteLoading, setQuoteLoading] = useState(false);
+
   // Form state
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
@@ -159,6 +172,61 @@ function CheckoutContent() {
     fetchData();
   }, [productId, couponCode]);
 
+  // Compute current subtotal (sale-aware + coupon) BEFORE the early
+  // returns so the quote effect can react to changes. Guarded: only
+  // runs once the product is loaded.
+  const subtotalForQuote = (() => {
+    if (!product) return 0;
+    const p =
+      product.sale_price_paise != null && product.sale_price_paise < product.price_paise
+        ? product.sale_price_paise
+        : product.price_paise;
+    return p - Math.round((p * discount) / 100);
+  })();
+
+  useEffect(() => {
+    if (!product) return;
+    let cancelled = false;
+    setQuoteLoading(true);
+    fetch('/api/shipping/quote', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        subtotalPaise: subtotalForQuote,
+        paymentMethod,
+      }),
+    })
+      .then((r) => r.json())
+      .then((data) => {
+        if (cancelled) return;
+        if (data?.success) {
+          setQuote({
+            shippingPaise: data.shippingPaise ?? 0,
+            codFeePaise: data.codFeePaise ?? 0,
+            totalPaise: data.totalPaise ?? subtotalForQuote,
+            codAllowed: data.codAllowed !== false,
+            codEnabled: data.codEnabled !== false,
+          });
+        }
+      })
+      .catch(() => { /* display falls back to subtotal */ })
+      .finally(() => {
+        if (!cancelled) setQuoteLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [product, subtotalForQuote, paymentMethod]);
+
+  // If the server tells us COD is disabled but the user has it
+  // selected, flip back to online automatically. Prevents the
+  // order POST from racing into a 400 for disallowed payment.
+  useEffect(() => {
+    if (quote && !quote.codEnabled && paymentMethod === 'cod') {
+      setPaymentMethod('online');
+    }
+  }, [quote, paymentMethod]);
+
   if (loading) {
     return (
       <div className={styles.page}>
@@ -193,14 +261,20 @@ function CheckoutContent() {
   }
 
   // Mirror server-side pricing: sale_price wins when strictly lower,
-  // coupon stacks on top. Keeps the displayed total identical to the
-  // amount /api/orders will charge.
+  // coupon stacks on top. Keeps the displayed subtotal identical to
+  // the amount /api/orders will charge before shipping + COD fees.
   const price =
     product.sale_price_paise != null && product.sale_price_paise < product.price_paise
       ? product.sale_price_paise
       : product.price_paise;
   const discountAmount = Math.round(price * discount / 100);
-  const total = price - discountAmount;
+  const subtotal = price - discountAmount;
+  // `total` is the final (all-inclusive) amount derived from the
+  // server shipping quote; falls back to subtotal while the quote
+  // is still loading so the UI never flashes a zero total.
+  const shippingPaise = quote?.shippingPaise ?? 0;
+  const codFeePaise = quote?.codFeePaise ?? 0;
+  const total = quote ? quote.totalPaise : subtotal;
 
   const formatPrice = (paise: number) => '₹' + (paise / 100).toLocaleString('en-IN');
 
@@ -528,9 +602,31 @@ function CheckoutContent() {
             <span>📦 {product.name} · {size}</span>
           </div>
           <div className={styles.summaryRow}>
-            <span>{formatPrice(price)}</span>
-            {discountAmount > 0 && <span className={styles.discountText}>-{formatPrice(discountAmount)}</span>}
+            <span>Subtotal</span>
+            <span>{formatPrice(subtotal)}</span>
           </div>
+          {discountAmount > 0 && (
+            <div className={styles.summaryRow}>
+              <span>Discount{couponCode ? ` (${couponCode})` : ''}</span>
+              <span className={styles.discountText}>− {formatPrice(discountAmount)}</span>
+            </div>
+          )}
+          <div className={styles.summaryRow}>
+            <span>Shipping</span>
+            <span>
+              {quoteLoading && !quote
+                ? '…'
+                : shippingPaise > 0
+                  ? formatPrice(shippingPaise)
+                  : 'FREE'}
+            </span>
+          </div>
+          {codFeePaise > 0 && (
+            <div className={styles.summaryRow}>
+              <span>COD fee</span>
+              <span>{formatPrice(codFeePaise)}</span>
+            </div>
+          )}
           <div className={styles.summaryTotal}>
             Total: <strong>{formatPrice(total)}</strong>
           </div>
@@ -684,12 +780,21 @@ function CheckoutContent() {
           <label className="input-label">Payment</label>
           <div className="payment-toggle">
             <button
+              type="button"
               className={`payment-option ${paymentMethod === 'cod' ? 'payment-option-selected' : ''}`}
-              onClick={() => { setPaymentMethod('cod'); setOrderError(''); }}
+              onClick={() => {
+                if (quote && !quote.codEnabled) return;
+                setPaymentMethod('cod');
+                setOrderError('');
+              }}
+              disabled={quote ? !quote.codEnabled : false}
+              aria-disabled={quote ? !quote.codEnabled : false}
+              title={quote && !quote.codEnabled ? 'Cash on Delivery is currently unavailable' : undefined}
             >
               💰 COD
             </button>
             <button
+              type="button"
               className={`payment-option ${paymentMethod === 'online' ? 'payment-option-selected' : ''}`}
               onClick={() => { setPaymentMethod('online'); setOrderError(''); }}
             >
@@ -697,7 +802,11 @@ function CheckoutContent() {
             </button>
           </div>
           <p className="text-xs text-muted" style={{ marginTop: 'var(--space-2)' }}>
-            {paymentMethod === 'online' ? 'UPI · Cards · Wallets · Net Banking' : 'Pay when your order arrives'}
+            {quote && !quote.codEnabled
+              ? 'COD is unavailable right now — please use Online payment.'
+              : paymentMethod === 'online'
+                ? 'UPI · Cards · Wallets · Net Banking'
+                : 'Pay when your order arrives'}
           </p>
         </div>
 

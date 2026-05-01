@@ -7,6 +7,7 @@ import { generateOrderNumber } from '@/lib/order-id';
 import { getRazorpay } from '@/lib/razorpay';
 import { sendOrderCreatedEmail } from '@/lib/email';
 import { logEvent } from '@/lib/log';
+import { calcShipping } from '@/lib/shipping/calcShipping';
 
 /**
  * POST /api/orders
@@ -104,7 +105,7 @@ export async function POST(req: NextRequest) {
 
     // 4. Compute totals.
     // Honor sale price when present and strictly lower than the
-    // regular price; coupon discounts then stack on top of that.
+    // regular price; coupon discounts then stack on top.
     const salePrice = (product as { sale_price_paise?: number | null }).sale_price_paise;
     const unitPrice =
       salePrice != null && salePrice < product.price_paise
@@ -112,7 +113,35 @@ export async function POST(req: NextRequest) {
         : product.price_paise;
     const subtotal = unitPrice * quantity;
     const discount = Math.round((subtotal * discountPercent) / 100);
-    const total = subtotal - discount;
+    const postDiscountSubtotal = subtotal - discount;
+
+    // Server-authoritative shipping + COD fee. Settings are loaded
+    // fresh per request so admin changes take effect immediately.
+    // `calcShipping` is deterministic: given the same inputs, the
+    // checkout UI quote and this final computation produce the
+    // identical total.
+    const { data: shippingSettings } = await supabase
+      .from('shipping_settings')
+      .select(
+        'free_shipping_threshold_paise, default_shipping_charge_paise, cod_enabled, cod_fee_paise',
+      )
+      .limit(1)
+      .maybeSingle();
+
+    const quote = calcShipping({
+      subtotalPaise: postDiscountSubtotal,
+      paymentMethod: payment_method,
+      shippingSettings: shippingSettings ?? null,
+    });
+
+    if (!quote.codAllowed) {
+      logEvent('order.cod_disabled_rejected', { product_id });
+      return apiError(400, 'Cash on Delivery is currently unavailable. Please use online payment.');
+    }
+
+    const shippingPaise = quote.shippingPaise;
+    const codFeePaise = quote.codFeePaise;
+    const total = postDiscountSubtotal + shippingPaise + codFeePaise;
 
     // 5. Atomic create-or-replay via SQL function.
     const orderNumber = generateOrderNumber();
@@ -133,6 +162,8 @@ export async function POST(req: NextRequest) {
         p_customer: customer,
         p_shipping_address: shipping_address,
         p_user_id: userId,
+        p_shipping_paise: shippingPaise,
+        p_cod_fee_paise: codFeePaise,
       },
     );
 
@@ -194,6 +225,9 @@ export async function POST(req: NextRequest) {
         product_name: product.name,
         size,
         quantity,
+        subtotal_paise: postDiscountSubtotal,
+        shipping_paise: shippingPaise,
+        cod_fee_paise: codFeePaise,
         total_paise: total,
         payment_method,
         shipping_address,

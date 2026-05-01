@@ -14,6 +14,8 @@ interface Order {
   unit_price_paise: number;
   subtotal_paise: number;
   discount_paise: number;
+  shipping_paise: number | null;
+  cod_fee_paise: number | null;
   total_paise: number;
   coupon_code: string | null;
   payment_method: string;
@@ -175,12 +177,39 @@ export default function AdminOrderDetail({ params }: { params: Promise<{ id: str
       {/* Product */}
       <div className="card" style={{ marginBottom: 'var(--space-4)' }}>
         <p className="input-label" style={{ marginBottom: 'var(--space-3)' }}>Product</p>
-        <p style={{ fontWeight: 500 }}>{productName} · {order.size}</p>
-        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.875rem', marginTop: 'var(--space-2)' }}>
-          <span className="text-muted">{formatPrice(order.subtotal_paise)} {order.discount_paise > 0 ? `- ${formatPrice(order.discount_paise)}` : ''}</span>
-          <span style={{ fontWeight: 600 }}>{formatPrice(order.total_paise)}</span>
-        </div>
+        <p style={{ fontWeight: 500 }}>{productName} · {order.size} · Qty {order.quantity}</p>
         {order.coupon_code && <p className="text-xs text-muted" style={{ marginTop: 'var(--space-2)' }}>Coupon: {order.coupon_code}</p>}
+      </div>
+
+      {/* Totals breakdown */}
+      <div className="card" style={{ marginBottom: 'var(--space-4)' }}>
+        <p className="input-label" style={{ marginBottom: 'var(--space-3)' }}>Totals</p>
+        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.875rem', marginBottom: 4 }}>
+          <span className="text-muted">Subtotal</span>
+          <span>{formatPrice(order.subtotal_paise)}</span>
+        </div>
+        {order.discount_paise > 0 && (
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.875rem', marginBottom: 4 }}>
+            <span className="text-muted">Discount{order.coupon_code ? ` (${order.coupon_code})` : ''}</span>
+            <span>− {formatPrice(order.discount_paise)}</span>
+          </div>
+        )}
+        {(order.shipping_paise ?? 0) > 0 && (
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.875rem', marginBottom: 4 }}>
+            <span className="text-muted">Shipping</span>
+            <span>{formatPrice(order.shipping_paise ?? 0)}</span>
+          </div>
+        )}
+        {(order.cod_fee_paise ?? 0) > 0 && (
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.875rem', marginBottom: 4 }}>
+            <span className="text-muted">COD fee</span>
+            <span>{formatPrice(order.cod_fee_paise ?? 0)}</span>
+          </div>
+        )}
+        <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 600, marginTop: 'var(--space-2)', paddingTop: 'var(--space-2)', borderTop: '1px solid var(--border-color)' }}>
+          <span>Total</span>
+          <span>{formatPrice(order.total_paise)}</span>
+        </div>
       </div>
 
       {/* Shipping */}

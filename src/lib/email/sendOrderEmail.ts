@@ -39,7 +39,23 @@ export interface OrderEmailData {
   product_name: string;
   size: string;
   quantity?: number;
+  /**
+   * All-inclusive amount charged (subtotal − discount + shipping
+   * + cod_fee). This is the authoritative total and is shown as
+   * the final "Total" row in every template.
+   */
   total_paise: number;
+  /**
+   * Optional breakdown components. When provided AND non-zero, an
+   * extra row is rendered above the total. Omitting them (legacy
+   * call sites, historic orders without the new columns) yields
+   * the original compact "Order / Total / Payment" summary so
+   * backward compatibility holds.
+   */
+  subtotal_paise?: number | null;
+  shipping_paise?: number | null;
+  cod_fee_paise?: number | null;
+  discount_paise?: number | null;
   payment_method: string; // 'cod' | 'online'
   shipping_address?: OrderEmailAddress;
   /**
@@ -351,12 +367,37 @@ function paymentLabel(method: string): string {
 
 function commonSummary(order: OrderEmailData): { label: string; value: string }[] {
   // Item now lives in its own visual block above the summary card,
-  // so the summary stays compact and scannable.
-  return [
+  // so the summary stays compact and scannable. When fee breakdown
+  // fields are supplied we render additional rows above the total;
+  // otherwise the compact legacy format is preserved verbatim.
+  const rows: { label: string; value: string }[] = [
     { label: 'Order', value: order.order_number },
-    { label: 'Total', value: formatPrice(order.total_paise) },
-    { label: 'Payment', value: paymentLabel(order.payment_method) },
   ];
+
+  const hasBreakdown =
+    (typeof order.subtotal_paise === 'number' && order.subtotal_paise > 0) ||
+    (typeof order.shipping_paise === 'number' && order.shipping_paise > 0) ||
+    (typeof order.cod_fee_paise === 'number' && order.cod_fee_paise > 0) ||
+    (typeof order.discount_paise === 'number' && order.discount_paise > 0);
+
+  if (hasBreakdown) {
+    if (typeof order.subtotal_paise === 'number' && order.subtotal_paise > 0) {
+      rows.push({ label: 'Subtotal', value: formatPrice(order.subtotal_paise) });
+    }
+    if (typeof order.discount_paise === 'number' && order.discount_paise > 0) {
+      rows.push({ label: 'Discount', value: `− ${formatPrice(order.discount_paise)}` });
+    }
+    if (typeof order.shipping_paise === 'number' && order.shipping_paise > 0) {
+      rows.push({ label: 'Shipping', value: formatPrice(order.shipping_paise) });
+    }
+    if (typeof order.cod_fee_paise === 'number' && order.cod_fee_paise > 0) {
+      rows.push({ label: 'COD fee', value: formatPrice(order.cod_fee_paise) });
+    }
+  }
+
+  rows.push({ label: 'Total', value: formatPrice(order.total_paise) });
+  rows.push({ label: 'Payment', value: paymentLabel(order.payment_method) });
+  return rows;
 }
 
 function itemForEmail(order: OrderEmailData): {

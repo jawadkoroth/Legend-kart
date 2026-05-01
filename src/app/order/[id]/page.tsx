@@ -8,8 +8,11 @@ interface Order {
   order_number: string;
   product_name: string;
   size: string;
+  subtotal_paise?: number | null;
   total_paise: number;
   discount_paise: number;
+  shipping_paise?: number | null;
+  cod_fee_paise?: number | null;
   payment_method: string;
   payment_status: string;
   order_status: string;
@@ -208,6 +211,30 @@ export default function OrderPage({ params }: { params: Promise<{ id: string }> 
             <span className="text-muted">Product</span>
             <span>{order.product_name} · {order.size}</span>
           </div>
+          {(order.subtotal_paise ?? 0) > 0 && (
+            <div className={styles.detailRow}>
+              <span className="text-muted">Subtotal</span>
+              <span>{formatPrice(order.subtotal_paise ?? 0)}</span>
+            </div>
+          )}
+          {order.discount_paise > 0 && (
+            <div className={styles.detailRow}>
+              <span className="text-muted">Discount</span>
+              <span>− {formatPrice(order.discount_paise)}</span>
+            </div>
+          )}
+          {(order.shipping_paise ?? 0) > 0 && (
+            <div className={styles.detailRow}>
+              <span className="text-muted">Shipping</span>
+              <span>{formatPrice(order.shipping_paise ?? 0)}</span>
+            </div>
+          )}
+          {(order.cod_fee_paise ?? 0) > 0 && (
+            <div className={styles.detailRow}>
+              <span className="text-muted">COD fee</span>
+              <span>{formatPrice(order.cod_fee_paise ?? 0)}</span>
+            </div>
+          )}
           <div className={styles.detailRow}>
             <span className="text-muted">Total</span>
             <span>{formatPrice(order.total_paise)}</span>

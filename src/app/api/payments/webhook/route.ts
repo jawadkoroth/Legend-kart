@@ -136,7 +136,7 @@ export async function POST(req: NextRequest) {
   const { data: order, error: lookupError } = await supabase
     .from('orders')
     .select(
-      'id, order_number, payment_status, webhook_event_id, product_id, size, quantity, customer, shipping_address, total_paise, payment_method',
+      'id, order_number, payment_status, webhook_event_id, product_id, size, quantity, customer, shipping_address, subtotal_paise, discount_paise, shipping_paise, cod_fee_paise, total_paise, payment_method',
     )
     .eq('razorpay_order_id', payment.order_id)
     .single();
@@ -331,6 +331,10 @@ async function sendPaymentEmailFor(
     product_id: string;
     size: string;
     quantity: number;
+    subtotal_paise?: number | null;
+    discount_paise?: number | null;
+    shipping_paise?: number | null;
+    cod_fee_paise?: number | null;
     total_paise: number;
     payment_method: string;
   },
@@ -356,6 +360,10 @@ async function sendPaymentEmailFor(
     product_name: product?.name || 'Product',
     size: order.size,
     quantity: order.quantity,
+    subtotal_paise: order.subtotal_paise,
+    discount_paise: order.discount_paise,
+    shipping_paise: order.shipping_paise,
+    cod_fee_paise: order.cod_fee_paise,
     total_paise: order.total_paise,
     payment_method: order.payment_method,
     shipping_address: order.shipping_address,
