@@ -247,11 +247,15 @@ export async function POST(req: NextRequest) {
 
       // Background push to all admin subscriptions (if configured).
       // Fire-and-forget: never blocks the API response.
+      // Tag matches AdminRealtimeProvider's in-tab Notification tag
+      // (`order-<id>`) so when an admin has the tab open AND a push
+      // arrives, the browser collapses them into a single toast
+      // rather than showing two copies.
       notifyAdmins(supabase, {
         title: `New order #${finalOrderNumber}`,
-        body: `${customer.name || 'A customer'} ordered ₹${total / 100} · ${payment_method.toUpperCase()}`,
+        body: `${customer.name || 'A customer'} ordered ₹${(total / 100).toLocaleString('en-IN')} · ${payment_method.toUpperCase()}`,
         url: '/admin/orders',
-        tag: orderId,
+        tag: `order-${orderId}`,
       }).catch((err) => console.error('[ORDER_PUSH_FANOUT]', err));
     }
 

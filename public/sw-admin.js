@@ -39,13 +39,20 @@ self.addEventListener('push', (event) => {
     payload = { title: 'New order', body: event.data ? event.data.text() : '' };
   }
   const title = payload.title || 'New order received';
+  // `renotify:true` forces a re-buzz even when a notification with
+  // the same tag is still on screen — essential for the "two orders
+  // arrive back-to-back" case. Tag collapses duplicates coming from
+  // different code paths (Realtime-in-tab vs Web Push via SW).
   const options = {
     body: payload.body || '',
     tag: payload.tag || 'admin-order',
-    icon: '/icon-192.png',
-    badge: '/icon-192.png',
+    renotify: true,
+    requireInteraction: false,
     data: { url: payload.url || '/admin/dashboard' },
   };
+  // Intentionally no `icon` / `badge`: browsers fall back to the
+  // site's default favicon, and referencing a missing asset makes
+  // some Android Chrome builds drop the notification silently.
   event.waitUntil(self.registration.showNotification(title, options));
 });
 

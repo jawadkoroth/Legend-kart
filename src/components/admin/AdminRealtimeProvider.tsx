@@ -117,10 +117,12 @@ function showSystemNotification(payload: OrderInsertPayload): void {
   if (!('Notification' in window)) return;
   if (Notification.permission !== 'granted') return;
   try {
+    // No `icon`: browsers fall back to the site favicon, and a
+    // missing asset at /icon-192.png made some Android Chrome
+    // builds drop the notification silently.
     new Notification('💰 New order received', {
       body: `${payload.order_number} • ${formatPrice(payload.total_paise)}`,
       tag: `order-${payload.id}`,
-      icon: '/icon-192.png',
       silent: false,
     });
   } catch {

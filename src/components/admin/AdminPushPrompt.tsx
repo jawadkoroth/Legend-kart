@@ -22,10 +22,26 @@ import { useEffect, useState } from 'react';
 type State =
   | 'pending'
   | 'unsupported'
+  | 'ios-install'
   | 'default'
   | 'subscribing'
   | 'subscribed'
   | 'denied';
+
+function isIosSafari(): boolean {
+  if (typeof navigator === 'undefined') return false;
+  const ua = navigator.userAgent || '';
+  const isIos = /iPad|iPhone|iPod/.test(ua) || (/Macintosh/.test(ua) && 'ontouchend' in document);
+  const isSafari = /Safari/.test(ua) && !/CriOS|FxiOS|EdgiOS/.test(ua);
+  return isIos && isSafari;
+}
+
+function isStandalonePwa(): boolean {
+  if (typeof window === 'undefined') return false;
+  const mq = window.matchMedia && window.matchMedia('(display-mode: standalone)').matches;
+  const iosStandalone = (navigator as { standalone?: boolean }).standalone === true;
+  return Boolean(mq || iosStandalone);
+}
 
 function urlBase64ToUint8Array(base64String: string): Uint8Array {
   const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
@@ -52,7 +68,14 @@ async function ensureServiceWorker(): Promise<ServiceWorkerRegistration | null> 
 
 async function alreadySubscribed(): Promise<boolean> {
   try {
-    const reg = await navigator.serviceWorker.getRegistration('/admin');
+    // Prefer the scoped registration we own; fall back to whichever
+    // registration the browser has for this origin. Some iOS / Chrome
+    // combos return null from getRegistration(scope) even after a
+    // successful register() call earlier in the session.
+    const reg =
+      (await navigator.serviceWorker.getRegistration('/admin')) ||
+      (await navigator.serviceWorker.getRegistration()) ||
+      null;
     if (!reg) return false;
     const sub = await reg.pushManager.getSubscription();
     return !!sub;
@@ -68,6 +91,13 @@ export default function AdminPushPrompt() {
     if (typeof window === 'undefined') return;
 
     if (!('Notification' in window) || !('serviceWorker' in navigator) || !('PushManager' in window)) {
+      // iOS Safari only exposes PushManager when the site is installed
+      // as a PWA (iOS 16.4+). If we detect iOS Safari that's NOT in
+      // standalone mode, show an install hint instead of a dead end.
+      if (isIosSafari() && !isStandalonePwa()) {
+        setState('ios-install');
+        return;
+      }
       setState('unsupported');
       return;
     }
@@ -160,8 +190,31 @@ export default function AdminPushPrompt() {
     }
   }
 
-  if (state === 'subscribed' || state === 'unsupported' || state === 'denied' || state === 'pending') {
+  if (state === 'unsupported' || state === 'denied' || state === 'pending') {
     return null;
+  }
+
+  // iOS Safari (not installed): one-line nudge to install the PWA
+  // because Apple gates Web Push behind Home-Screen installation.
+  if (state === 'ios-install') {
+    return (
+      <span
+        title="Install NOIR Admin to your Home Screen to enable push notifications"
+        style={{
+          fontSize: '0.65rem',
+          letterSpacing: '0.08em',
+          color: 'var(--text-muted, #9A9A9A)',
+          marginRight: 8,
+          whiteSpace: 'nowrap',
+        }}
+      >
+        📱 Install to enable alerts
+      </span>
+    );
+  }
+
+  if (state === 'subscribed') {
+    return <AdminPushTestButton />;
   }
 
   const busy = state === 'subscribing';
@@ -188,6 +241,94 @@ export default function AdminPushPrompt() {
       }}
     >
       {busy ? '🔔 ENABLING…' : '🔔 ENABLE ALERTS'}
+    </button>
+  );
+}
+
+/**
+ * Small "test push" pill shown only when the admin is already
+ * subscribed. Calls /api/admin/push/test which fans out a no-op
+ * notification to EVERY admin subscription via `notifyAdmins`, so
+ * the operator can verify the full pipeline (VAPID → web-push →
+ * push service → service worker → showNotification) without
+ * placing a real order.
+ *
+ * Quietly hides itself if the server responds 404 (push not
+ * configured) so it never clutters the header for environments
+ * running without VAPID keys.
+ */
+function AdminPushTestButton() {
+  const [hidden, setHidden] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [flash, setFlash] = useState<'idle' | 'ok' | 'none' | 'err'>('idle');
+
+  async function sendTest() {
+    if (busy) return;
+    setBusy(true);
+    setFlash('idle');
+    try {
+      const res = await fetch('/api/admin/push/test', { method: 'POST' });
+      if (res.status === 404) {
+        setHidden(true);
+        return;
+      }
+      const data = await res.json();
+      if (!data?.success) {
+        setFlash('err');
+      } else if ((data.sent ?? 0) > 0) {
+        setFlash('ok');
+      } else {
+        setFlash('none');
+      }
+    } catch {
+      setFlash('err');
+    } finally {
+      setBusy(false);
+      setTimeout(() => setFlash('idle'), 2400);
+    }
+  }
+
+  if (hidden) return null;
+
+  const label =
+    flash === 'ok'
+      ? '✓ SENT'
+      : flash === 'none'
+        ? 'NO SUBS'
+        : flash === 'err'
+          ? 'FAILED'
+          : busy
+            ? 'SENDING…'
+            : '🔔 TEST PUSH';
+
+  return (
+    <button
+      type="button"
+      onClick={sendTest}
+      disabled={busy}
+      title="Send a test notification to all admin subscriptions"
+      style={{
+        background: 'transparent',
+        border: '1px solid rgba(212, 175, 55, 0.28)',
+        color:
+          flash === 'ok'
+            ? 'var(--success, #4CAF50)'
+            : flash === 'err'
+              ? 'var(--error, #E53935)'
+              : 'var(--text-muted, #9A9A9A)',
+        padding: '4px 10px',
+        borderRadius: '999px',
+        fontSize: '0.65rem',
+        fontWeight: 600,
+        letterSpacing: '0.10em',
+        cursor: busy ? 'progress' : 'pointer',
+        marginRight: 8,
+        whiteSpace: 'nowrap',
+        opacity: busy ? 0.7 : 1,
+        transition: 'color 180ms ease, border-color 180ms ease',
+      }}
+    >
+      {label}
     </button>
   );
 }
