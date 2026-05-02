@@ -107,6 +107,12 @@ export default function AdminCoupons() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  // Delete-confirmation modal state. `deleting` holds the full coupon
+  // we are about to remove so the prompt can show the code. `deletePending`
+  // gates the confirm button while the request is in-flight.
+  const [deleting, setDeleting] = useState<Coupon | null>(null);
+  const [deletePending, setDeletePending] = useState(false);
+  const [deleteError, setDeleteError] = useState('');
 
   useEffect(() => {
     fetchCoupons();
@@ -232,6 +238,30 @@ export default function AdminCoupons() {
     const supabase = createClient();
     await supabase.from('coupons').update({ is_active: !isActive }).eq('id', id);
     fetchCoupons();
+  }
+
+  async function confirmDelete() {
+    if (!deleting || deletePending) return;
+    setDeletePending(true);
+    setDeleteError('');
+    try {
+      const res = await fetch(`/api/admin/coupons/${deleting.id}`, {
+        method: 'DELETE',
+      });
+      const data = await res.json();
+      if (!data.success) {
+        setDeleteError(data.error || 'Failed to delete coupon');
+        setDeletePending(false);
+        return;
+      }
+      setDeleting(null);
+      setDeletePending(false);
+      await fetchCoupons();
+    } catch (err) {
+      console.error('[COUPON_DELETE]', err);
+      setDeleteError('Network error. Please try again.');
+      setDeletePending(false);
+    }
   }
 
   if (loading) {
@@ -516,7 +546,7 @@ export default function AdminCoupons() {
               )}
             </div>
 
-            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 'var(--space-2)' }}>
               <button
                 type="button"
                 onClick={() => startEdit(coupon)}
@@ -524,6 +554,18 @@ export default function AdminCoupons() {
                 style={{ width: 'auto' }}
               >
                 Edit
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setDeleting(coupon);
+                  setDeleteError('');
+                }}
+                className="btn btn-ghost btn-sm"
+                style={{ width: 'auto', color: 'var(--error)' }}
+                aria-label={`Delete coupon ${coupon.code}`}
+              >
+                Delete
               </button>
             </div>
           </div>
@@ -535,6 +577,85 @@ export default function AdminCoupons() {
           </p>
         )}
       </div>
+
+      {deleting && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="coupon-delete-title"
+          onClick={(e) => {
+            if (e.target === e.currentTarget && !deletePending) {
+              setDeleting(null);
+            }
+          }}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0, 0, 0, 0.72)',
+            backdropFilter: 'blur(6px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 'var(--space-5)',
+            zIndex: 100,
+          }}
+        >
+          <div
+            style={{
+              background: 'var(--bg-secondary)',
+              border: '1px solid var(--border-color)',
+              borderRadius: 'var(--radius-md)',
+              padding: 'var(--space-6)',
+              maxWidth: 440,
+              width: '100%',
+              boxShadow: '0 24px 48px rgba(0, 0, 0, 0.45)',
+            }}
+          >
+            <h2
+              id="coupon-delete-title"
+              style={{ fontSize: '1.0625rem', fontWeight: 600, marginBottom: 'var(--space-3)' }}
+            >
+              Delete coupon {deleting.code}?
+            </h2>
+            <p
+              className="text-sm text-muted"
+              style={{ lineHeight: 1.5, marginBottom: 'var(--space-5)' }}
+            >
+              This permanently removes the coupon. Orders that already used
+              {' '}<span style={{ fontFamily: 'monospace' }}>{deleting.code}</span>{' '}
+              keep their recorded code and discount untouched.
+            </p>
+            {deleteError && (
+              <p
+                className="input-error-text"
+                style={{ marginBottom: 'var(--space-3)' }}
+              >
+                {deleteError}
+              </p>
+            )}
+            <div style={{ display: 'flex', gap: 'var(--space-3)', justifyContent: 'flex-end' }}>
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm"
+                onClick={() => setDeleting(null)}
+                disabled={deletePending}
+                style={{ width: 'auto' }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className={`btn btn-primary btn-sm ${deletePending ? 'btn-loading' : ''}`}
+                onClick={confirmDelete}
+                disabled={deletePending}
+                style={{ width: 'auto', background: 'var(--error)', borderColor: 'var(--error)' }}
+              >
+                {deletePending ? 'DELETING…' : 'DELETE COUPON'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
