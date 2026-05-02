@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { logEvent } from '@/lib/log';
+import { withRequest } from '@/lib/observability/context';
 import {
   sendPaymentSuccessEmail,
   sendPaymentFailedEmail,
@@ -62,6 +63,10 @@ function timingSafeEqualHex(a: string, b: string): boolean {
 }
 
 export async function POST(req: NextRequest) {
+  return withRequest(req, () => handlePOST(req));
+}
+
+async function handlePOST(req: NextRequest) {
   const secret = process.env.RAZORPAY_WEBHOOK_SECRET;
   if (!secret) {
     logEvent('payment.webhook_misconfigured', {

@@ -13,8 +13,36 @@ import { createServerClient } from '@supabase/ssr';
  * IMPORTANT: do not run any logic between `createServerClient` and
  * `getUser()` — the @supabase/ssr README warns this can desync auth.
  */
+/**
+ * Generate a short, URL-safe request id. crypto.randomUUID is
+ * available in Edge + Node runtimes; we strip dashes for compactness.
+ */
+function newRequestId(): string {
+  try {
+    return globalThis.crypto.randomUUID().replace(/-/g, '');
+  } catch {
+    // Deterministic fallback — never used in practice, but keeps the
+    // middleware safe on runtimes that lack `crypto.randomUUID`.
+    return Math.random().toString(36).slice(2) + Date.now().toString(36);
+  }
+}
+
 export async function middleware(request: NextRequest) {
-  let response = NextResponse.next({ request });
+  // Correlation ID: accept an inbound `x-request-id` (e.g. from a
+  // reverse proxy / load test harness) when present; otherwise mint
+  // a fresh one. Pass it through to the downstream handler via a
+  // mutated request header AND echo it on the response so clients
+  // can reference the id in bug reports.
+  const inboundId = request.headers.get('x-request-id');
+  const requestId =
+    inboundId && inboundId.length > 0 && inboundId.length <= 64
+      ? inboundId
+      : newRequestId();
+  const requestHeaders = new Headers(request.headers);
+  requestHeaders.set('x-request-id', requestId);
+
+  let response = NextResponse.next({ request: { headers: requestHeaders } });
+  response.headers.set('x-request-id', requestId);
 
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -28,7 +56,9 @@ export async function middleware(request: NextRequest) {
           cookiesToSet.forEach(({ name, value }) => {
             request.cookies.set(name, value);
           });
-          response = NextResponse.next({ request });
+          response = NextResponse.next({ request: { headers: requestHeaders } });
+          // Re-attach the correlation id after the response is rebuilt.
+          response.headers.set('x-request-id', requestId);
           cookiesToSet.forEach(({ name, value, options }) => {
             response.cookies.set(name, value, options);
           });

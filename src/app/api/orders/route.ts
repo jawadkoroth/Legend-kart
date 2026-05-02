@@ -7,6 +7,7 @@ import { generateOrderNumber } from '@/lib/order-id';
 import { getRazorpay } from '@/lib/razorpay';
 import { sendOrderCreatedEmail } from '@/lib/email';
 import { logEvent } from '@/lib/log';
+import { withRequest } from '@/lib/observability/context';
 import { calcShipping } from '@/lib/shipping/calcShipping';
 import { evaluateCoupon } from '@/lib/coupons/evaluateCoupon';
 import { notifyAdmins } from '@/lib/push/webPush';
@@ -29,6 +30,10 @@ import { notifyAdmins } from '@/lib/push/webPush';
  *    restore stock; the order row stays for support traceability.
  */
 export async function POST(req: NextRequest) {
+  return withRequest(req, () => handlePOST(req));
+}
+
+async function handlePOST(req: NextRequest) {
   try {
     const body = await req.json();
 
