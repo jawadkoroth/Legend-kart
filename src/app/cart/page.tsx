@@ -20,10 +20,33 @@ import styles from './page.module.css';
  * revalidate again before the order POST, and the database remains
  * the final inventory gate.
  */
+const COUPON_STORAGE_KEY = 'noir_coupon_code';
+
 export default function CartPage() {
   const router = useRouter();
   const { items, removeItem, updateQuantity, totalPaise, applyValidation } =
     useCart();
+
+  // Inline coupon state. Applied coupons persist in localStorage so
+  // the code survives a page reload within the same session and is
+  // forwarded to /checkout via the `coupon` query param.
+  const [couponInput, setCouponInput] = useState('');
+  const [appliedCode, setAppliedCode] = useState<string>('');
+  const [discountPaise, setDiscountPaise] = useState(0);
+  const [couponLoading, setCouponLoading] = useState(false);
+  const [couponError, setCouponError] = useState('');
+  const [couponMinCartPaise, setCouponMinCartPaise] = useState<number | null>(null);
+
+  // Shipping + COD estimate. Derived from /api/shipping/quote with
+  // paymentMethod=cod so we get BOTH shippingPaise (same in either
+  // flow) and codFeePaise in a single round trip. COD fee is shown
+  // as an informational “available at checkout” line, not added to
+  // the cart total — payment method is picked on /checkout.
+  const [pricingQuote, setPricingQuote] = useState<{
+    shippingPaise: number;
+    codFeePaise: number;
+    codEnabled: boolean;
+  } | null>(null);
 
   // `isValidating` starts true whenever the cart has anything in it,
   // so the very first paint after mount has the checkout button
@@ -152,6 +175,180 @@ export default function CartPage() {
   // Stable, ordered keys for memoized list rendering.
   const renderedItems = useMemo(() => items, [items]);
 
+  // Post-discount subtotal drives the shipping quote and the displayed
+  // total. Coupon discount is server-authoritative (already capped by
+  // max_discount_paise) so a local `Math.min` guards only against a
+  // corrupt server response.
+  const postDiscountSubtotal = Math.max(0, totalPaise - Math.min(discountPaise, totalPaise));
+
+  // Hydrate persisted coupon once the cart is known and non-empty.
+  // Deferred until items.length > 0 so we never preflight a coupon
+  // against an empty cart (min_cart would always reject).
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (items.length === 0) return;
+    if (appliedCode) return;
+    try {
+      const saved = window.localStorage.getItem(COUPON_STORAGE_KEY);
+      if (saved && saved.trim()) {
+        setCouponInput(saved);
+        void applyCouponInternal(saved, totalPaise);
+      }
+    } catch {
+      // Non-fatal — localStorage may be disabled.
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [items.length]);
+
+  // Re-validate the applied coupon whenever the subtotal changes
+  // (quantity edit, line removal). Server is the single source of
+  // truth for min_cart, expiry, and max_discount cap.
+  useEffect(() => {
+    if (!appliedCode) return;
+    if (totalPaise <= 0) {
+      setDiscountPaise(0);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      const res = await validateCoupon(appliedCode, totalPaise);
+      if (cancelled) return;
+      if (res.ok) {
+        setDiscountPaise(res.discountPaise);
+        setCouponError('');
+        setCouponMinCartPaise(null);
+      } else {
+        setDiscountPaise(0);
+        setCouponError(res.message);
+        setCouponMinCartPaise(res.minCartPaise ?? null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [appliedCode, totalPaise]);
+
+  // Shipping + COD fee estimate for the breakdown. Fetched with
+  // paymentMethod=cod so we get both fields; shippingPaise is
+  // identical in either method.
+  useEffect(() => {
+    if (items.length === 0) {
+      setPricingQuote(null);
+      return;
+    }
+    let cancelled = false;
+    fetch('/api/shipping/quote', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        subtotalPaise: postDiscountSubtotal,
+        paymentMethod: 'cod',
+      }),
+    })
+      .then((r) => r.json())
+      .then((data) => {
+        if (cancelled || !data?.success) return;
+        setPricingQuote({
+          shippingPaise: data.shippingPaise ?? 0,
+          codFeePaise: data.codFeePaise ?? 0,
+          codEnabled: data.codEnabled !== false,
+        });
+      })
+      .catch(() => {
+        /* non-fatal — display falls back gracefully */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [postDiscountSubtotal, items.length]);
+
+  async function validateCoupon(
+    code: string,
+    subtotal: number,
+  ): Promise<
+    | { ok: true; discountPaise: number }
+    | { ok: false; message: string; minCartPaise?: number }
+  > {
+    try {
+      const res = await fetch('/api/coupons/validate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          code,
+          subtotalPaise: subtotal,
+        }),
+      });
+      const data = await res.json();
+      if (data?.success) {
+        return { ok: true, discountPaise: Number(data.discount_paise) || 0 };
+      }
+      return {
+        ok: false,
+        message: data?.error || 'Coupon could not be applied.',
+        minCartPaise:
+          typeof data?.details?.minCartPaise === 'number'
+            ? data.details.minCartPaise
+            : undefined,
+      };
+    } catch {
+      return { ok: false, message: 'Network error. Please try again.' };
+    }
+  }
+
+  async function applyCouponInternal(code: string, subtotal: number) {
+    setCouponLoading(true);
+    setCouponError('');
+    const res = await validateCoupon(code, subtotal);
+    if (res.ok) {
+      setAppliedCode(code.toUpperCase());
+      setDiscountPaise(res.discountPaise);
+      setCouponMinCartPaise(null);
+      try {
+        window.localStorage.setItem(COUPON_STORAGE_KEY, code.toUpperCase());
+      } catch {
+        /* ignore */
+      }
+    } else {
+      setAppliedCode('');
+      setDiscountPaise(0);
+      setCouponError(res.message);
+      setCouponMinCartPaise(res.minCartPaise ?? null);
+      try {
+        window.localStorage.removeItem(COUPON_STORAGE_KEY);
+      } catch {
+        /* ignore */
+      }
+    }
+    setCouponLoading(false);
+  }
+
+  async function handleApplyCoupon() {
+    const code = couponInput.toUpperCase().trim();
+    if (!code) {
+      setCouponError('Enter a coupon code.');
+      return;
+    }
+    if (totalPaise <= 0) {
+      setCouponError('Your cart is empty.');
+      return;
+    }
+    await applyCouponInternal(code, totalPaise);
+  }
+
+  function handleRemoveCoupon() {
+    setAppliedCode('');
+    setDiscountPaise(0);
+    setCouponInput('');
+    setCouponError('');
+    setCouponMinCartPaise(null);
+    try {
+      window.localStorage.removeItem(COUPON_STORAGE_KEY);
+    } catch {
+      /* ignore */
+    }
+  }
+
   if (items.length === 0) {
     return (
       <div className={styles.page}>
@@ -219,16 +416,22 @@ export default function CartPage() {
       //  - multi-line carts go to /checkout?from=cart.
       // We do NOT rewrite the checkout flow here; the checkout page
       // re-runs validation immediately before order POST.
+      //
+      // Applied coupon is forwarded as a URL param so the checkout
+      // coupon effect re-validates it against the real subtotal.
       if (currentItems.length === 1) {
         const item = currentItems[0];
         const params = new URLSearchParams({
           product_id: item.product_id,
           size: item.size,
         });
+        if (appliedCode) params.set('coupon', appliedCode);
         router.push(`/checkout?${params.toString()}`);
         return;
       }
-      router.push('/checkout?from=cart');
+      const multiParams = new URLSearchParams({ from: 'cart' });
+      if (appliedCode) multiParams.set('coupon', appliedCode);
+      router.push(`/checkout?${multiParams.toString()}`);
     } finally {
       setIsRouting(false);
     }
@@ -368,19 +571,111 @@ export default function CartPage() {
           })}
         </div>
 
+        {/* Inline coupon application. Server-authoritative: the
+            /api/coupons/validate route evaluates min_cart, max_discount,
+            expiry, per_user_limit and usage_limit against the current
+            subtotal and returns a final discount_paise that the UI
+            renders verbatim. Zero client-side coupon math. */}
+        <div className={styles.couponBox} aria-label="Coupon code">
+          {appliedCode ? (
+            <div className={styles.couponApplied}>
+              <div>
+                <span className={styles.couponAppliedLabel}>Applied</span>
+                <span className={styles.couponAppliedCode}>{appliedCode}</span>
+                <span className={styles.couponSavings}>
+                  − {formatPaise(discountPaise)}
+                </span>
+              </div>
+              <button
+                type="button"
+                className={styles.couponRemove}
+                onClick={handleRemoveCoupon}
+                aria-label="Remove coupon"
+              >
+                Remove
+              </button>
+            </div>
+          ) : (
+            <form
+              className={styles.couponForm}
+              onSubmit={(e) => {
+                e.preventDefault();
+                if (!couponLoading) void handleApplyCoupon();
+              }}
+            >
+              <input
+                type="text"
+                className={styles.couponInput}
+                placeholder="Coupon code"
+                value={couponInput}
+                onChange={(e) => {
+                  setCouponInput(e.target.value.toUpperCase());
+                  if (couponError) setCouponError('');
+                }}
+                autoComplete="off"
+                autoCapitalize="characters"
+                spellCheck={false}
+                maxLength={32}
+                disabled={couponLoading}
+              />
+              <button
+                type="submit"
+                className={styles.couponApply}
+                disabled={couponLoading || !couponInput.trim()}
+              >
+                {couponLoading ? '…' : 'Apply'}
+              </button>
+            </form>
+          )}
+          {couponError && (
+            <p className={styles.couponHint}>
+              {couponError}
+              {couponMinCartPaise !== null &&
+                ` Add ${formatPaise(Math.max(0, couponMinCartPaise - totalPaise))} more to unlock.`}
+            </p>
+          )}
+        </div>
+
         <div className={styles.summary}>
           <div className={styles.summaryRow}>
             <span>Subtotal</span>
             <span>{formatPaise(totalPaise)}</span>
           </div>
+          {discountPaise > 0 && appliedCode && (
+            <div className={styles.summaryRow}>
+              <span>Discount ({appliedCode})</span>
+              <span className={styles.discountText}>
+                − {formatPaise(discountPaise)}
+              </span>
+            </div>
+          )}
           <div className={styles.summaryRow}>
             <span>Shipping</span>
-            <span className={styles.freeText}>FREE</span>
+            <span className={pricingQuote && pricingQuote.shippingPaise === 0 ? styles.freeText : undefined}>
+              {!pricingQuote
+                ? '…'
+                : pricingQuote.shippingPaise === 0
+                  ? 'FREE'
+                  : formatPaise(pricingQuote.shippingPaise)}
+            </span>
           </div>
+          {pricingQuote && pricingQuote.codEnabled && pricingQuote.codFeePaise > 0 && (
+            <div className={`${styles.summaryRow} ${styles.codHint}`}>
+              <span>Cash on Delivery</span>
+              <span>+ {formatPaise(pricingQuote.codFeePaise)} at checkout</span>
+            </div>
+          )}
           <div className={styles.summaryTotal}>
             <span>Total</span>
-            <strong>{formatPaise(totalPaise)}</strong>
+            <strong>
+              {formatPaise(
+                postDiscountSubtotal + (pricingQuote?.shippingPaise ?? 0),
+              )}
+            </strong>
           </div>
+          {discountPaise > 0 && (
+            <p className={styles.savings}>You save {formatPaise(discountPaise)}</p>
+          )}
         </div>
 
         {cartInvalid && (
