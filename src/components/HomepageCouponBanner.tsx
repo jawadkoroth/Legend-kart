@@ -13,8 +13,11 @@ import { createClient } from '@/lib/supabase/client';
  * Premium / non-spammy aesthetic:
  *   - dark accent (royal blue / cobalt / gold / emerald)
  *   - serif headline mark, sans-serif body
- *   - dismissible per-session via sessionStorage
  *   - server-driven copy + colour, no hard-coded codes
+ *
+ * Always rendered when an active banner row exists; no client-side
+ * dismiss state (NOIR spec: promo visibility is an admin decision,
+ * not a per-visitor one — turn off `show_on_homepage` to hide).
  *
  * Hidden silently when no banner is configured. Never blocks the
  * page on its fetch.
@@ -35,24 +38,10 @@ interface BannerCoupon {
   homepage_accent: string | null;
 }
 
-const DISMISS_KEY = 'noir_banner_dismissed_v1';
-
 export default function HomepageCouponBanner() {
   const [banner, setBanner] = useState<BannerCoupon | null>(null);
-  const [dismissed, setDismissed] = useState(false);
 
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      try {
-        if (sessionStorage.getItem(DISMISS_KEY) === '1') {
-          setDismissed(true);
-          return;
-        }
-      } catch {
-        /* ignore — non-fatal */
-      }
-    }
-
     let cancelled = false;
     const supabase = createClient();
     supabase
@@ -73,16 +62,7 @@ export default function HomepageCouponBanner() {
     };
   }, []);
 
-  function handleDismiss() {
-    setDismissed(true);
-    try {
-      sessionStorage.setItem(DISMISS_KEY, '1');
-    } catch {
-      /* ignore */
-    }
-  }
-
-  if (!banner || dismissed) return null;
+  if (!banner) return null;
 
   const accent = ACCENT_COLORS[banner.homepage_accent ?? 'default'] ?? ACCENT_COLORS.default;
 
@@ -103,7 +83,6 @@ export default function HomepageCouponBanner() {
         alignItems: 'center',
         justifyContent: 'center',
         gap: 12,
-        position: 'relative',
         fontSize: '0.8125rem',
         letterSpacing: '0.02em',
       }}
@@ -112,32 +91,11 @@ export default function HomepageCouponBanner() {
         style={{
           fontWeight: 600,
           textAlign: 'center',
-          maxWidth: '90%',
+          maxWidth: '94%',
         }}
       >
         {text}
       </span>
-      <button
-        type="button"
-        aria-label="Dismiss promotional banner"
-        onClick={handleDismiss}
-        style={{
-          position: 'absolute',
-          right: 10,
-          top: '50%',
-          transform: 'translateY(-50%)',
-          background: 'transparent',
-          color: accent.fg,
-          border: 'none',
-          fontSize: '1rem',
-          opacity: 0.7,
-          cursor: 'pointer',
-          padding: 4,
-          lineHeight: 1,
-        }}
-      >
-        ×
-      </button>
     </div>
   );
 }
