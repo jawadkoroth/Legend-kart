@@ -55,7 +55,14 @@ function CheckoutContent() {
   const couponCode = searchParams.get('coupon') || '';
 
   const [product, setProduct] = useState<{ id: string; name: string; price_paise: number; sale_price_paise: number | null } | null>(null);
-  const [discount, setDiscount] = useState(0);
+  // Server-authoritative coupon state. `discountPaise` is what
+  // /api/coupons/validate returns for the CURRENT subtotal; it
+  // already respects max_discount_paise, min_cart, expiry, and
+  // per-user / global limits. `couponMessage` carries the reject
+  // reason (if any) so the user sees *why* a code didn't apply.
+  const [discountPaise, setDiscountPaise] = useState(0);
+  const [couponMessage, setCouponMessage] = useState<string>('');
+  const [couponOk, setCouponOk] = useState(false);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<'online' | 'cod'>('online');
@@ -154,16 +161,13 @@ function CheckoutContent() {
           if (p) setProduct(p);
         }
 
+        // Coupon preflight is intentionally deferred until after the
+        // product subtotal is known — see the effect below. Doing it
+        // here without subtotal would silently skip the min_cart and
+        // max_discount gates, then /api/orders would drop the coupon
+        // at charge time (bad UX: user sees discount, gets billed full).
         if (couponCode) {
-          const couponRes = await fetch('/api/coupons/validate', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ code: couponCode }),
-          });
-          const couponData = await couponRes.json();
-          if (couponData.success) {
-            setDiscount(couponData.discount_percent);
-          }
+          setCouponMessage('');
         }
       } catch (err) {
         console.error('Failed to load data:', err);
@@ -174,17 +178,65 @@ function CheckoutContent() {
     fetchData();
   }, [productId, couponCode]);
 
-  // Compute current subtotal (sale-aware + coupon) BEFORE the early
-  // returns so the quote effect can react to changes. Guarded: only
-  // runs once the product is loaded.
-  const subtotalForQuote = (() => {
+  // Compute current subtotal (sale-aware + server discount) BEFORE
+  // the early returns so the quote effect can react to changes.
+  // Guarded: only runs once the product is loaded.
+  const preDiscountSubtotal = (() => {
     if (!product) return 0;
     const p =
       product.sale_price_paise != null && product.sale_price_paise < product.price_paise
         ? product.sale_price_paise
         : product.price_paise;
-    return p - Math.round((p * discount) / 100);
+    return p;
   })();
+  const subtotalForQuote = Math.max(0, preDiscountSubtotal - discountPaise);
+
+  // Server-authoritative coupon re-evaluation whenever the
+  // subtotal changes (user isn't editing quantity here, but the
+  // sale-price/product load is async). Uses /api/coupons/validate
+  // with subtotalPaise so min_cart, max_discount, expiry, and
+  // usage limits are all enforced for the *displayed* number.
+  useEffect(() => {
+    if (!couponCode) {
+      setDiscountPaise(0);
+      setCouponMessage('');
+      setCouponOk(false);
+      return;
+    }
+    if (!product || preDiscountSubtotal <= 0) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch('/api/coupons/validate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            code: couponCode,
+            subtotalPaise: preDiscountSubtotal,
+          }),
+        });
+        const data = await res.json();
+        if (cancelled) return;
+        if (data.success) {
+          setDiscountPaise(Number(data.discount_paise) || 0);
+          setCouponOk(true);
+          setCouponMessage('');
+        } else {
+          setDiscountPaise(0);
+          setCouponOk(false);
+          setCouponMessage(data.error || 'Coupon could not be applied.');
+        }
+      } catch {
+        if (cancelled) return;
+        setDiscountPaise(0);
+        setCouponOk(false);
+        // Silent on transport errors — orders API re-validates anyway.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [couponCode, product, preDiscountSubtotal]);
 
   useEffect(() => {
     if (!product) return;
@@ -263,13 +315,14 @@ function CheckoutContent() {
   }
 
   // Mirror server-side pricing: sale_price wins when strictly lower,
-  // coupon stacks on top. Keeps the displayed subtotal identical to
-  // the amount /api/orders will charge before shipping + COD fees.
+  // coupon discount comes from the server (respects max_discount).
+  // Keeps the displayed subtotal identical to the amount /api/orders
+  // will charge before shipping + COD fees.
   const price =
     product.sale_price_paise != null && product.sale_price_paise < product.price_paise
       ? product.sale_price_paise
       : product.price_paise;
-  const discountAmount = Math.round(price * discount / 100);
+  const discountAmount = Math.min(discountPaise, price);
   const subtotal = price - discountAmount;
   // `total` is the final (all-inclusive) amount derived from the
   // server shipping quote; falls back to subtotal while the quote
@@ -646,6 +699,12 @@ function CheckoutContent() {
               <span className={styles.discountText}>− {formatPrice(discountAmount)}</span>
             </div>
           )}
+          {couponCode && !couponOk && couponMessage && (
+            <div className={styles.summaryRow} style={{ color: 'var(--warning)' }}>
+              <span>Coupon {couponCode}</span>
+              <span style={{ fontSize: '0.75rem' }}>{couponMessage}</span>
+            </div>
+          )}
           <div className={styles.summaryRow}>
             <span>Shipping</span>
             <span>
@@ -860,7 +919,19 @@ function CheckoutContent() {
           onClick={handleSubmit}
           disabled={submitting}
         >
-          PLACE ORDER — {formatPrice(total)}
+          {paymentMethod === 'cod' && codFeePaise > 0 ? (
+            <span className={styles.ctaStack}>
+              <span className={styles.ctaPrimary}>PLACE ORDER — {formatPrice(total)}</span>
+              <span
+                key={`cta-cod-${codFeePaise}`}
+                className={styles.ctaBadge}
+              >
+                INCL. +{formatPrice(codFeePaise)} COD FEE
+              </span>
+            </span>
+          ) : (
+            <>PLACE ORDER — {formatPrice(total)}</>
+          )}
         </button>
       </div>
     </div>

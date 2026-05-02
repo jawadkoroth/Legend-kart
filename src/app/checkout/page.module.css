@@ -134,8 +134,53 @@
 @media (prefers-reduced-motion: reduce) {
 
   .codFeeRow,
-  .totalAmount {
+  .totalAmount,
+  .ctaBadge {
     animation: none;
+  }
+}
+
+/* ---- CTA: COD fee callout stack ----
+   When COD is selected and a fee applies, the primary button
+   surfaces the total AND the included COD fee on its own line.
+   The badge uses the same `key` remount trick as .codFeeRow
+   so the animation replays every time the fee amount changes. */
+.ctaStack {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  line-height: 1.1;
+  width: 100%;
+}
+
+.ctaPrimary {
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
+.ctaBadge {
+  font-size: 0.625rem;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  padding: 2px 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.10);
+  color: inherit;
+  animation: ctaBadgeIn 240ms cubic-bezier(0.25, 0.46, 0.45, 0.94);
+}
+
+@keyframes ctaBadgeIn {
+  from {
+    opacity: 0;
+    transform: translateY(4px) scale(0.96);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
   }
 }
 
