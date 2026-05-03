@@ -1,9 +1,34 @@
+import type { Metadata } from 'next';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import ProductCard, { type ProductCardData } from '@/components/ProductCard';
 import SortSelect, { type SortValue } from '@/components/SortSelect';
+import { JsonLd } from '@/components/seo/JsonLd';
+import { breadcrumbLd, collectionLd } from '@/lib/seo/jsonLd';
+import { BRAND, absoluteUrl, canonicalUrl } from '@/lib/seo/site';
 import styles from './page.module.css';
 
 export const dynamic = 'force-dynamic';
+
+/**
+ * Collection metadata. The canonical points at the unfiltered
+ * listing so that every `?sort=` variant consolidates its ranking
+ * signal to a single URL — this is how we avoid splitting authority
+ * across sort permutations without having to `Disallow` them in
+ * robots.txt.
+ */
+export const metadata: Metadata = {
+  title: 'The Collection',
+  description:
+    'The full catalogue. Monochrome menswear in permanent black — shirts, trousers, and outerwear.',
+  alternates: { canonical: canonicalUrl('/products') },
+  openGraph: {
+    type: 'website',
+    url: canonicalUrl('/products'),
+    title: `The Collection — ${BRAND.name}`,
+    description:
+      'The full catalogue. Monochrome menswear in permanent black.',
+  },
+};
 
 const VALID_SORTS: SortValue[] = ['latest', 'price-asc', 'price-desc'];
 
@@ -91,8 +116,29 @@ export default async function ProductsPage({
     totalStock: stockByProduct.get(p.id) ?? 0,
   }));
 
+  const collectionUrl = canonicalUrl('/products');
+  const featuredForSchema = cards.slice(0, 12).map((c) => ({
+    name: c.name,
+    url: absoluteUrl(`/product/${c.slug}`),
+  }));
+
   return (
     <div className={styles.page}>
+      <JsonLd
+        data={breadcrumbLd([
+          { name: 'Home', path: '/' },
+          { name: 'The Collection', path: '/products' },
+        ])}
+      />
+      <JsonLd
+        data={collectionLd({
+          name: 'The Collection',
+          description:
+            'Monochrome menswear in permanent black — shirts, trousers, and outerwear.',
+          url: collectionUrl,
+          items: featuredForSchema,
+        })}
+      />
       <header className={styles.header}>
         <div>
           <p className={styles.eyebrow}>The Collection</p>

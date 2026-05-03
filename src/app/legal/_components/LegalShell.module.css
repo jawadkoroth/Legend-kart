@@ -1,0 +1,110 @@
+/* Editorial legal column — monochrome, silent, deliberately spare. */
+
+.page {
+  min-height: 100dvh;
+  background: #000;
+  color: #e7e7e7;
+  padding: clamp(6rem, 12vh, 10rem) clamp(1.5rem, 5vw, 4rem) 6rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.header {
+  width: 100%;
+  max-width: 62ch;
+  margin-bottom: clamp(3rem, 8vh, 6rem);
+}
+
+.eyebrow {
+  font-size: 0.72rem;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: #8a8a8a;
+  margin: 0 0 1.75rem;
+}
+
+.title {
+  font-family: 'Playfair Display', Georgia, serif;
+  font-weight: 400;
+  font-size: clamp(2.25rem, 5vw, 3.5rem);
+  line-height: 1.1;
+  letter-spacing: -0.01em;
+  color: #f6f6f6;
+  margin: 0 0 1.25rem;
+}
+
+.meta {
+  font-size: 0.78rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #7a7a7a;
+  margin: 0;
+}
+
+.body {
+  width: 100%;
+  max-width: 62ch;
+  font-size: 1rem;
+  line-height: 1.75;
+  color: #cfcfcf;
+}
+
+.body :global(h2) {
+  font-family: 'Playfair Display', Georgia, serif;
+  font-weight: 400;
+  font-size: 1.35rem;
+  letter-spacing: -0.005em;
+  color: #f0f0f0;
+  margin: 3rem 0 1rem;
+}
+
+.body :global(p) {
+  margin: 0 0 1.25rem;
+}
+
+.body :global(a) {
+  color: #f6f6f6;
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.2em;
+}
+
+.body :global(ul),
+.body :global(ol) {
+  margin: 0 0 1.5rem;
+  padding-left: 1.4rem;
+}
+
+.body :global(li) {
+  margin-bottom: 0.45rem;
+}
+
+.body :global(strong) {
+  color: #ededed;
+  font-weight: 500;
+}
+
+.siblings {
+  width: 100%;
+  max-width: 62ch;
+  margin-top: clamp(4rem, 10vh, 7rem);
+  padding-top: 2rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.5rem 2.25rem;
+  font-size: 0.8rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.siblings a {
+  color: #9a9a9a;
+  text-decoration: none;
+  transition: color 220ms ease;
+}
+
+.siblings a:hover {
+  color: #f6f6f6;
+}
