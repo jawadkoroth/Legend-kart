@@ -3,10 +3,7 @@ import crypto from 'crypto';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { logEvent } from '@/lib/log';
 import { withRequest } from '@/lib/observability/context';
-import {
-  sendPaymentSuccessEmail,
-  sendPaymentFailedEmail,
-} from '@/lib/email';
+import { enqueue } from '@/lib/jobs/queue';
 
 /**
  * POST /api/payments/webhook
@@ -238,9 +235,12 @@ async function handlePOST(req: NextRequest) {
       event_id: eventId,
     });
 
-    // Fire-and-forget payment-success email. Lookup product name
-    // off the same admin client; cheap and avoids passing it down.
-    sendPaymentEmailFor(order, 'success', supabase).catch(() => { });
+    // Durable enqueue for the payment-success email. The DB transition
+    // above is already idempotent (gated on payment_status='pending'),
+    // so this branch executes EXACTLY ONCE per genuine capture even if
+    // Razorpay re-delivers the same event. The job's idempotency key
+    // collapses any pathological double-enqueue to a single row.
+    await enqueuePaymentEmail(order, 'success', eventId, supabase);
 
     return NextResponse.json({ success: true });
   }
@@ -310,18 +310,19 @@ async function handlePOST(req: NextRequest) {
     error_code: payment.error_code,
   });
 
-  // Fire-and-forget payment-failed email with retry guidance.
-  sendPaymentEmailFor(order, 'failed', supabase).catch(() => { });
+  // Durable enqueue for the payment-failed email with retry guidance.
+  await enqueuePaymentEmail(order, 'failed', eventId, supabase);
 
   return NextResponse.json({ success: true });
 }
 
 /**
- * Builds the email payload from the order row + product lookup and
- * dispatches the right lifecycle email. Never throws — callers use
- * `.catch(() => {})` defensively but `dispatch()` already swallows.
+ * Build the lifecycle email payload from the order row + product
+ * lookup and enqueue it. Idempotency key is scoped to (order, kind,
+ * razorpay_event_id) so even if a malformed retry slipped past the
+ * DB-level dedupe, the queue still collapses it to one delivery.
  */
-async function sendPaymentEmailFor(
+async function enqueuePaymentEmail(
   order: {
     id: string;
     order_number: string;
@@ -344,6 +345,7 @@ async function sendPaymentEmailFor(
     payment_method: string;
   },
   kind: 'success' | 'failed',
+  eventId: string,
   supabase: ReturnType<typeof createAdminClient>,
 ): Promise<void> {
   const { data: product } = await supabase
@@ -358,7 +360,7 @@ async function sendPaymentEmailFor(
       ? (productImages[0] as string)
       : null;
 
-  const payload = {
+  const orderPayload = {
     id: order.id,
     order_number: order.order_number,
     customer: order.customer,
@@ -375,9 +377,12 @@ async function sendPaymentEmailFor(
     image_url: firstImage,
   };
 
-  if (kind === 'success') {
-    await sendPaymentSuccessEmail(payload);
-  } else {
-    await sendPaymentFailedEmail(payload);
-  }
+  await enqueue(
+    {
+      kind: kind === 'success' ? 'email.payment_success' : 'email.payment_failed',
+      idempotencyKey: `email.payment_${kind}.${order.id}.${eventId}`,
+      payload: { order: orderPayload },
+    },
+    supabase,
+  );
 }

@@ -2,11 +2,9 @@ import { NextRequest } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { apiSuccess, apiError } from '@/lib/api-response';
-import {
-  sendOrderStatusEmail,
-  type OrderStatusForEmail,
-} from '@/lib/email';
+import { type OrderStatusForEmail } from '@/lib/email';
 import { logEvent } from '@/lib/log';
+import { enqueue } from '@/lib/jobs/queue';
 
 /**
  * POST /api/admin/orders/[id]/notify-status
@@ -84,28 +82,35 @@ export async function POST(
         ? (productImages[0] as string)
         : null;
 
-    // Fire the email (fire-and-forget on the gateway side).
-    sendOrderStatusEmail(
-      {
-        id: order.id,
-        order_number: order.order_number,
-        customer: order.customer,
-        product_name: product?.name || 'Product',
-        size: order.size,
-        quantity: order.quantity,
-        subtotal_paise: (order as { subtotal_paise?: number | null }).subtotal_paise,
-        discount_paise: (order as { discount_paise?: number | null }).discount_paise,
-        shipping_paise: (order as { shipping_paise?: number | null }).shipping_paise,
-        cod_fee_paise: (order as { cod_fee_paise?: number | null }).cod_fee_paise,
-        total_paise: order.total_paise,
-        payment_method: order.payment_method,
-        shipping_address: order.shipping_address,
-        image_url: firstImage,
+    // Durable enqueue. Idempotency key per (order, status) so a
+    // re-fire from the admin UI for the same status is a no-op while
+    // a genuine confirmed → shipped → delivered sequence enqueues
+    // three distinct jobs.
+    await enqueue({
+      kind: 'email.order_status',
+      idempotencyKey: `email.order_status.${order.id}.${status}`,
+      payload: {
+        order: {
+          id: order.id,
+          order_number: order.order_number,
+          customer: order.customer,
+          product_name: product?.name || 'Product',
+          size: order.size,
+          quantity: order.quantity,
+          subtotal_paise: (order as { subtotal_paise?: number | null }).subtotal_paise,
+          discount_paise: (order as { discount_paise?: number | null }).discount_paise,
+          shipping_paise: (order as { shipping_paise?: number | null }).shipping_paise,
+          cod_fee_paise: (order as { cod_fee_paise?: number | null }).cod_fee_paise,
+          total_paise: order.total_paise,
+          payment_method: order.payment_method,
+          shipping_address: order.shipping_address,
+          image_url: firstImage,
+        },
+        status: status as OrderStatusForEmail,
       },
-      status as OrderStatusForEmail,
-    ).catch(() => { });
+    }, supabase);
 
-    logEvent('admin.order_status_email_dispatched', {
+    logEvent('admin.order_status_email_enqueued', {
       order_id: order.id,
       order_number: order.order_number,
       status,

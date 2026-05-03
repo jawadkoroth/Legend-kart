@@ -5,12 +5,11 @@ import { apiSuccess, apiError } from '@/lib/api-response';
 import { createOrderSchema } from '@/lib/validators';
 import { generateOrderNumber } from '@/lib/order-id';
 import { getRazorpay } from '@/lib/razorpay';
-import { sendOrderCreatedEmail } from '@/lib/email';
 import { logEvent } from '@/lib/log';
 import { withRequest } from '@/lib/observability/context';
 import { calcShipping } from '@/lib/shipping/calcShipping';
 import { evaluateCoupon } from '@/lib/coupons/evaluateCoupon';
-import { notifyAdmins } from '@/lib/push/webPush';
+import { enqueue } from '@/lib/jobs/queue';
 
 /**
  * POST /api/orders
@@ -234,34 +233,51 @@ async function handlePOST(req: NextRequest) {
           ? (productImages[0] as string)
           : null;
 
-      sendOrderCreatedEmail({
-        id: orderId,
-        order_number: finalOrderNumber,
-        customer,
-        product_name: product.name,
-        size,
-        quantity,
-        subtotal_paise: postDiscountSubtotal,
-        shipping_paise: shippingPaise,
-        cod_fee_paise: codFeePaise,
-        total_paise: total,
-        payment_method,
-        shipping_address,
-        image_url: firstImage,
-      }).catch(() => { });
+      // Durable enqueue (was fire-and-forget). The job runner
+      // (/api/jobs/run, hit by Vercel Cron every minute) drains the
+      // queue with retry + exponential backoff so a transient Resend
+      // / VAPID failure no longer silently drops the message.
+      // Idempotency keys collapse a duplicate `/api/orders` replay
+      // to one row per concern.
+      await enqueue({
+        kind: 'email.order_created',
+        idempotencyKey: `email.order_created.${orderId}`,
+        payload: {
+          order: {
+            id: orderId,
+            order_number: finalOrderNumber,
+            customer,
+            product_name: product.name,
+            size,
+            quantity,
+            subtotal_paise: postDiscountSubtotal,
+            shipping_paise: shippingPaise,
+            cod_fee_paise: codFeePaise,
+            total_paise: total,
+            payment_method,
+            shipping_address,
+            image_url: firstImage,
+          },
+        },
+      }, supabase);
 
       // Background push to all admin subscriptions (if configured).
-      // Fire-and-forget: never blocks the API response.
       // Tag matches AdminRealtimeProvider's in-tab Notification tag
       // (`order-<id>`) so when an admin has the tab open AND a push
       // arrives, the browser collapses them into a single toast
       // rather than showing two copies.
-      notifyAdmins(supabase, {
-        title: `New order #${finalOrderNumber}`,
-        body: `${customer.name || 'A customer'} ordered ₹${(total / 100).toLocaleString('en-IN')} · ${payment_method.toUpperCase()}`,
-        url: '/admin/orders',
-        tag: `order-${orderId}`,
-      }).catch((err) => console.error('[ORDER_PUSH_FANOUT]', err));
+      await enqueue({
+        kind: 'push.admin_notify',
+        idempotencyKey: `push.admin_notify.order_created.${orderId}`,
+        payload: {
+          push: {
+            title: `New order #${finalOrderNumber}`,
+            body: `${customer.name || 'A customer'} ordered ₹${(total / 100).toLocaleString('en-IN')} · ${payment_method.toUpperCase()}`,
+            url: '/admin/orders',
+            tag: `order-${orderId}`,
+          },
+        },
+      }, supabase);
     }
 
     // 6. Online payment: create Razorpay order.
