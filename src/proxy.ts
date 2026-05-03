@@ -2,6 +2,11 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 
 /**
+ * Next.js 16 renamed the `middleware` file convention to `proxy`.
+ * The function exported from this file MUST be named `proxy` (or
+ * default) — `middleware` is no longer recognised and emits a
+ * deprecation warning at build time.
+ *
  * Single source of truth for session refresh + protected-route gating.
  *
  * Pattern from @supabase/ssr docs: build a NextResponse, wire a server
@@ -27,7 +32,7 @@ function newRequestId(): string {
   }
 }
 
-export async function middleware(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   // Correlation ID: accept an inbound `x-request-id` (e.g. from a
   // reverse proxy / load test harness) when present; otherwise mint
   // a fresh one. Pass it through to the downstream handler via a

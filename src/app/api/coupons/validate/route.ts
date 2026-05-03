@@ -3,6 +3,7 @@ import { createAdminClient } from '@/lib/supabase/admin';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { apiSuccess, apiError } from '@/lib/api-response';
 import { evaluateCoupon } from '@/lib/coupons/evaluateCoupon';
+import { enforceRateLimit } from '@/lib/rateLimit';
 
 /**
  * POST /api/coupons/validate
@@ -19,6 +20,17 @@ import { evaluateCoupon } from '@/lib/coupons/evaluateCoupon';
  */
 export async function POST(req: NextRequest) {
   try {
+    // Coupon code validation is the most enumerable surface in the
+    // app — without a limit, an attacker can guess codes by brute
+    // force. 30/min per IP is generous for real users (a checkout
+    // form types one code at a time) and tight for bots.
+    const limited = await enforceRateLimit(req, {
+      bucket: 'coupons.validate',
+      max: 30,
+      windowSeconds: 60,
+    });
+    if (limited) return limited;
+
     const body = await req.json().catch(() => ({}));
     const { code, subtotalPaise } = body as {
       code?: string;

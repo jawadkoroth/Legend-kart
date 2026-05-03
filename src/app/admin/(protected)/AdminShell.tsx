@@ -13,6 +13,7 @@ const NAV_ITEMS = [
   { href: '/admin/products', label: 'Products', icon: '👕' },
   { href: '/admin/coupons', label: 'Coupons', icon: '🏷️' },
   { href: '/admin/shipping', label: 'Shipping', icon: '🚚' },
+  { href: '/admin/diagnostics', label: 'Diag', icon: '🩺' },
 ];
 
 export default function AdminShell({

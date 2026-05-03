@@ -45,10 +45,23 @@ type RazorpayPaymentEntity = {
 type RazorpayEvent = {
   id: string;
   event: string;
+  // Unix epoch (seconds) at which Razorpay generated the event.
+  // Used for replay-window enforcement.
+  created_at?: number;
   payload?: {
     payment?: { entity?: RazorpayPaymentEntity };
   };
 };
+
+/**
+ * Threshold (seconds) above which a webhook event is logged as
+ * unusually stale. We do NOT reject stale events — Razorpay retries
+ * for up to 24h after a 5xx and we want every real retry to land —
+ * but a fresh delivery of a multi-hour-old event is a strong
+ * indicator of secret leakage or replay, worth surfacing in the
+ * admin diagnostics surface for review.
+ */
+const WEBHOOK_STALE_WARN_SECONDS = 30 * 60;
 
 function timingSafeEqualHex(a: string, b: string): boolean {
   if (a.length !== b.length) return false;
@@ -116,6 +129,24 @@ async function handlePOST(req: NextRequest) {
     razorpay_order_id: payment?.order_id,
     razorpay_payment_id: payment?.id,
   });
+
+  // Observability: surface unusually stale events. Does NOT reject
+  // (see WEBHOOK_STALE_WARN_SECONDS comment).
+  if (typeof event.created_at === 'number') {
+    const ageSeconds = Math.floor(Date.now() / 1000) - event.created_at;
+    if (ageSeconds > WEBHOOK_STALE_WARN_SECONDS) {
+      logEvent(
+        'payment.webhook_stale',
+        {
+          event_id: eventId,
+          event_type: eventType,
+          age_seconds: ageSeconds,
+          warn_threshold_seconds: WEBHOOK_STALE_WARN_SECONDS,
+        },
+        { severity: 'warn' },
+      );
+    }
+  }
 
   // Only react to events we model. Anything else is acknowledged
   // (200) so Razorpay stops retrying, and we log it for awareness.

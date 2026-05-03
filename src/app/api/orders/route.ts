@@ -10,6 +10,7 @@ import { withRequest } from '@/lib/observability/context';
 import { calcShipping } from '@/lib/shipping/calcShipping';
 import { evaluateCoupon } from '@/lib/coupons/evaluateCoupon';
 import { enqueue } from '@/lib/jobs/queue';
+import { enforceRateLimit } from '@/lib/rateLimit';
 
 /**
  * POST /api/orders
@@ -34,6 +35,17 @@ export async function POST(req: NextRequest) {
 
 async function handlePOST(req: NextRequest) {
   try {
+    // Order creation is expensive (Razorpay round trip + atomic
+    // decrement). Cap per-IP throughput to absorb a runaway client
+    // or scripted abuse. Real users place orders one at a time;
+    // 20/min leaves ample headroom for retries on flaky networks.
+    const limited = await enforceRateLimit(req, {
+      bucket: 'orders.create',
+      max: 20,
+      windowSeconds: 60,
+    });
+    if (limited) return limited;
+
     const body = await req.json();
 
     // 1. Validate input (now includes `client_request_id`).
@@ -183,11 +195,33 @@ async function handlePOST(req: NextRequest) {
     );
 
     if (rpcError) {
-      // PL/pgSQL `RAISE EXCEPTION 'STOCK_UNAVAILABLE'` surfaces here.
+      // PL/pgSQL `RAISE EXCEPTION '<token>'` surfaces here. We
+      // discriminate on the message rather than ERRCODE because
+      // PostgREST collapses custom SQLSTATEs into 'P0001' family
+      // strings inconsistently across versions; the token in the
+      // exception text is the one stable handle we have.
       const msg = rpcError.message || '';
       if (msg.includes('STOCK_UNAVAILABLE')) {
         logEvent('order.stock_failed', { product_id, size, quantity });
         return apiError(409, 'Size out of stock');
+      }
+      if (msg.includes('COUPON_PER_USER_LIMIT')) {
+        // Capacity raced — the JS preflight in step 4 above passed
+        // but a concurrent order placement consumed the last slot
+        // by the time the lock was acquired in the RPC. User-facing
+        // copy mirrors evaluateCoupon's per_user_limit message.
+        logEvent('order.coupon_per_user_limit_race', {
+          code: appliedCoupon,
+          user_id: userId,
+        });
+        return apiError(
+          409,
+          'You have already used this coupon the maximum number of times.',
+        );
+      }
+      if (msg.includes('COUPON_USAGE_LIMIT')) {
+        logEvent('order.coupon_usage_limit_race', { code: appliedCoupon });
+        return apiError(409, 'This coupon has reached its usage limit.');
       }
       logEvent('order.create_failed', {
         error: msg,
