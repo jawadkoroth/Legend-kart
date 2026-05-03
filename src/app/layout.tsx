@@ -1,20 +1,74 @@
-import type { Metadata } from 'next';
+import type { Metadata, Viewport } from 'next';
 import '@/styles/globals.css';
 import { CartProvider } from '@/lib/cart';
 import Navbar from '@/components/Navbar';
 import FeedbackButton from '@/components/FeedbackButton';
+import Footer from '@/components/footer/Footer';
+import FooterGate from '@/components/footer/FooterGate';
 import { AuthProvider } from '@/lib/auth/AuthProvider';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { SITE_URL, BRAND } from '@/lib/seo/site';
 
+/**
+ * Root metadata.
+ *
+ * `title.template` is inherited by every page; pages only need to
+ * supply the leading fragment and the suffix is appended. Pages that
+ * need to override the suffix (brand page, very short title) set
+ * `title: { absolute: 'NOIR' }` locally.
+ *
+ * `metadataBase` is derived from env via `SITE_URL` so CI/preview
+ * deploys don't emit `localhost:3000` OG URLs that then get scraped
+ * by social cards.
+ */
 export const metadata: Metadata = {
-  title: 'NOIR — Premium Black Fashion',
-  description: 'Handcrafted premium black clothing. Minimal. Timeless. Made in India.',
-  metadataBase: new URL(process.env.NEXT_PUBLIC_URL || 'http://localhost:3000'),
-  openGraph: {
-    title: 'NOIR — Premium Black Fashion',
-    description: 'Handcrafted premium black clothing. Minimal. Timeless.',
-    type: 'website',
+  metadataBase: new URL(SITE_URL),
+  title: {
+    default: `${BRAND.name} — Monochrome Menswear, India`,
+    template: `%s — ${BRAND.titleSuffix}`,
   },
+  description: BRAND.description,
+  applicationName: BRAND.name,
+  referrer: 'strict-origin-when-cross-origin',
+  formatDetection: { telephone: false, address: false, email: false },
+  openGraph: {
+    type: 'website',
+    siteName: BRAND.name,
+    locale: BRAND.locale,
+    url: SITE_URL,
+    title: `${BRAND.name} — Monochrome Menswear, India`,
+    description: BRAND.description,
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: `${BRAND.name} — Monochrome Menswear, India`,
+    description: BRAND.description,
+  },
+  robots: {
+    index: true,
+    follow: true,
+    googleBot: {
+      index: true,
+      follow: true,
+      'max-image-preview': 'large',
+      'max-snippet': -1,
+      'max-video-preview': -1,
+    },
+  },
+  icons: {
+    icon: '/favicon.ico',
+  },
+};
+
+/**
+ * Viewport is split out per Next.js App Router conventions —
+ * `themeColor` and viewport directives live here, not on `metadata`.
+ */
+export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  viewportFit: 'cover',
+  themeColor: '#0B0B0B',
 };
 
 export default async function RootLayout({
@@ -52,14 +106,15 @@ export default async function RootLayout({
           href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Playfair+Display:wght@400;500;600;700&display=swap"
           rel="stylesheet"
         />
-        <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-        <meta name="theme-color" content="#0B0B0B" />
       </head>
       <body>
         <AuthProvider initialUser={user}>
           <CartProvider>
             <Navbar />
             {children}
+            <FooterGate>
+              <Footer />
+            </FooterGate>
             <FeedbackButton />
           </CartProvider>
         </AuthProvider>

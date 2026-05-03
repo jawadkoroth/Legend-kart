@@ -97,8 +97,8 @@
 .heroTag {
   font-size: 0.6875rem;
   text-transform: uppercase;
-  letter-spacing: 0.2em;
-  color: var(--text-accent);
+  letter-spacing: 0.22em;
+  color: var(--text-muted);
   margin-bottom: var(--space-3);
   font-weight: 500;
 }
@@ -163,10 +163,10 @@
 .storySub {
   font-size: 0.6875rem;
   text-transform: uppercase;
-  letter-spacing: 0.2em;
-  color: var(--text-accent);
+  letter-spacing: 0.22em;
+  color: var(--text-muted);
   margin-bottom: var(--space-2);
-  font-weight: 600;
+  font-weight: 500;
 }
 
 .storyTitle {
@@ -316,8 +316,8 @@
 .featuredLabel {
   font-size: 0.6875rem;
   text-transform: uppercase;
-  letter-spacing: 0.2em;
-  color: var(--text-accent);
+  letter-spacing: 0.22em;
+  color: var(--text-muted);
   margin-bottom: var(--space-3);
   font-weight: 500;
 }
