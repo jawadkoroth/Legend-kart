@@ -39,7 +39,7 @@ const LEASE_SECONDS = 120;
 // Soft per-invocation timeout. Vercel Hobby caps at 10s, Pro at 60s
 // for serverless functions. We stop claiming new jobs once we're
 // inside this window; in-flight handlers still finish.
-const SOFT_DEADLINE_MS = 25_000;
+const SOFT_DEADLINE_MS = 8000;
 
 function isAuthorised(req: NextRequest): boolean {
   const expected = process.env.CRON_SECRET;
