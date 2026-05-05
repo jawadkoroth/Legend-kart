@@ -1,27 +1,42 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Suspense } from 'react';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
 import { useCart } from '@/lib/cart';
 import styles from './page.module.css';
 
+/**
+ * Checkout page (multi-line, since phase B3).
+ *
+ * Source-of-truth model:
+ *
+ *   - When `?product_id=X&size=Y` is present in the URL, this is a
+ *     "Buy Now" intent from the PDP. Checkout submits ONLY that
+ *     single line — even if the cart contains other items — and on
+ *     success clears just that one line. Other cart lines are left
+ *     intact for the user to come back to.
+ *   - With no URL params, checkout submits EVERY line currently in
+ *     the cart and clears the matching lines on success.
+ *
+ * Either path POSTs to `/api/orders` with an `items: [...]` array;
+ * the server handler is identical in both shapes.
+ *
+ * The URL `coupon` param is still respected: a code carried over
+ * from /cart or persisted in the PDP query string is preflighted
+ * against the SUMMED subtotal here so the user never sees a
+ * displayed discount that the order POST would silently drop.
+ */
+
 function CheckoutContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { removeItem: removeCartItem } = useCart();
+  const { items: cartItems, removeItem: removeCartItem } = useCart();
 
-  // Per-submit race controls.
-  //
-  // - `validateAbortRef` aborts an in-flight `/api/cart/validate`
-  //   if the component unmounts or a newer submit supersedes it.
-  // - `submitTokenRef` is incremented on every submit; the in-flight
-  //   validate captures the token at issue time and discards its
-  //   result if a newer submit (or an unmount) has bumped the ref.
-  //   This makes a stale validate response harmless: it can never
-  //   gate or unblock an order that doesn't belong to it.
+  // Race controls. AbortController for the in-flight `cart/validate`
+  // request, and a token bumped on every submit so a slow-arriving
+  // response never overrides a newer click.
   const validateAbortRef = useRef<AbortController | null>(null);
   const submitTokenRef = useRef(0);
 
@@ -50,11 +65,30 @@ function CheckoutContent() {
       validateAbortRef.current = null;
     };
   }, []);
-  const productId = searchParams.get('product_id') || '';
-  const size = searchParams.get('size') || '';
-  const couponCode = searchParams.get('coupon') || '';
 
-  const [product, setProduct] = useState<{ id: string; name: string; price_paise: number; sale_price_paise: number | null } | null>(null);
+  // URL params. `product_id` + `size` together signal a Buy Now
+  // intent (PDP routed here after addItem). Absent params = full
+  // cart checkout.
+  const productId = searchParams.get('product_id') || '';
+  const sizeParam = searchParams.get('size') || '';
+  const couponCode = searchParams.get('coupon') || '';
+  const isBuyNow = Boolean(productId && sizeParam);
+
+  // Resolve the line set being submitted at this moment. For Buy
+  // Now we filter the cart to the single matching (product_id, size)
+  // pair; for cart checkout we use every line. The resolved array
+  // drives the subtotal, the validate request, the order POST, and
+  // the post-success cart-clear logic — single source of truth.
+  const checkoutItems = useMemo(() => {
+    if (isBuyNow) {
+      const match = cartItems.find(
+        (i) => i.product_id === productId && i.size === sizeParam,
+      );
+      return match ? [match] : [];
+    }
+    return cartItems;
+  }, [isBuyNow, productId, sizeParam, cartItems]);
+
   // Server-authoritative coupon state. `discountPaise` is what
   // /api/coupons/validate returns for the CURRENT subtotal; it
   // already respects max_discount_paise, min_cart, expiry, and
@@ -112,90 +146,85 @@ function CheckoutContent() {
   const [pincode, setPincode] = useState('');
   const [errors, setErrors] = useState<Record<string, string>>({});
 
+  // Auth + saved addresses + profile prefill. Runs once on mount;
+  // does NOT depend on cart contents (those are local-only and
+  // already hydrated by the cart provider).
   useEffect(() => {
-    async function fetchData() {
+    let cancelled = false;
+    async function fetchAuth() {
       try {
         const supabase = createClient();
         const { data: { session } } = await supabase.auth.getSession();
 
-        if (session) {
-          setUserId(session.user.id);
-          const { data: profile } = await supabase
-            .from('profiles')
-            .select('phone, name, email')
-            .eq('id', session.user.id)
-            .single();
+        if (!session) {
+          if (!cancelled) setLoading(false);
+          return;
+        }
+        if (cancelled) return;
 
-          if (!profile?.phone) {
-            router.replace('/profile/complete?next=/checkout');
-            return;
-          }
+        setUserId(session.user.id);
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('phone, name, email')
+          .eq('id', session.user.id)
+          .single();
 
-          if (profile.name) setName(profile.name);
-          if (profile.phone) setPhone(profile.phone.replace('+91', ''));
-          if (profile.email) setEmail(profile.email);
+        if (cancelled) return;
 
-          // Pull saved addresses; RLS limits to this user.
-          const { data: addrs } = await supabase
-            .from('addresses')
-            .select('id,label,full_name,phone,line1,line2,city,state,pincode,is_default')
-            .order('is_default', { ascending: false })
-            .order('created_at', { ascending: false });
-          if (addrs && addrs.length > 0) {
-            const list = addrs as SavedAddress[];
-            setSavedAddresses(list);
-            const def = list.find(a => a.is_default) ?? list[0];
-            setSelectedSavedId(def.id);
-            setLine1(def.line1);
-            setLine2(def.line2 ?? '');
-            setCity(def.city);
-            setState(def.state);
-            setPincode(def.pincode);
-          }
+        if (!profile?.phone) {
+          router.replace('/profile/complete?next=/checkout');
+          return;
         }
 
-        const res = await fetch('/api/products');
-        const data = await res.json();
-        if (data.success) {
-          const p = data.products?.find((pr: { id: string }) => pr.id === productId);
-          if (p) setProduct(p);
-        }
+        if (profile.name) setName(profile.name);
+        if (profile.phone) setPhone(profile.phone.replace('+91', ''));
+        if (profile.email) setEmail(profile.email);
 
-        // Coupon preflight is intentionally deferred until after the
-        // product subtotal is known — see the effect below. Doing it
-        // here without subtotal would silently skip the min_cart and
-        // max_discount gates, then /api/orders would drop the coupon
-        // at charge time (bad UX: user sees discount, gets billed full).
-        if (couponCode) {
-          setCouponMessage('');
+        // Pull saved addresses; RLS limits to this user.
+        const { data: addrs } = await supabase
+          .from('addresses')
+          .select('id,label,full_name,phone,line1,line2,city,state,pincode,is_default')
+          .order('is_default', { ascending: false })
+          .order('created_at', { ascending: false });
+        if (cancelled) return;
+        if (addrs && addrs.length > 0) {
+          const list = addrs as SavedAddress[];
+          setSavedAddresses(list);
+          const def = list.find((a) => a.is_default) ?? list[0];
+          setSelectedSavedId(def.id);
+          setLine1(def.line1);
+          setLine2(def.line2 ?? '');
+          setCity(def.city);
+          setState(def.state);
+          setPincode(def.pincode);
         }
       } catch (err) {
-        console.error('Failed to load data:', err);
+        console.error('[CHECKOUT_AUTH_LOAD]', err);
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     }
-    fetchData();
-  }, [productId, couponCode]);
+    fetchAuth();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-  // Compute current subtotal (sale-aware + server discount) BEFORE
-  // the early returns so the quote effect can react to changes.
-  // Guarded: only runs once the product is loaded.
-  const preDiscountSubtotal = (() => {
-    if (!product) return 0;
-    const p =
-      product.sale_price_paise != null && product.sale_price_paise < product.price_paise
-        ? product.sale_price_paise
-        : product.price_paise;
-    return p;
-  })();
+  // Pre-discount subtotal across every line being checked out.
+  // Sale-aware via the price snapshot the cart already holds (cart
+  // captures the displayed price at addItem time; the server
+  // re-resolves per-line price authoritatively at /api/orders).
+  const preDiscountSubtotal = useMemo(
+    () => checkoutItems.reduce((s, i) => s + i.price_paise * i.quantity, 0),
+    [checkoutItems],
+  );
   const subtotalForQuote = Math.max(0, preDiscountSubtotal - discountPaise);
 
   // Server-authoritative coupon re-evaluation whenever the
-  // subtotal changes (user isn't editing quantity here, but the
-  // sale-price/product load is async). Uses /api/coupons/validate
-  // with subtotalPaise so min_cart, max_discount, expiry, and
-  // usage limits are all enforced for the *displayed* number.
+  // subtotal changes. Uses /api/coupons/validate with subtotalPaise
+  // so min_cart, max_discount, expiry, and usage limits are all
+  // enforced for the *displayed* number.
   useEffect(() => {
     if (!couponCode) {
       setDiscountPaise(0);
@@ -203,7 +232,7 @@ function CheckoutContent() {
       setCouponOk(false);
       return;
     }
-    if (!product || preDiscountSubtotal <= 0) return;
+    if (preDiscountSubtotal <= 0) return;
     let cancelled = false;
     (async () => {
       try {
@@ -236,10 +265,13 @@ function CheckoutContent() {
     return () => {
       cancelled = true;
     };
-  }, [couponCode, product, preDiscountSubtotal]);
+  }, [couponCode, preDiscountSubtotal]);
 
   useEffect(() => {
-    if (!product) return;
+    if (preDiscountSubtotal <= 0) {
+      setQuote(null);
+      return;
+    }
     let cancelled = false;
     setQuoteLoading(true);
     fetch('/api/shipping/quote', {
@@ -270,7 +302,7 @@ function CheckoutContent() {
     return () => {
       cancelled = true;
     };
-  }, [product, subtotalForQuote, paymentMethod]);
+  }, [preDiscountSubtotal, subtotalForQuote, paymentMethod]);
 
   // If the server tells us COD is disabled but the user has it
   // selected, flip back to online automatically. Prevents the
@@ -296,7 +328,13 @@ function CheckoutContent() {
     );
   }
 
-  if (!product || !size) {
+  // Empty checkout. Two paths:
+  //   - Buy Now URL but the matching cart line is missing (PDP
+  //     skipped addItem, or the user manually crafted the URL).
+  //   - Cart-driven checkout but the cart is empty.
+  // In both cases the appropriate next step is to send the user
+  // back to where they can pick something to buy.
+  if (checkoutItems.length === 0) {
     return (
       <div className={styles.page}>
         <div className={styles.header}>
@@ -305,28 +343,21 @@ function CheckoutContent() {
           <span />
         </div>
         <div className={styles.errorState}>
-          <p>Invalid checkout. Please go back and select a product.</p>
-          <Link href="/" className="btn btn-secondary btn-sm" style={{ marginTop: 'var(--space-4)', width: 'auto' }}>
-            ← Back to Shop
+          <p>{isBuyNow ? 'Invalid checkout. Please go back and select a product.' : 'Your cart is empty.'}</p>
+          <Link
+            href={isBuyNow ? '/' : '/cart'}
+            className="btn btn-secondary btn-sm"
+            style={{ marginTop: 'var(--space-4)', width: 'auto' }}
+          >
+            {isBuyNow ? '← Back to Shop' : '← Back to Cart'}
           </Link>
         </div>
       </div>
     );
   }
 
-  // Mirror server-side pricing: sale_price wins when strictly lower,
-  // coupon discount comes from the server (respects max_discount).
-  // Keeps the displayed subtotal identical to the amount /api/orders
-  // will charge before shipping + COD fees.
-  const price =
-    product.sale_price_paise != null && product.sale_price_paise < product.price_paise
-      ? product.sale_price_paise
-      : product.price_paise;
-  const discountAmount = Math.min(discountPaise, price);
-  const subtotal = price - discountAmount;
-  // `total` is the final (all-inclusive) amount derived from the
-  // server shipping quote; falls back to subtotal while the quote
-  // is still loading so the UI never flashes a zero total.
+  const discountAmount = Math.min(discountPaise, preDiscountSubtotal);
+  const subtotal = preDiscountSubtotal - discountAmount;
   const shippingPaise = quote?.shippingPaise ?? 0;
   const codFeePaise = quote?.codFeePaise ?? 0;
   const total = quote ? quote.totalPaise : subtotal;
@@ -346,34 +377,43 @@ function CheckoutContent() {
     return Object.keys(e).length === 0;
   }
 
+  /**
+   * Clear every line that was just submitted from the cart. Called
+   * after a confirmed success path (COD pre-redirect, or Razorpay
+   * handler post-verify). Pure local-state mutation — never throws.
+   */
+  function clearSubmittedLines(submitted: Array<{ product_id: string; size: string }>) {
+    try {
+      for (const line of submitted) {
+        removeCartItem(line.product_id, line.size);
+      }
+    } catch (err) {
+      console.error('[CART_CLEAR_AFTER_ORDER]', err);
+    }
+  }
+
   async function handleSubmit() {
-    if (submitting || !product) return;
+    if (submitting) return;
+    if (checkoutItems.length === 0) return;
     if (!validate()) return;
     setSubmitting(true);
     setOrderError('');
 
+    // Snapshot the lines we're submitting NOW. Capturing here (not
+    // inside the handler closure) protects against the user adding
+    // or removing items between the click and the response.
+    const submittedLines = checkoutItems.map((i) => ({
+      product_id: i.product_id,
+      size: i.size,
+      quantity: i.quantity,
+    }));
+
     // Final stock revalidation immediately before order POST.
     //
-    // We ALWAYS validate at submit, even if the cart provider's
-    // `validatedAt` snapshot is fresh: a fresh snapshot is a strong
-    // hint, not a guarantee — inventory can change in the seconds
-    // between /cart load and /checkout submit. The DB decrement is
-    // the final gate, but we refuse to initiate a payment round-trip
-    // when we cannot prove the line is still sellable.
-    //
-    // The validate request is dispatched immediately (in parallel
-    // with any local prep that follows). Order creation awaits its
-    // result, so the gate is strict but the dispatch is non-blocking.
-    //
-    // Race safety:
-    //   - Cancel any prior in-flight validate via `validateAbortRef`.
-    //   - Bump `submitTokenRef` and capture the token; a stale
-    //     response (e.g. user double-submitted, or component
-    //     unmounted then remounted) is discarded.
-    //   - On any non-OK / parse error / abort / empty entry, block
-    //     with a retryable error.
-    //   - On a clear "no stock" answer, block with the existing
-    //     user-facing message.
+    // Same race controls as the single-line variant: cancel any
+    // prior in-flight validate, bump the submit token, drop stale
+    // responses. The validate route accepts the same items[] shape
+    // we'll send to /api/orders.
     if (validateAbortRef.current) {
       validateAbortRef.current.abort();
     }
@@ -381,26 +421,18 @@ function CheckoutContent() {
     validateAbortRef.current = controller;
     const myToken = ++submitTokenRef.current;
 
-    const validatePromise = fetch('/api/cart/validate', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        items: [{ product_id: product.id, size, quantity: 1 }],
-      }),
-      signal: controller.signal,
-    });
-
     type ValidateOutcome =
       | { ok: true }
       | { ok: false; reason: 'unavailable' | 'verify-failed' };
-    // Default to a hard fail; every success path explicitly assigns.
-    let validateOutcome: ValidateOutcome = {
-      ok: false,
-      reason: 'verify-failed',
-    };
+    let validateOutcome: ValidateOutcome = { ok: false, reason: 'verify-failed' };
+
     try {
-      const validateRes = await validatePromise;
-      // Stale: a newer submit started, or we were unmounted. Drop.
+      const validateRes = await fetch('/api/cart/validate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ items: submittedLines }),
+        signal: controller.signal,
+      });
       if (myToken !== submitTokenRef.current) return;
       if (!validateRes.ok) {
         console.error('[CHECKOUT_VALIDATE_FAILED]', validateRes.status);
@@ -416,20 +448,26 @@ function CheckoutContent() {
           }>;
         };
         if (myToken !== submitTokenRef.current) return;
-        const entry = validateData.items?.[0];
-        if (!entry) {
-          console.error('[CHECKOUT_VALIDATE_EMPTY]', validateData);
-          validateOutcome = { ok: false, reason: 'verify-failed' };
-        } else if (entry.removed || entry.maxStock < 1) {
+        const entries = validateData.items ?? [];
+        const anyUnavailable = entries.some(
+          (entry) => entry.removed || entry.maxStock < 1,
+        );
+        const anyClampedDown = submittedLines.some((line) => {
+          const entry = entries.find(
+            (e) => e.product_id === line.product_id && e.size === line.size,
+          );
+          return entry ? entry.clampedQuantity < line.quantity : true;
+        });
+        if (anyUnavailable || anyClampedDown) {
           validateOutcome = { ok: false, reason: 'unavailable' };
+        } else if (entries.length === 0) {
+          validateOutcome = { ok: false, reason: 'verify-failed' };
         } else {
           validateOutcome = { ok: true };
         }
       }
     } catch (err) {
       if (myToken !== submitTokenRef.current) return;
-      // AbortError surfaces when a newer submit aborts us; that path
-      // already returned above via the token check, but guard anyway.
       if ((err as { name?: string })?.name === 'AbortError') return;
       console.error('[CHECKOUT_VALIDATE_ERROR]', err);
       validateOutcome = { ok: false, reason: 'verify-failed' };
@@ -442,7 +480,7 @@ function CheckoutContent() {
     if (!validateOutcome.ok) {
       setOrderError(
         validateOutcome.reason === 'unavailable'
-          ? 'This item is no longer available in the selected size. Please choose another.'
+          ? 'Some items in your order are no longer available. Please review your cart.'
           : 'Unable to verify stock. Please try again.',
       );
       setSubmitting(false);
@@ -455,8 +493,7 @@ function CheckoutContent() {
       clientRequestIdRef.current =
         typeof crypto !== 'undefined' && 'randomUUID' in crypto
           ? crypto.randomUUID()
-          : // Fallback for very old browsers; matches UUID v4 shape.
-          'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+          : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
             const r = (Math.random() * 16) | 0;
             const v = c === 'x' ? r : (r & 0x3) | 0x8;
             return v.toString(16);
@@ -469,10 +506,7 @@ function CheckoutContent() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          // Multi-line API since phase B2. Buy Now / single-product
-          // checkout still works by submitting one entry. B3 will
-          // switch this surface to read every line from useCart().
-          items: [{ product_id: product.id, size, quantity: 1 }],
+          items: submittedLines,
           customer: { name: name.trim(), phone, email: email || undefined },
           shipping_address: {
             line1: line1.trim(),
@@ -491,10 +525,6 @@ function CheckoutContent() {
 
       if (!data.success) {
         console.error('[ORDER_FAILED]', data.error, data.details);
-        // 400 = validation error; user must edit and resubmit, so
-        // a new idempotency window is appropriate. Other failures
-        // (5xx, 409 transient stock) keep the same id so a retry
-        // is replay-safe.
         if (res.status === 400) {
           clientRequestIdRef.current = null;
         }
@@ -505,11 +535,7 @@ function CheckoutContent() {
 
       // Persist to the address book if the user opted in (manual
       // mode + checkbox). Fire-and-forget: never blocks the order.
-      if (
-        userId &&
-        selectedSavedId === null &&
-        saveToBook
-      ) {
+      if (userId && selectedSavedId === null && saveToBook) {
         const supabase = createClient();
         supabase
           .from('addresses')
@@ -529,7 +555,6 @@ function CheckoutContent() {
           .single()
           .then(({ data: row, error }) => {
             if (error || !row) return;
-            // First-ever save → mark as default.
             if (savedAddresses.length === 0) {
               supabase.rpc('set_default_address', { p_id: row.id }).then(() => { });
             }
@@ -537,45 +562,36 @@ function CheckoutContent() {
       }
 
       if (paymentMethod === 'online') {
-        // Hand off to Razorpay; the id is consumed once payment
-        // succeeds or the user dismisses the modal. The cart line
-        // is NOT cleared here — only after payment verification
-        // succeeds inside the Razorpay handler. A user who
-        // dismisses the modal or whose payment fails must still
-        // be able to retry against the same cart line.
+        // Hand off to Razorpay; the cart is NOT cleared until
+        // payment is verified inside the Razorpay handler. A user
+        // who dismisses the modal or whose payment fails keeps
+        // their cart intact for a retry.
         clientRequestIdRef.current = null;
-        await openRazorpay(data);
+        await openRazorpay(data, submittedLines);
       } else {
-        // COD: order is "placed" the moment the row exists. This
-        // is the only success-path for COD, so clear the matching
-        // cart line now (before navigation; the matching key is
-        // product.id + size, the same shape /checkout was opened
-        // with). Other lines in the cart are preserved — user
-        // checked out a single line, not the whole cart.
+        // COD: order is "placed" the moment the row exists. Clear
+        // every submitted line now, before navigation.
         clientRequestIdRef.current = null;
-        try {
-          removeCartItem(product.id, size);
-        } catch (err) {
-          console.error('[CART_CLEAR_COD]', err);
-        }
+        clearSubmittedLines(submittedLines);
         router.push(`/order/${data.order_id}`);
       }
     } catch (err) {
       console.error('[ORDER_ERROR]', err);
-      // Network error: keep the id so the next click is a replay.
       setOrderError('Network error. Please check your connection and try again.');
       setSubmitting(false);
     }
   }
 
-  async function openRazorpay(orderData: {
-    razorpay_order_id: string;
-    amount: number;
-    key_id: string;
-    order_id: string;
-    customer: { name: string; phone: string; email?: string };
-  }) {
-    // Validate that we have the required Razorpay data
+  async function openRazorpay(
+    orderData: {
+      razorpay_order_id: string;
+      amount: number;
+      key_id: string;
+      order_id: string;
+      customer: { name: string; phone: string; email?: string };
+    },
+    submittedLines: Array<{ product_id: string; size: string }>,
+  ) {
     if (!orderData.razorpay_order_id || !orderData.key_id) {
       console.error('[RAZORPAY_INIT] Missing order_id or key_id:', orderData);
       setOrderError('Payment could not be initialized. Please try COD or contact support.');
@@ -583,7 +599,6 @@ function CheckoutContent() {
       return;
     }
 
-    // Dynamically load Razorpay SDK
     try {
       if (!(window as unknown as { Razorpay: unknown }).Razorpay) {
         await new Promise<void>((resolve, reject) => {
@@ -603,18 +618,19 @@ function CheckoutContent() {
 
     const RazorpayClass = (window as unknown as { Razorpay: new (options: Record<string, unknown>) => { open: () => void } }).Razorpay;
 
-    // Capture the cart-line key locally. We're inside the submit
-    // closure where `product` was already guaranteed non-null,
-    // but TS loses the narrowing through the async handler below.
-    const cartLineProductId = product?.id ?? null;
-    const cartLineSize = size;
+    // Build a brief description for the Razorpay modal. Single-line
+    // orders show product/size; multi-line orders show line count.
+    const description =
+      submittedLines.length === 1
+        ? `${checkoutItems[0].name} — Size ${checkoutItems[0].size}`
+        : `${submittedLines.length} items`;
 
     const rzp = new RazorpayClass({
       key: orderData.key_id,
       amount: orderData.amount,
       currency: 'INR',
       name: 'NOIR',
-      description: `${product?.name || 'Product'} — Size ${size}`,
+      description,
       order_id: orderData.razorpay_order_id,
       prefill: {
         name: orderData.customer.name,
@@ -635,18 +651,10 @@ function CheckoutContent() {
           });
           const verifyData = await verifyRes.json();
           if (verifyData.success) {
-            // Payment captured AND server-side signature verified —
-            // this is the ONLY online-payment success path. Clearing
-            // here (and nowhere else) ensures a user who dismisses
-            // the modal or whose payment ultimately fails keeps
-            // their cart intact for a retry.
-            try {
-              if (cartLineProductId) {
-                removeCartItem(cartLineProductId, cartLineSize);
-              }
-            } catch (err) {
-              console.error('[CART_CLEAR_ONLINE]', err);
-            }
+            // Verified: clear EVERY submitted line. Closure
+            // captures `submittedLines` so a user adding new
+            // items between submit and verify keeps those.
+            clearSubmittedLines(submittedLines);
             router.push(`/order/${orderData.order_id}`);
           } else {
             router.push(`/order/${orderData.order_id}?payment=failed`);
@@ -687,12 +695,21 @@ function CheckoutContent() {
 
         {/* Order Summary */}
         <div className="card" style={{ marginBottom: 'var(--space-6)' }}>
-          <div className={styles.summaryRow}>
-            <span>📦 {product.name} · {size}</span>
-          </div>
+          {/* Per-line breakdown — every cart line that's being
+              submitted is rendered here so the displayed total
+              transparently maps to the items being charged. */}
+          {checkoutItems.map((line) => (
+            <div
+              key={`${line.product_id}::${line.size}`}
+              className={styles.summaryRow}
+            >
+              <span>📦 {line.name} · {line.size}{line.quantity > 1 ? ` × ${line.quantity}` : ''}</span>
+              <span>{formatPrice(line.price_paise * line.quantity)}</span>
+            </div>
+          ))}
           <div className={styles.summaryRow}>
             <span>Subtotal</span>
-            <span>{formatPrice(subtotal)}</span>
+            <span>{formatPrice(preDiscountSubtotal)}</span>
           </div>
           {discountAmount > 0 && (
             <div className={styles.summaryRow}>
@@ -756,10 +773,6 @@ function CheckoutContent() {
         <div className={styles.formSection}>
           <label className="input-label">Shipping Address</label>
 
-          {/* Saved-address picker — only when logged in and at least
-              one address is on file. Selecting one prefills + locks the
-              form into 'saved' mode; the user can flip back to manual
-              entry via the gold banner action. */}
           {savedAddresses.length > 0 && selectedSavedId !== null && (
             <>
               <div className={styles.savedPicker} role="radiogroup" aria-label="Saved addresses">

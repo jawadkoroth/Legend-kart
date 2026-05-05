@@ -411,27 +411,16 @@ export default function CartPage() {
       if (currentItems.length === 0) return;
       if (currentItems.some(l => l.maxStock <= 0)) return;
 
-      // Preserve the existing checkout entry contract:
-      //  - single-line carts pass product_id + size as URL params,
-      //  - multi-line carts go to /checkout?from=cart.
-      // We do NOT rewrite the checkout flow here; the checkout page
-      // re-runs validation immediately before order POST.
-      //
-      // Applied coupon is forwarded as a URL param so the checkout
-      // coupon effect re-validates it against the real subtotal.
-      if (currentItems.length === 1) {
-        const item = currentItems[0];
-        const params = new URLSearchParams({
-          product_id: item.product_id,
-          size: item.size,
-        });
-        if (appliedCode) params.set('coupon', appliedCode);
-        router.push(`/checkout?${params.toString()}`);
-        return;
-      }
-      const multiParams = new URLSearchParams({ from: 'cart' });
-      if (appliedCode) multiParams.set('coupon', appliedCode);
-      router.push(`/checkout?${multiParams.toString()}`);
+      // Cart-driven checkout — no `product_id`/`size` URL params.
+      // The checkout page reads every line from useCart() and posts
+      // them as items[] to /api/orders. URL params are reserved for
+      // PDP "Buy Now" intent which routes a single line through the
+      // same surface. Applied coupon is forwarded so the checkout
+      // coupon effect re-validates against the summed subtotal.
+      const params = new URLSearchParams();
+      if (appliedCode) params.set('coupon', appliedCode);
+      const qs = params.toString();
+      router.push(qs ? `/checkout?${qs}` : '/checkout');
     } finally {
       setIsRouting(false);
     }
