@@ -15,22 +15,70 @@ import { enforceRateLimit } from '@/lib/rateLimit';
 /**
  * POST /api/orders
  *
- * Idempotent + atomic order creation.
+ * Multi-line, idempotent, atomic order creation.
  *
+ *  - Body shape (since phase B2): `items: [{ product_id, size, quantity }, ...]`.
+ *    A "Buy Now" flow submits an array of length 1; a cart checkout
+ *    submits one entry per cart line. The hard line-count cap is
+ *    enforced by the schema (20).
  *  - The client supplies `client_request_id` (UUID v4) per submit
  *    attempt. A retry with the same id returns the existing order
  *    instead of creating a duplicate or double-decrementing stock.
- *  - The decrement + insert pair runs inside `create_order_atomic`,
- *    a PL/pgSQL function that holds them in one transaction. On
- *    insufficient stock the function raises STOCK_UNAVAILABLE and
- *    the surrounding transaction rolls back automatically — no
- *    leaked inventory.
+ *  - The decrement + insert pair runs inside `create_order_atomic_v2`,
+ *    a PL/pgSQL function that holds them in one transaction. Each
+ *    line is validated and decremented in turn; if any line is short
+ *    on stock the function raises STOCK_UNAVAILABLE and the whole
+ *    transaction rolls back automatically — no leaked inventory, no
+ *    partially-fulfilled orders.
  *  - For online payment the Razorpay order is created AFTER the DB
  *    row exists. If Razorpay fails we mark the order cancelled and
- *    restore stock; the order row stays for support traceability.
+ *    call `restore_order_stock(p_order_id)` which loops every
+ *    `order_items` row; the order row stays for support traceability.
  */
 export async function POST(req: NextRequest) {
   return withRequest(req, () => handlePOST(req));
+}
+
+interface ProductRow {
+  id: string;
+  name: string;
+  price_paise: number;
+  sale_price_paise: number | null;
+  is_active: boolean;
+  images: unknown;
+}
+
+interface BuiltLineItem {
+  product_id: string;
+  size: string;
+  quantity: number;
+  unit_price_paise: number;
+  subtotal_paise: number;
+  product_name: string;
+  image_url: string | null;
+}
+
+/**
+ * Resolve the first usable image URL from a product row's `images`
+ * JSONB column. Defensive against malformed shapes — never throws.
+ */
+function firstImageUrl(images: unknown): string | null {
+  if (Array.isArray(images) && images.length > 0 && typeof images[0] === 'string') {
+    return images[0] as string;
+  }
+  return null;
+}
+
+/**
+ * Apply sale-price-wins logic per line. Sale price is honoured only
+ * when strictly lower than the regular price (a 0 or null sale is
+ * ignored). Coupon discounts stack on top of the unit price; coupons
+ * apply to the SUMMED subtotal, not per line.
+ */
+function unitPriceFor(p: ProductRow): number {
+  const sale = p.sale_price_paise;
+  if (sale != null && sale < p.price_paise) return sale;
+  return p.price_paise;
 }
 
 async function handlePOST(req: NextRequest) {
@@ -48,7 +96,7 @@ async function handlePOST(req: NextRequest) {
 
     const body = await req.json();
 
-    // 1. Validate input (now includes `client_request_id`).
+    // 1. Validate input. Shape now requires `items: [...]`.
     const parsed = createOrderSchema.safeParse(body);
     if (!parsed.success) {
       logEvent('order.validation_failed', {
@@ -62,15 +110,14 @@ async function handlePOST(req: NextRequest) {
     }
 
     const {
-      product_id,
-      size,
-      quantity,
+      items,
       customer,
       shipping_address,
       payment_method,
       coupon_code,
       client_request_id,
     } = parsed.data;
+
     const supabase = createAdminClient();
 
     // Resolve the SSR-bound auth session (cookies). Logged-in users
@@ -87,40 +134,79 @@ async function handlePOST(req: NextRequest) {
       } = await ssr.auth.getUser();
       userId = user?.id ?? null;
     } catch {
-      // Auth lookup must never block order creation; guest fallback.
       userId = null;
     }
 
-    // 2. Verify product exists and is active.
-    const { data: product, error: productError } = await supabase
-      .from('products')
-      .select('id, name, price_paise, sale_price_paise, is_active, images')
-      .eq('id', product_id)
-      .single();
-
-    if (productError || !product || !product.is_active) {
-      logEvent('order.product_unavailable', { product_id });
-      return apiError(404, 'Product not found or unavailable');
+    // 2. Reject duplicate (product_id, size) lines from the client.
+    //
+    //    Two lines with the same key would each try to decrement the
+    //    same inventory row inside the RPC — the second would race
+    //    against the first's UPDATE within the same transaction. The
+    //    cart UI already deduplicates by merging quantity, so a
+    //    duplicate here is an integrity error worth a clean 400
+    //    rather than a confusing STOCK_UNAVAILABLE.
+    {
+      const seen = new Set<string>();
+      for (const it of items) {
+        const key = `${it.product_id}::${it.size}`;
+        if (seen.has(key)) {
+          logEvent('order.duplicate_line', { product_id: it.product_id, size: it.size });
+          return apiError(400, 'Duplicate line items in cart');
+        }
+        seen.add(key);
+      }
     }
 
-    // 3. Compute subtotal first — `evaluateCoupon` needs the
-    // post-sale-price subtotal to enforce min_cart_paise and to
-    // cap the discount at max_discount_paise.
-    //
-    // Honor sale price when present and strictly lower than the
-    // regular price; coupon discounts then stack on top.
-    const salePrice = (product as { sale_price_paise?: number | null }).sale_price_paise;
-    const unitPrice =
-      salePrice != null && salePrice < product.price_paise
-        ? salePrice
-        : product.price_paise;
-    const subtotal = unitPrice * quantity;
+    // 3. Fetch every product in one query. Order independent of
+    //    `items` array order — we'll re-key by id below.
+    const productIds = Array.from(new Set(items.map((i) => i.product_id)));
+    const { data: productsRaw, error: productsError } = await supabase
+      .from('products')
+      .select('id, name, price_paise, sale_price_paise, is_active, images')
+      .in('id', productIds);
 
-    // 4. Resolve coupon via the shared evaluator. On any rejection
-    // we silently drop the discount rather than failing the whole
-    // order — the validate route is the front door for user-facing
-    // copy, and an order in flight should never error out because
-    // a coupon's per_user_limit just tipped over by a stale tab.
+    if (productsError) {
+      logEvent('order.products_lookup_failed', { error: productsError.message });
+      return apiError(500, 'Could not load products');
+    }
+
+    const productsById = new Map<string, ProductRow>();
+    for (const row of (productsRaw ?? []) as ProductRow[]) {
+      productsById.set(row.id, row);
+    }
+
+    // 4. Build the per-line item list. Reject the whole order if any
+    //    referenced product is missing or inactive. Server is the
+    //    sole authority on price — never trust a client-supplied
+    //    unit price.
+    const lineItems: BuiltLineItem[] = [];
+    for (const it of items) {
+      const product = productsById.get(it.product_id);
+      if (!product || !product.is_active) {
+        logEvent('order.product_unavailable', { product_id: it.product_id });
+        return apiError(404, 'Product not found or unavailable');
+      }
+      const unit = unitPriceFor(product);
+      lineItems.push({
+        product_id: product.id,
+        size: it.size,
+        quantity: it.quantity,
+        unit_price_paise: unit,
+        subtotal_paise: unit * it.quantity,
+        product_name: product.name,
+        image_url: firstImageUrl(product.images),
+      });
+    }
+
+    // 5. Sum subtotal across all lines. Coupon evaluation operates
+    //    on the summed subtotal (matches the cart UI's display).
+    const subtotal = lineItems.reduce((s, li) => s + li.subtotal_paise, 0);
+
+    // 6. Resolve coupon via the shared evaluator. On any rejection
+    //    we silently drop the discount rather than failing the whole
+    //    order — the validate route is the front door for user-facing
+    //    copy, and an order in flight should never error out because
+    //    a coupon's per_user_limit just tipped over by a stale tab.
     let appliedCoupon = '';
     let discount = 0;
     if (coupon_code && coupon_code.trim()) {
@@ -142,11 +228,11 @@ async function handlePOST(req: NextRequest) {
 
     const postDiscountSubtotal = subtotal - discount;
 
-    // Server-authoritative shipping + COD fee. Settings are loaded
-    // fresh per request so admin changes take effect immediately.
-    // `calcShipping` is deterministic: given the same inputs, the
-    // checkout UI quote and this final computation produce the
-    // identical total.
+    // 7. Server-authoritative shipping + COD fee. Settings are loaded
+    //    fresh per request so admin changes take effect immediately.
+    //    `calcShipping` is deterministic: given the same inputs, the
+    //    checkout UI quote and this final computation produce the
+    //    identical total.
     const { data: shippingSettings } = await supabase
       .from('shipping_settings')
       .select(
@@ -162,7 +248,7 @@ async function handlePOST(req: NextRequest) {
     });
 
     if (!quote.codAllowed) {
-      logEvent('order.cod_disabled_rejected', { product_id });
+      logEvent('order.cod_disabled_rejected', {});
       return apiError(400, 'Cash on Delivery is currently unavailable. Please use online payment.');
     }
 
@@ -170,17 +256,24 @@ async function handlePOST(req: NextRequest) {
     const codFeePaise = quote.codFeePaise;
     const total = postDiscountSubtotal + shippingPaise + codFeePaise;
 
-    // 5. Atomic create-or-replay via SQL function.
+    // 8. Atomic create-or-replay via the multi-line SQL function.
     const orderNumber = generateOrderNumber();
+    const rpcItemsPayload = lineItems.map((li) => ({
+      product_id: li.product_id,
+      size: li.size,
+      quantity: li.quantity,
+      unit_price_paise: li.unit_price_paise,
+      subtotal_paise: li.subtotal_paise,
+      product_name: li.product_name,
+      image_url: li.image_url,
+    }));
+
     const { data: rpcRows, error: rpcError } = await supabase.rpc(
-      'create_order_atomic',
+      'create_order_atomic_v2',
       {
         p_client_request_id: client_request_id,
         p_order_number: orderNumber,
-        p_product_id: product_id,
-        p_size: size,
-        p_quantity: quantity,
-        p_unit_price_paise: unitPrice,
+        p_items: rpcItemsPayload,
         p_subtotal_paise: subtotal,
         p_discount_paise: discount,
         p_total_paise: total,
@@ -195,220 +288,213 @@ async function handlePOST(req: NextRequest) {
     );
 
     if (rpcError) {
-      // PL/pgSQL `RAISE EXCEPTION '<token>'` surfaces here. We
-      // discriminate on the message rather than ERRCODE because
-      // PostgREST collapses custom SQLSTATEs into 'P0001' family
-      // strings inconsistently across versions; the token in the
-      // exception text is the one stable handle we have.
+      const code = (rpcError as { code?: string }).code || '';
       const msg = rpcError.message || '';
-      if (msg.includes('STOCK_UNAVAILABLE')) {
-        logEvent('order.stock_failed', { product_id, size, quantity });
-        return apiError(409, 'Size out of stock');
-      }
-      if (msg.includes('COUPON_PER_USER_LIMIT')) {
-        // Capacity raced — the JS preflight in step 4 above passed
-        // but a concurrent order placement consumed the last slot
-        // by the time the lock was acquired in the RPC. User-facing
-        // copy mirrors evaluateCoupon's per_user_limit message.
-        logEvent('order.coupon_per_user_limit_race', {
-          code: appliedCoupon,
-          user_id: userId,
+
+      // Stock unavailable: P0001 (raised by v2 on any line).
+      if (code === 'P0001' || msg.includes('STOCK_UNAVAILABLE')) {
+        logEvent('order.stock_unavailable', {
+          line_count: lineItems.length,
         });
-        return apiError(
-          409,
-          'You have already used this coupon the maximum number of times.',
-        );
+        return apiError(409, 'Some items in your cart are no longer available. Please review your cart.');
       }
-      if (msg.includes('COUPON_USAGE_LIMIT')) {
+
+      // Coupon caps: P0002 / P0003.
+      if (code === 'P0002' || msg.includes('COUPON_PER_USER_LIMIT')) {
+        logEvent('order.coupon_per_user_limit_race', { code: appliedCoupon });
+        return apiError(409, 'You have already used this coupon.');
+      }
+      if (code === 'P0003' || msg.includes('COUPON_USAGE_LIMIT')) {
         logEvent('order.coupon_usage_limit_race', { code: appliedCoupon });
         return apiError(409, 'This coupon has reached its usage limit.');
       }
-      logEvent('order.create_failed', {
-        error: msg,
-        client_request_id,
-      });
-      return apiError(500, 'Failed to create order');
+
+      // Empty / invalid items array (defensive — schema already gates).
+      if (code === 'P0004' || code === 'P0005') {
+        logEvent('order.rpc_invalid_items', { error: msg });
+        return apiError(400, 'Invalid cart contents');
+      }
+
+      logEvent('order.rpc_unexpected_error', { error: msg, code });
+      return apiError(500, 'Order creation failed');
     }
 
-    const row = Array.isArray(rpcRows) ? rpcRows[0] : rpcRows;
-    if (!row || !row.order_id) {
-      logEvent('order.create_failed', {
-        error: 'rpc_returned_empty',
-        client_request_id,
-      });
-      return apiError(500, 'Failed to create order');
+    interface RpcRow {
+      order_id: string;
+      order_number: string;
+      was_existing: boolean;
+    }
+    const rpcRow = ((rpcRows as RpcRow[] | null) ?? [])[0];
+    if (!rpcRow) {
+      logEvent('order.rpc_empty_result', {});
+      return apiError(500, 'Order creation failed');
+    }
+    const orderId = rpcRow.order_id;
+    const finalOrderNumber = rpcRow.order_number;
+    const wasExisting = rpcRow.was_existing;
+
+    logEvent('order.created', {
+      order_id: orderId,
+      order_number: finalOrderNumber,
+      total_paise: total,
+      line_count: lineItems.length,
+      payment_method,
+      was_existing: wasExisting,
+    });
+
+    // 9. Lifecycle email + admin push, durably enqueued. Email
+    //    payload carries BOTH the new `items: [...]` array AND
+    //    legacy fields populated from the FIRST line so the current
+    //    template (B4 will rewrite it to use items[]) renders
+    //    something sensible for multi-line orders in the interim.
+    const firstLine = lineItems[0];
+    const emailItems = lineItems.map((li) => ({
+      name: li.product_name,
+      size: li.size,
+      quantity: li.quantity,
+      unit_price_paise: li.unit_price_paise,
+      subtotal_paise: li.subtotal_paise,
+      image_url: li.image_url,
+    }));
+
+    if (!wasExisting) {
+      try {
+        await enqueue({
+          kind: 'email.order_created',
+          idempotencyKey: `email.order_created.${orderId}`,
+          payload: {
+            order: {
+              id: orderId,
+              order_number: finalOrderNumber,
+              customer,
+              product_name: firstLine.product_name,
+              size: firstLine.size,
+              quantity: firstLine.quantity,
+              subtotal_paise: subtotal,
+              discount_paise: discount,
+              shipping_paise: shippingPaise,
+              cod_fee_paise: codFeePaise,
+              total_paise: total,
+              payment_method,
+              shipping_address,
+              image_url: firstLine.image_url,
+              items: emailItems,
+            },
+          },
+        }, supabase);
+      } catch (err) {
+        logEvent('order.email_enqueue_failed', {
+          order_id: orderId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+
+      try {
+        const lineSummary =
+          lineItems.length === 1
+            ? `${firstLine.product_name} · ${firstLine.size} × ${firstLine.quantity}`
+            : `${lineItems.length} items`;
+        await enqueue({
+          kind: 'push.admin_notify',
+          idempotencyKey: `push.admin_notify.order_created.${orderId}`,
+          payload: {
+            push: {
+              title: `New order ${finalOrderNumber}`,
+              body: `${lineSummary} — ₹${(total / 100).toLocaleString('en-IN')}`,
+              tag: `order-${orderId}`,
+              url: `/admin/orders/${orderId}`,
+            },
+          },
+        }, supabase);
+      } catch (err) {
+        logEvent('order.push_enqueue_failed', {
+          order_id: orderId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
     }
 
-    const orderId: string = row.order_id;
-    const finalOrderNumber: string = row.order_number;
-    const wasExisting: boolean = Boolean(row.was_existing);
-
-    if (wasExisting) {
-      logEvent('order.idempotent_replay', {
+    // 10. COD short-circuits here; online proceeds to Razorpay handoff.
+    if (payment_method === 'cod') {
+      return apiSuccess({
         order_id: orderId,
         order_number: finalOrderNumber,
-        client_request_id,
-      });
-    } else {
-      logEvent('order.created', {
-        order_id: orderId,
-        order_number: finalOrderNumber,
-        payment_method,
         total_paise: total,
+        idempotent_replay: wasExisting,
       });
-
-      // Order-created email for BOTH COD and online (online users
-      // also get a follow-up `payment.success` email from the
-      // webhook once Razorpay captures). Fire-and-forget: never
-      // blocks the API response, never throws.
-      const productImages = (product as { images?: unknown }).images;
-      const firstImage =
-        Array.isArray(productImages) && typeof productImages[0] === 'string'
-          ? (productImages[0] as string)
-          : null;
-
-      // Durable enqueue (was fire-and-forget). The job runner
-      // (/api/jobs/run, hit by Vercel Cron every minute) drains the
-      // queue with retry + exponential backoff so a transient Resend
-      // / VAPID failure no longer silently drops the message.
-      // Idempotency keys collapse a duplicate `/api/orders` replay
-      // to one row per concern.
-      await enqueue({
-        kind: 'email.order_created',
-        idempotencyKey: `email.order_created.${orderId}`,
-        payload: {
-          order: {
-            id: orderId,
-            order_number: finalOrderNumber,
-            customer,
-            product_name: product.name,
-            size,
-            quantity,
-            subtotal_paise: postDiscountSubtotal,
-            shipping_paise: shippingPaise,
-            cod_fee_paise: codFeePaise,
-            total_paise: total,
-            payment_method,
-            shipping_address,
-            image_url: firstImage,
-          },
-        },
-      }, supabase);
-
-      // Background push to all admin subscriptions (if configured).
-      // Tag matches AdminRealtimeProvider's in-tab Notification tag
-      // (`order-<id>`) so when an admin has the tab open AND a push
-      // arrives, the browser collapses them into a single toast
-      // rather than showing two copies.
-      await enqueue({
-        kind: 'push.admin_notify',
-        idempotencyKey: `push.admin_notify.order_created.${orderId}`,
-        payload: {
-          push: {
-            title: `New order #${finalOrderNumber}`,
-            body: `${customer.name || 'A customer'} ordered ₹${(total / 100).toLocaleString('en-IN')} · ${payment_method.toUpperCase()}`,
-            url: '/admin/orders',
-            tag: `order-${orderId}`,
-          },
-        },
-      }, supabase);
     }
 
-    // 6. Online payment: create Razorpay order.
-    //
-    // For an idempotent replay where a Razorpay order was already
-    // created, fetch the existing one rather than creating a second.
-    if (payment_method === 'online') {
-      let razorpayOrderId: string | null = null;
-
-      if (wasExisting) {
-        const { data: existing } = await supabase
-          .from('orders')
-          .select('razorpay_order_id, payment_status')
-          .eq('id', orderId)
-          .single();
-        if (existing?.razorpay_order_id) {
-          razorpayOrderId = existing.razorpay_order_id;
-        }
-      }
-
-      if (!razorpayOrderId) {
-        try {
-          const rzp = getRazorpay();
-          const rzpOrder = await rzp.orders.create({
-            amount: total,
-            currency: 'INR',
-            receipt: finalOrderNumber,
-          });
-          razorpayOrderId = rzpOrder.id;
-
-          await supabase
-            .from('orders')
-            .update({ razorpay_order_id: rzpOrder.id })
-            .eq('id', orderId);
-        } catch (rzpError) {
-          const errMessage =
-            rzpError instanceof Error ? rzpError.message : 'Unknown payment error';
-          logEvent('payment.razorpay_create_failed', {
-            order_id: orderId,
-            error: errMessage,
-          });
-          // Restore stock and cancel the order. We only do this for
-          // a fresh creation; on replay the order's existing state
-          // is already correct.
-          if (!wasExisting) {
-            await supabase.rpc('restore_stock', {
-              p_product_id: product_id,
-              p_size: size,
-              p_quantity: quantity,
-            });
-            await supabase
-              .from('orders')
-              .update({
-                order_status: 'cancelled',
-                payment_status: 'failed',
-                cancel_reason: `Payment gateway: ${errMessage}`,
-              })
-              .eq('id', orderId);
-          }
-
-          const isConfigError =
-            errMessage.includes('not configured') || errMessage.includes('key');
-          return apiError(
-            500,
-            isConfigError
-              ? 'Payment gateway is not configured. Please try COD or contact support.'
-              : 'Failed to initialize payment. Please try again or use COD.',
-          );
-        }
-      }
-
-      return apiSuccess(
-        {
+    // 11. Online: create the Razorpay order. On failure we cancel
+    //     the freshly-created order row and restore stock. On replay
+    //     (was_existing=true) we look up the existing razorpay_order_id
+    //     and return it instead of double-creating.
+    if (wasExisting) {
+      const { data: existing } = await supabase
+        .from('orders')
+        .select('razorpay_order_id, total_paise')
+        .eq('id', orderId)
+        .single();
+      if (existing?.razorpay_order_id) {
+        return apiSuccess({
           order_id: orderId,
           order_number: finalOrderNumber,
-          razorpay_order_id: razorpayOrderId,
-          amount: total,
+          razorpay_order_id: existing.razorpay_order_id,
+          amount: existing.total_paise ?? total,
           key_id: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID,
           customer,
-          idempotent_replay: wasExisting,
-        },
-        wasExisting ? 200 : 201,
-      );
+          idempotent_replay: true,
+        });
+      }
+      // Replay landed before Razorpay was created — fall through and
+      // create one now. The existing DB row will receive the id.
     }
 
-    // 7. (No second email here — `sendOrderCreatedEmail` was
-    // already fired above for both COD and online when this was a
-    // fresh creation; replays send nothing.)
-
-    return apiSuccess(
-      {
+    let razorpayOrderId = '';
+    try {
+      const rzpClient = getRazorpay();
+      const rzpOrder = await rzpClient.orders.create({
+        amount: total,
+        currency: 'INR',
+        receipt: finalOrderNumber.slice(0, 40),
+        notes: {
+          order_id: orderId,
+          order_number: finalOrderNumber,
+        },
+      });
+      razorpayOrderId = String(rzpOrder.id);
+      await supabase
+        .from('orders')
+        .update({ razorpay_order_id: razorpayOrderId })
+        .eq('id', orderId);
+    } catch (err) {
+      logEvent('order.razorpay_create_failed', {
         order_id: orderId,
-        order_number: finalOrderNumber,
-        idempotent_replay: wasExisting,
-      },
-      wasExisting ? 200 : 201,
-    );
+        error: err instanceof Error ? err.message : String(err),
+      });
+
+      // Roll the order back: cancel + restore stock on every line.
+      // We only restore stock when this is a fresh creation; on
+      // replay the order's existing state is already correct.
+      if (!wasExisting) {
+        await supabase
+          .from('orders')
+          .update({ order_status: 'cancelled', cancel_reason: 'razorpay_create_failed' })
+          .eq('id', orderId);
+        await supabase.rpc('restore_order_stock', { p_order_id: orderId });
+      }
+
+      return apiError(502, 'Payment gateway unavailable. Please try again or use COD.');
+    }
+
+    return apiSuccess({
+      order_id: orderId,
+      order_number: finalOrderNumber,
+      razorpay_order_id: razorpayOrderId,
+      amount: total,
+      key_id: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID,
+      customer,
+      idempotent_replay: wasExisting,
+    });
   } catch (err) {
     logEvent('order.unhandled_error', {
       error: err instanceof Error ? err.message : String(err),

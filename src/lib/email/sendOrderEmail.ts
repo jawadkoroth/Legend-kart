@@ -66,6 +66,24 @@ export interface OrderEmailData {
    * send.
    */
   image_url?: string | null;
+  /**
+   * Optional full line-item array for multi-line orders. Populated
+   * by every B2 enqueue site from the `order_items` table. The
+   * current template still renders the single-line `product_name /
+   * size / quantity / image_url` block above the summary card —
+   * phase B4 will extend the template to render an items table when
+   * `items` has more than one entry. Single-line orders render
+   * identically before and after B4 because the legacy fields above
+   * mirror items[0].
+   */
+  items?: Array<{
+    name: string;
+    size: string;
+    quantity: number;
+    unit_price_paise: number;
+    subtotal_paise: number;
+    image_url?: string | null;
+  }>;
 }
 
 export type OrderStatusForEmail =

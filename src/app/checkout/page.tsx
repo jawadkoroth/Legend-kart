@@ -469,9 +469,10 @@ function CheckoutContent() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          product_id: product.id,
-          size,
-          quantity: 1,
+          // Multi-line API since phase B2. Buy Now / single-product
+          // checkout still works by submitting one entry. B3 will
+          // switch this surface to read every line from useCart().
+          items: [{ product_id: product.id, size, quantity: 1 }],
           customer: { name: name.trim(), phone, email: email || undefined },
           shipping_address: {
             line1: line1.trim(),

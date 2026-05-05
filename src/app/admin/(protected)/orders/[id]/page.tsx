@@ -89,8 +89,11 @@ export default function AdminOrderDetail({ params }: { params: Promise<{ id: str
       if (action === 'cancel') {
         if (!cancelReason.trim()) { setActionLoading(''); return; }
         await supabase.from('orders').update({ order_status: 'cancelled', cancel_reason: cancelReason }).eq('id', id);
-        // Restore stock
-        await supabase.rpc('restore_stock', { p_product_id: order.product_id, p_size: order.size, p_quantity: order.quantity });
+        // Restore stock for every line in the order. Multi-line aware
+        // — `restore_order_stock` loops over every order_items row;
+        // legacy single-line orders backfilled by migration 022 also
+        // have an order_items row, so this works uniformly.
+        await supabase.rpc('restore_order_stock', { p_order_id: id });
         statusChanged = true;
       }
 

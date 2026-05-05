@@ -327,11 +327,13 @@ async function handlePOST(req: NextRequest) {
     return NextResponse.json({ success: true, idempotent: true });
   }
 
-  // Genuine pending → failed transition: restore stock exactly once.
-  await supabase.rpc('restore_stock', {
-    p_product_id: order.product_id,
-    p_size: order.size,
-    p_quantity: order.quantity,
+  // Genuine pending → failed transition: restore stock exactly
+  // once. Multi-line aware — `restore_order_stock` loops over every
+  // order_items row for this order. Legacy single-line orders
+  // backfilled by migration 022 also have an order_items row, so
+  // this RPC works uniformly across pre-B1 and post-B1 data.
+  await supabase.rpc('restore_order_stock', {
+    p_order_id: order.id,
   });
 
   logEvent('payment.failed', {
@@ -365,9 +367,6 @@ async function enqueuePaymentEmail(
       state: string;
       pincode: string;
     };
-    product_id: string;
-    size: string;
-    quantity: number;
     subtotal_paise?: number | null;
     discount_paise?: number | null;
     shipping_paise?: number | null;
@@ -379,25 +378,38 @@ async function enqueuePaymentEmail(
   eventId: string,
   supabase: ReturnType<typeof createAdminClient>,
 ): Promise<void> {
-  const { data: product } = await supabase
-    .from('products')
-    .select('name, images')
-    .eq('id', order.product_id)
-    .single();
+  // Read every line from order_items. Migration 022 backfilled
+  // legacy single-line orders so this query always returns >= 1 row
+  // for any orders.id that exists.
+  const { data: itemRows } = await supabase
+    .from('order_items')
+    .select('product_name, size, quantity, unit_price_paise, subtotal_paise, image_url')
+    .eq('order_id', order.id)
+    .order('created_at', { ascending: true });
 
-  const productImages = (product as { images?: unknown } | null)?.images;
-  const firstImage =
-    Array.isArray(productImages) && typeof productImages[0] === 'string'
-      ? (productImages[0] as string)
-      : null;
+  const items = (itemRows ?? []).map((row) => ({
+    name: (row as { product_name: string }).product_name,
+    size: (row as { size: string }).size,
+    quantity: (row as { quantity: number }).quantity,
+    unit_price_paise: (row as { unit_price_paise: number }).unit_price_paise,
+    subtotal_paise: (row as { subtotal_paise: number }).subtotal_paise,
+    image_url: (row as { image_url: string | null }).image_url,
+  }));
+
+  // Legacy fields populated from the FIRST line so the current
+  // email template (B4 will rewrite to use items[]) renders
+  // something sensible. For multi-line orders the user sees the
+  // first line in the headline block plus the full items array
+  // once B4 ships its updated template.
+  const firstItem = items[0];
 
   const orderPayload = {
     id: order.id,
     order_number: order.order_number,
     customer: order.customer,
-    product_name: product?.name || 'Product',
-    size: order.size,
-    quantity: order.quantity,
+    product_name: firstItem?.name || 'Product',
+    size: firstItem?.size || '',
+    quantity: firstItem?.quantity ?? 1,
     subtotal_paise: order.subtotal_paise,
     discount_paise: order.discount_paise,
     shipping_paise: order.shipping_paise,
@@ -405,7 +417,8 @@ async function enqueuePaymentEmail(
     total_paise: order.total_paise,
     payment_method: order.payment_method,
     shipping_address: order.shipping_address,
-    image_url: firstImage,
+    image_url: firstItem?.image_url ?? null,
+    items,
   };
 
   await enqueue(
