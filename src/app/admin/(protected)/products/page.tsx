@@ -1,10 +1,31 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
+import Image from 'next/image';
 import { useSearchParams } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { useToast } from '@/hooks/useToast';
+import styles from './products.module.css';
+
+/**
+ * /admin/products — luxury inventory surface.
+ *
+ * Architecture preserved verbatim from the previous iteration:
+ *   - Loads products + inventory in two queries (no schema/RLS change).
+ *   - Archive / restore go through /api/admin/products/[id] so server
+ *     authorisation, RLS, and audit logging keep working unchanged.
+ *   - is_active toggle and per-size stock writes go direct via the
+ *     RLS-enforced client.
+ *
+ * Visual layer is owned entirely by `products.module.css`. The page
+ * is a calm row list with a sticky toolbar (search · status filter ·
+ * sort · count · +Add). Stock-by-size editing is preserved but
+ * collapsed by default behind an expand chevron, so the catalogue
+ * scans cleanly at rest.
+ */
+
+interface InventoryRow { size: string; stock: number }
 
 interface Product {
   id: string;
@@ -14,66 +35,135 @@ interface Product {
   sale_price_paise: number | null;
   is_active: boolean;
   archived_at: string | null;
-  inventory?: { size: string; stock: number }[];
+  category: string | null;
+  images: string[] | null;
+  created_at: string;
+  inventory?: InventoryRow[];
 }
+
+type StatusFilter = 'all' | 'live' | 'inactive' | 'archived';
+type SortKey =
+  | 'newest'
+  | 'oldest'
+  | 'price_asc'
+  | 'price_desc'
+  | 'stock_desc';
 
 export default function AdminProducts() {
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
-  // When true, the list includes archived products. Archived rows
-  // are soft-deleted: archived_at IS NOT NULL AND is_active=false.
-  const [showArchived, setShowArchived] = useState(false);
+  const [search, setSearch] = useState('');
+  const [status, setStatus] = useState<StatusFilter>('live');
+  const [sort, setSort] = useState<SortKey>('newest');
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+
   const [archiving, setArchiving] = useState<Product | null>(null);
   const [archivePending, setArchivePending] = useState(false);
   const [archiveError, setArchiveError] = useState('');
   const { toast, showToast } = useToast();
   const searchParams = useSearchParams();
 
-  useEffect(() => {
-    fetchProducts();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showArchived]);
+  // Archived rows must be fetched whenever the filter could include
+  // them. Re-fetching on every filter change keeps the data model
+  // simple; the cost is one query per toggle.
+  const includeArchivedInFetch = status === 'all' || status === 'archived';
 
-  // Show success toast when redirected from create/edit
+  useEffect(() => {
+    fetchProducts(includeArchivedInFetch);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [includeArchivedInFetch]);
+
   useEffect(() => {
     if (searchParams.get('saved') === '1') {
-      showToast('Product saved successfully', 'success');
-      // Clean the URL so refreshing doesn't re-show the toast
+      showToast('Product saved', 'success');
       window.history.replaceState({}, '', '/admin/products');
     }
   }, [searchParams, showToast]);
 
-  async function fetchProducts() {
+  async function fetchProducts(includeArchived: boolean) {
+    setLoading(true);
     const supabase = createClient();
     let query = supabase
       .from('products')
-      .select('id, name, slug, price_paise, sale_price_paise, is_active, archived_at')
+      .select(
+        'id, name, slug, price_paise, sale_price_paise, is_active, archived_at, category, images, created_at',
+      )
       .order('created_at', { ascending: false });
-    // Default admin view hides archived rows so the live catalogue
-    // is the first thing an operator sees. Toggle flips to all.
-    if (!showArchived) {
-      query = query.is('archived_at', null);
-    }
-    const { data } = await query;
+    if (!includeArchived) query = query.is('archived_at', null);
 
-    if (data) {
-      const ids = data.map(p => p.id);
-      const { data: inv } = await supabase
+    const { data } = await query;
+    if (!data) {
+      showToast('Failed to load products', 'error');
+      setLoading(false);
+      return;
+    }
+
+    const ids = data.map((p) => p.id);
+    let inv: { product_id: string; size: string; stock: number }[] = [];
+    if (ids.length > 0) {
+      const { data: invRows } = await supabase
         .from('inventory')
         .select('product_id, size, stock')
         .in('product_id', ids);
-
-      const enriched = data.map(p => ({
-        ...p,
-        inventory: (inv || []).filter(i => i.product_id === p.id),
-      }));
-      setProducts(enriched as Product[]);
-    } else {
-      showToast('Failed to load products', 'error');
+      inv = invRows ?? [];
     }
+
+    const enriched: Product[] = data.map((p) => ({
+      ...p,
+      images: Array.isArray(p.images) ? (p.images as string[]) : null,
+      inventory: inv
+        .filter((i) => i.product_id === p.id)
+        .sort((a, b) => a.size.localeCompare(b.size)),
+    }));
+    setProducts(enriched);
     setLoading(false);
   }
 
+  // -------- Filtering + sorting (client side) --------------------
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    let rows = products.slice();
+
+    if (status === 'live') {
+      rows = rows.filter((p) => p.archived_at === null && p.is_active);
+    } else if (status === 'inactive') {
+      rows = rows.filter((p) => p.archived_at === null && !p.is_active);
+    } else if (status === 'archived') {
+      rows = rows.filter((p) => p.archived_at !== null);
+    }
+
+    if (q) {
+      rows = rows.filter(
+        (p) =>
+          p.name.toLowerCase().includes(q) ||
+          p.slug.toLowerCase().includes(q) ||
+          (p.category ?? '').toLowerCase().includes(q),
+      );
+    }
+
+    const totalStock = (p: Product) =>
+      (p.inventory ?? []).reduce((s, i) => s + i.stock, 0);
+    const livePrice = (p: Product) => p.sale_price_paise ?? p.price_paise;
+
+    rows.sort((a, b) => {
+      switch (sort) {
+        case 'oldest':
+          return a.created_at.localeCompare(b.created_at);
+        case 'price_asc':
+          return livePrice(a) - livePrice(b);
+        case 'price_desc':
+          return livePrice(b) - livePrice(a);
+        case 'stock_desc':
+          return totalStock(b) - totalStock(a);
+        case 'newest':
+        default:
+          return b.created_at.localeCompare(a.created_at);
+      }
+    });
+    return rows;
+  }, [products, status, search, sort]);
+
+  // -------- Actions ----------------------------------------------
   async function confirmArchive() {
     if (!archiving || archivePending) return;
     setArchivePending(true);
@@ -91,7 +181,7 @@ export default function AdminProducts() {
       setArchiving(null);
       setArchivePending(false);
       showToast('Product archived', 'success');
-      await fetchProducts();
+      await fetchProducts(includeArchivedInFetch);
     } catch (err) {
       console.error('[PRODUCT_ARCHIVE]', err);
       setArchiveError('Network error. Please try again.');
@@ -112,7 +202,7 @@ export default function AdminProducts() {
         return;
       }
       showToast('Product restored', 'success');
-      await fetchProducts();
+      await fetchProducts(includeArchivedInFetch);
     } catch (err) {
       console.error('[PRODUCT_RESTORE]', err);
       showToast('Network error', 'error');
@@ -121,172 +211,365 @@ export default function AdminProducts() {
 
   async function toggleActive(id: string, isActive: boolean) {
     const supabase = createClient();
-    const { error } = await supabase.from('products').update({ is_active: !isActive }).eq('id', id);
-    if (!error) {
-      showToast(`Product ${!isActive ? 'activated' : 'deactivated'}`, 'success');
-      fetchProducts();
-    } else {
+    const { error } = await supabase
+      .from('products')
+      .update({ is_active: !isActive })
+      .eq('id', id);
+    if (error) {
       showToast('Failed to toggle status', 'error');
+      return;
     }
+    showToast(`Product ${!isActive ? 'activated' : 'deactivated'}`, 'success');
+    // Optimistic local update — avoids a full re-fetch and keeps
+    // the row's expand state intact.
+    setProducts((prev) =>
+      prev.map((p) => (p.id === id ? { ...p, is_active: !isActive } : p)),
+    );
   }
 
   async function updateStock(productId: string, size: string, newStock: number) {
+    const clamped = Math.max(0, newStock);
     const supabase = createClient();
     const { error } = await supabase
       .from('inventory')
-      .update({ stock: Math.max(0, newStock) })
+      .update({ stock: clamped })
       .eq('product_id', productId)
       .eq('size', size);
-
-    if (!error) fetchProducts();
-    else showToast('Failed to update stock', 'error');
+    if (error) {
+      showToast('Failed to update stock', 'error');
+      return;
+    }
+    setProducts((prev) =>
+      prev.map((p) =>
+        p.id === productId
+          ? {
+              ...p,
+              inventory: (p.inventory ?? []).map((i) =>
+                i.size === size ? { ...i, stock: clamped } : i,
+              ),
+            }
+          : p,
+      ),
+    );
   }
 
-  const formatPrice = (paise: number) => '₹' + (paise / 100).toLocaleString('en-IN');
-  const totalStock = (inv: { stock: number }[]) => inv.reduce((s, i) => s + i.stock, 0);
+  function toggleExpand(id: string) {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
 
-  if (loading) return <div className="animate-pulse text-muted" style={{ textAlign: 'center', padding: 'var(--space-8)' }}>Loading...</div>;
+  // -------- Helpers ----------------------------------------------
+  const formatPrice = (paise: number) =>
+    '₹' + (paise / 100).toLocaleString('en-IN');
+  const totalStock = (inv: InventoryRow[] | undefined) =>
+    (inv ?? []).reduce((s, i) => s + i.stock, 0);
+  const stockClass = (n: number) =>
+    n === 0 ? styles.stockOut : n <= 10 ? styles.stockLow : styles.stockHigh;
 
+  // -------- Render -----------------------------------------------
   return (
-    <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-4)' }}>
-        <h1 style={{ fontSize: '1.25rem', fontWeight: 600 }}>Products</h1>
-        <Link href="/admin/products/new" className="btn btn-primary btn-sm">
+    <div className={styles.page}>
+      <header className={styles.header}>
+        <div className={styles.titleBlock}>
+          <h1 className={styles.title}>Products</h1>
+          <span className={styles.count}>
+            {filtered.length} {filtered.length === 1 ? 'item' : 'items'}
+          </span>
+        </div>
+        <Link href="/admin/products/new" className={`btn btn-primary btn-sm ${styles.addCta}`}>
           + Add Product
         </Link>
-      </div>
+      </header>
 
-      <div style={{ display: 'flex', gap: 'var(--space-2)', marginBottom: 'var(--space-4)' }}>
-        <button
-          type="button"
-          onClick={() => setShowArchived(false)}
-          className={`btn btn-sm ${!showArchived ? 'btn-primary' : 'btn-ghost'}`}
-          style={{ width: 'auto' }}
+      <div className={styles.toolbar}>
+        <div className={styles.search}>
+          <span className={styles.searchIcon} aria-hidden>⌕</span>
+          <input
+            type="search"
+            className={styles.searchInput}
+            placeholder="Search name, slug or category…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            aria-label="Search products"
+          />
+          {search && (
+            <button
+              type="button"
+              className={styles.searchClear}
+              onClick={() => setSearch('')}
+              aria-label="Clear search"
+            >
+              ×
+            </button>
+          )}
+        </div>
+
+        <div className={styles.segmented} role="tablist" aria-label="Filter by status">
+          {(
+            [
+              ['live', 'Live'],
+              ['inactive', 'Inactive'],
+              ['archived', 'Archived'],
+              ['all', 'All'],
+            ] as [StatusFilter, string][]
+          ).map(([key, label]) => (
+            <button
+              key={key}
+              type="button"
+              role="tab"
+              aria-selected={status === key}
+              onClick={() => setStatus(key)}
+              className={`${styles.segmentedBtn} ${
+                status === key ? styles.segmentedBtnActive : ''
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
+        <select
+          className={styles.sort}
+          value={sort}
+          onChange={(e) => setSort(e.target.value as SortKey)}
+          aria-label="Sort products"
         >
-          Live
-        </button>
-        <button
-          type="button"
-          onClick={() => setShowArchived(true)}
-          className={`btn btn-sm ${showArchived ? 'btn-primary' : 'btn-ghost'}`}
-          style={{ width: 'auto' }}
-        >
-          Include archived
-        </button>
+          <option value="newest">Newest</option>
+          <option value="oldest">Oldest</option>
+          <option value="price_desc">Price · high → low</option>
+          <option value="price_asc">Price · low → high</option>
+          <option value="stock_desc">Stock · high → low</option>
+        </select>
       </div>
 
       {toast && <div className={`toast toast-${toast.type}`}>{toast.message}</div>}
 
-      {products.map(product => (
-        <div key={product.id} className="card" style={{ marginBottom: 'var(--space-4)', opacity: product.is_active ? 1 : 0.6, filter: product.is_active ? 'none' : 'grayscale(0.5)' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-3)' }}>
-            <div>
-              <p style={{ fontWeight: 600 }}>{product.name}</p>
-              <div style={{ display: 'flex', gap: 'var(--space-3)', alignItems: 'center', marginTop: '2px' }}>
-                <span className="text-sm text-muted">{formatPrice(product.price_paise)}</span>
-                {product.sale_price_paise && (
-                  <span className="text-sm" style={{ color: 'var(--success)' }}>
-                    Sale: {formatPrice(product.sale_price_paise)}
-                  </span>
-                )}
-                <span className="text-xs text-muted">
-                  Stock: {totalStock(product.inventory || [])}
-                </span>
-              </div>
-            </div>
-            <div style={{ display: 'flex', gap: 'var(--space-2)', alignItems: 'center' }}>
-              {product.archived_at ? (
-                <>
-                  <span
-                    style={{
-                      fontSize: '0.625rem',
-                      letterSpacing: '0.14em',
-                      textTransform: 'uppercase',
-                      color: 'var(--text-muted)',
-                      padding: '2px 8px',
-                      border: '1px solid var(--border-color)',
-                      borderRadius: 999,
-                    }}
-                  >
-                    Archived
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => restoreProduct(product)}
-                    className="btn btn-ghost btn-sm"
-                    style={{ fontSize: '0.75rem' }}
-                  >
-                    Restore
-                  </button>
-                </>
-              ) : (
-                <>
-                  <Link
-                    href={`/admin/products/${product.id}/edit`}
-                    className="btn btn-ghost btn-sm"
-                    style={{ fontSize: '0.75rem' }}
-                  >
-                    ✏️ Edit
-                  </Link>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setArchiving(product);
-                      setArchiveError('');
-                    }}
-                    className="btn btn-ghost btn-sm"
-                    style={{ fontSize: '0.75rem', color: 'var(--error)' }}
-                    aria-label={`Archive product ${product.name}`}
-                  >
-                    Archive
-                  </button>
-                  <label className="premium-toggle" title="Toggle active status">
-                    <input
-                      type="checkbox"
-                      checked={product.is_active}
-                      onChange={() => toggleActive(product.id, product.is_active)}
-                    />
-                    <span className="premium-toggle-slider" />
-                  </label>
-                </>
-              )}
-            </div>
-          </div>
-
-          <p className="input-label" style={{ marginBottom: 'var(--space-2)' }}>Stock by Size</p>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 'var(--space-2)' }}>
-            {(product.inventory || []).map(inv => (
-              <div key={inv.size} style={{ textAlign: 'center' }}>
-                <p className="text-xs text-muted">{inv.size}</p>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '2px', marginTop: '4px' }}>
-                  <button
-                    className="btn btn-ghost btn-sm"
-                    style={{ padding: '2px 6px', minHeight: 'auto', width: 'auto', fontSize: '0.75rem' }}
-                    onClick={() => updateStock(product.id, inv.size, inv.stock - 1)}
-                  >−</button>
-                  <span style={{ minWidth: '20px', textAlign: 'center', fontWeight: 600, fontSize: '0.875rem', color: inv.stock === 0 ? 'var(--error)' : 'inherit' }}>
-                    {inv.stock}
-                  </span>
-                  <button
-                    className="btn btn-ghost btn-sm"
-                    style={{ padding: '2px 6px', minHeight: 'auto', width: 'auto', fontSize: '0.75rem' }}
-                    onClick={() => updateStock(product.id, inv.size, inv.stock + 1)}
-                  >+</button>
-                </div>
-              </div>
-            ))}
-          </div>
+      {loading ? (
+        <div className={styles.list}>
+          {[0, 1, 2, 3].map((i) => (
+            <div key={i} className={styles.skeleton} />
+          ))}
         </div>
-      ))}
-
-      {products.length === 0 && (
-        <div style={{ textAlign: 'center', padding: 'var(--space-8)', color: 'var(--text-muted)' }}>
-          <p>{showArchived ? 'No archived products' : 'No products yet'}</p>
-          {!showArchived && (
-            <Link href="/admin/products/new" className="btn btn-primary btn-sm" style={{ marginTop: 'var(--space-4)', width: 'auto' }}>
-              Add Your First Product
+      ) : filtered.length === 0 ? (
+        <div className={styles.empty}>
+          <p className={styles.emptyTitle}>
+            {search
+              ? 'No matches'
+              : status === 'archived'
+                ? 'No archived products'
+                : 'No products yet'}
+          </p>
+          <p className={styles.emptyHint}>
+            {search
+              ? 'Try a different search term or clear filters.'
+              : 'Add your first product to start selling.'}
+          </p>
+          {!search && status !== 'archived' && (
+            <Link
+              href="/admin/products/new"
+              className="btn btn-primary btn-sm"
+              style={{ width: 'auto' }}
+            >
+              + Add Product
             </Link>
           )}
+        </div>
+      ) : (
+        <div className={styles.list}>
+          {filtered.map((product) => {
+            const isOpen = expanded.has(product.id);
+            const stock = totalStock(product.inventory);
+            const firstImage =
+              product.images && product.images.length > 0
+                ? product.images[0]
+                : null;
+            const archived = product.archived_at !== null;
+            return (
+              <div
+                key={product.id}
+                className={`${styles.row} ${archived ? styles.rowArchived : ''}`}
+              >
+                {/* Thumb */}
+                <div className={styles.thumb}>
+                  {firstImage ? (
+                    <Image
+                      src={firstImage}
+                      alt={product.name}
+                      fill
+                      sizes="64px"
+                      style={{ objectFit: 'cover' }}
+                    />
+                  ) : (
+                    <div className={styles.thumbPlaceholder}>NO IMG</div>
+                  )}
+                </div>
+
+                {/* Identity */}
+                <div className={styles.identity}>
+                  <Link
+                    href={`/admin/products/${product.id}/edit`}
+                    className={styles.name}
+                  >
+                    {product.name}
+                  </Link>
+                  <div className={styles.metaLine}>
+                    <span className={styles.slug}>/{product.slug}</span>
+                    {product.category && (
+                      <span className={styles.category}>{product.category}</span>
+                    )}
+                  </div>
+                </div>
+
+                {/* Price */}
+                <div className={styles.priceBlock}>
+                  {product.sale_price_paise ? (
+                    <>
+                      <span className={styles.priceLive}>
+                        {formatPrice(product.sale_price_paise)}
+                      </span>
+                      <span className={styles.priceStrike}>
+                        {formatPrice(product.price_paise)}
+                      </span>
+                      <span className={styles.priceSaleHint}>On sale</span>
+                    </>
+                  ) : (
+                    <span className={styles.priceLive}>
+                      {formatPrice(product.price_paise)}
+                    </span>
+                  )}
+                </div>
+
+                {/* Stock chip */}
+                <span className={`${styles.stockChip} ${stockClass(stock)}`}>
+                  <span className={styles.stockDot} />
+                  {stock} in stock
+                </span>
+
+                {/* Status pill */}
+                <span
+                  className={`${styles.statusPill} ${
+                    archived
+                      ? styles.statusArchived
+                      : product.is_active
+                        ? styles.statusActive
+                        : styles.statusInactive
+                  }`}
+                >
+                  {archived ? 'Archived' : product.is_active ? 'Live' : 'Inactive'}
+                </span>
+
+                {/* Actions */}
+                <div className={styles.actions}>
+                  {archived ? (
+                    <button
+                      type="button"
+                      onClick={() => restoreProduct(product)}
+                      className={styles.iconBtn}
+                    >
+                      Restore
+                    </button>
+                  ) : (
+                    <>
+                      <label
+                        className={styles.toggle}
+                        title={product.is_active ? 'Deactivate' : 'Activate'}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={product.is_active}
+                          onChange={() =>
+                            toggleActive(product.id, product.is_active)
+                          }
+                          aria-label={`Toggle active for ${product.name}`}
+                        />
+                      </label>
+                      <Link
+                        href={`/admin/products/${product.id}/edit`}
+                        className={styles.iconBtn}
+                      >
+                        Edit
+                      </Link>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setArchiving(product);
+                          setArchiveError('');
+                        }}
+                        className={`${styles.iconBtn} ${styles.iconBtnDanger}`}
+                        aria-label={`Archive ${product.name}`}
+                      >
+                        Archive
+                      </button>
+                    </>
+                  )}
+                  <button
+                    type="button"
+                    className={`${styles.expandBtn} ${
+                      isOpen ? styles.expandBtnOpen : ''
+                    }`}
+                    onClick={() => toggleExpand(product.id)}
+                    aria-expanded={isOpen}
+                    aria-label={
+                      isOpen ? 'Collapse stock detail' : 'Expand stock detail'
+                    }
+                  >
+                    ⌄
+                  </button>
+                </div>
+
+                {/* Expanded stock grid */}
+                {isOpen && (
+                  <div className={styles.expand}>
+                    {(product.inventory ?? []).length === 0 ? (
+                      <p className="text-xs text-muted">
+                        No size inventory rows. Add sizes in the edit screen.
+                      </p>
+                    ) : (
+                      (product.inventory ?? []).map((inv) => (
+                        <div key={inv.size} className={styles.sizeCell}>
+                          <span className={styles.sizeLabel}>{inv.size}</span>
+                          <div className={styles.stepper}>
+                            <button
+                              type="button"
+                              className={styles.stepperBtn}
+                              onClick={() =>
+                                updateStock(product.id, inv.size, inv.stock - 1)
+                              }
+                              aria-label={`Decrease ${inv.size} stock`}
+                              disabled={inv.stock === 0}
+                            >
+                              −
+                            </button>
+                            <span
+                              className={`${styles.stepperVal} ${
+                                inv.stock === 0 ? styles.stepperValZero : ''
+                              }`}
+                            >
+                              {inv.stock}
+                            </span>
+                            <button
+                              type="button"
+                              className={styles.stepperBtn}
+                              onClick={() =>
+                                updateStock(product.id, inv.size, inv.stock + 1)
+                              }
+                              aria-label={`Increase ${inv.size} stock`}
+                            >
+                              +
+                            </button>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
 
@@ -296,7 +579,9 @@ export default function AdminProducts() {
           aria-modal="true"
           aria-labelledby="product-archive-title"
           onClick={(e) => {
-            if (e.target === e.currentTarget && !archivePending) setArchiving(null);
+            if (e.target === e.currentTarget && !archivePending) {
+              setArchiving(null);
+            }
           }}
           style={{
             position: 'fixed',
@@ -323,7 +608,11 @@ export default function AdminProducts() {
           >
             <h2
               id="product-archive-title"
-              style={{ fontSize: '1.0625rem', fontWeight: 600, marginBottom: 'var(--space-3)' }}
+              style={{
+                fontSize: '1.0625rem',
+                fontWeight: 600,
+                marginBottom: 'var(--space-3)',
+              }}
             >
               Archive “{archiving.name}”?
             </h2>
@@ -339,15 +628,24 @@ export default function AdminProducts() {
               className="text-sm text-muted"
               style={{ lineHeight: 1.55, marginBottom: 'var(--space-5)' }}
             >
-              Archiving is reversible — use “Include archived” in the list and
-              click Restore to bring the product back.
+              Archiving is reversible — use the “Archived” filter and click
+              Restore to bring the product back.
             </p>
             {archiveError && (
-              <p className="input-error-text" style={{ marginBottom: 'var(--space-3)' }}>
+              <p
+                className="input-error-text"
+                style={{ marginBottom: 'var(--space-3)' }}
+              >
                 {archiveError}
               </p>
             )}
-            <div style={{ display: 'flex', gap: 'var(--space-3)', justifyContent: 'flex-end' }}>
+            <div
+              style={{
+                display: 'flex',
+                gap: 'var(--space-3)',
+                justifyContent: 'flex-end',
+              }}
+            >
               <button
                 type="button"
                 className="btn btn-ghost btn-sm"
@@ -359,10 +657,16 @@ export default function AdminProducts() {
               </button>
               <button
                 type="button"
-                className={`btn btn-primary btn-sm ${archivePending ? 'btn-loading' : ''}`}
+                className={`btn btn-primary btn-sm ${
+                  archivePending ? 'btn-loading' : ''
+                }`}
                 onClick={confirmArchive}
                 disabled={archivePending}
-                style={{ width: 'auto', background: 'var(--error)', borderColor: 'var(--error)' }}
+                style={{
+                  width: 'auto',
+                  background: 'var(--error)',
+                  borderColor: 'var(--error)',
+                }}
               >
                 {archivePending ? 'ARCHIVING…' : 'ARCHIVE PRODUCT'}
               </button>

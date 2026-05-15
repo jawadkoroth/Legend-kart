@@ -1,0 +1,538 @@
+/*
+ * NOIR Admin — Products list.
+ *
+ * A quiet, dense, scannable inventory surface. The page used to be
+ * a wall of unconstrained cards with stock controls, toggles, and
+ * destructive actions all jostling for attention. The redesign:
+ *
+ *   - Sticky toolbar (search · status filter · sort · count · CTA)
+ *     so an operator can scan/filter without scrolling back up.
+ *   - Single-column row list. Each row is a thin card with a
+ *     thumbnail, identity (name · slug · category), price block,
+ *     a colour-coded stock chip, status pill, and a tucked-right
+ *     action cluster.
+ *   - Stock-by-size editing is preserved but tucked behind an
+ *     expand chevron; the default view stays calm.
+ *
+ * Visual language matches the rest of NOIR Admin: deep neutral
+ * surfaces, hairline borders, gold reserved for the active filter
+ * pill. No drop-shadows on rows; depth comes from the surface
+ * gradient and a single hover lift.
+ */
+
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+
+/* -------- Header ------------------------------------------------ */
+
+.header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+
+.titleBlock {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+}
+
+.title {
+  font-size: 1.375rem;
+  font-weight: 600;
+  letter-spacing: -0.005em;
+  margin: 0;
+}
+
+.count {
+  font-size: 0.7rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.addCta {
+  white-space: nowrap;
+}
+
+/* -------- Toolbar (sticky) ------------------------------------- */
+
+.toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: grid;
+  grid-template-columns: minmax(200px, 1fr) auto auto;
+  gap: var(--space-3);
+  align-items: center;
+  padding: var(--space-3) var(--space-3);
+  background: color-mix(in srgb, var(--bg-secondary) 88%, transparent);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+}
+
+.search {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.searchIcon {
+  position: absolute;
+  left: var(--space-3);
+  color: var(--text-muted);
+  pointer-events: none;
+  font-size: 0.95rem;
+}
+
+.searchInput {
+  width: 100%;
+  background: var(--bg-input);
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
+  border-radius: var(--radius-sm);
+  padding: 8px 12px 8px 34px;
+  font-size: 0.875rem;
+  outline: none;
+  transition: border-color 160ms ease, background 160ms ease;
+}
+.searchInput:focus {
+  border-color: var(--text-accent);
+  background: var(--bg-tertiary);
+}
+.searchInput::placeholder {
+  color: var(--text-muted);
+}
+
+.searchClear {
+  position: absolute;
+  right: var(--space-2);
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 0.95rem;
+  padding: 4px 6px;
+  border-radius: var(--radius-sm);
+}
+.searchClear:hover { color: var(--text-secondary); }
+
+.segmented {
+  display: inline-flex;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-full);
+  padding: 2px;
+  background: var(--bg-tertiary);
+  overflow: hidden;
+}
+
+.segmentedBtn {
+  appearance: none;
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  padding: 6px 14px;
+  font-size: 0.7rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  font-weight: 600;
+  border-radius: var(--radius-full);
+  cursor: pointer;
+  transition: color 160ms ease, background 160ms ease;
+  white-space: nowrap;
+}
+.segmentedBtn:hover { color: var(--text-secondary); }
+.segmentedBtnActive {
+  background: var(--bg-elevated);
+  color: var(--text-accent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text-accent) 35%, transparent);
+}
+
+.sort {
+  background: var(--bg-input);
+  border: 1px solid var(--border-color);
+  color: var(--text-secondary);
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+/* -------- Row list --------------------------------------------- */
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.row {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1.6fr) minmax(0, 0.9fr) auto auto auto;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  transition: border-color 180ms ease, background 180ms ease, transform 180ms ease;
+}
+.row:hover {
+  border-color: var(--border-light);
+  background: color-mix(in srgb, var(--bg-secondary) 70%, var(--bg-elevated) 30%);
+}
+.rowArchived {
+  opacity: 0.62;
+}
+
+.thumb {
+  position: relative;
+  width: 64px;
+  height: 64px;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  flex: none;
+}
+.thumbPlaceholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  color: var(--text-muted);
+  font-size: 0.65rem;
+  letter-spacing: 0.12em;
+}
+
+.identity {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.name {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  text-decoration: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: color 140ms ease;
+}
+.name:hover { color: var(--text-accent); }
+
+.metaLine {
+  display: flex;
+  gap: var(--space-3);
+  align-items: center;
+  flex-wrap: wrap;
+  color: var(--text-muted);
+  font-size: 0.72rem;
+}
+
+.slug {
+  font-family: var(--font-sans);
+  letter-spacing: 0.02em;
+}
+
+.category {
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-full);
+  padding: 1px 8px;
+  font-size: 0.65rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+/* -------- Price block ------------------------------------------ */
+
+.priceBlock {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  font-variant-numeric: tabular-nums;
+}
+.priceLive {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.priceStrike {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  text-decoration: line-through;
+}
+.priceSaleHint {
+  font-size: 0.62rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--success);
+}
+
+/* -------- Stock chip ------------------------------------------- */
+
+.stockChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--border-color);
+  font-size: 0.72rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  background: var(--bg-tertiary);
+}
+.stockDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex: none;
+}
+.stockHigh   { color: var(--success); }
+.stockHigh   .stockDot { background: var(--success); }
+.stockLow    { color: var(--warning); }
+.stockLow    .stockDot { background: var(--warning); }
+.stockOut    { color: var(--error); border-color: color-mix(in srgb, var(--error) 35%, var(--border-color)); }
+.stockOut    .stockDot { background: var(--error); }
+
+/* -------- Status pill ------------------------------------------ */
+
+.statusPill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--border-color);
+  font-size: 0.62rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  font-weight: 600;
+  color: var(--text-muted);
+  background: transparent;
+  white-space: nowrap;
+}
+.statusActive   { color: var(--success); border-color: color-mix(in srgb, var(--success) 35%, var(--border-color)); }
+.statusInactive { color: var(--warning); border-color: color-mix(in srgb, var(--warning) 35%, var(--border-color)); }
+.statusArchived { color: var(--text-muted); border-color: var(--border-color); }
+
+/* -------- Action cluster --------------------------------------- */
+
+.actions {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.iconBtn {
+  appearance: none;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 6px 8px;
+  font-size: 0.75rem;
+  line-height: 1;
+  letter-spacing: 0.06em;
+  transition: color 160ms ease, border-color 160ms ease, background 160ms ease;
+  white-space: nowrap;
+}
+.iconBtn:hover {
+  color: var(--text-primary);
+  border-color: var(--border-color);
+  background: var(--bg-tertiary);
+}
+.iconBtnDanger:hover {
+  color: var(--error);
+  border-color: color-mix(in srgb, var(--error) 35%, var(--border-color));
+}
+
+.expandBtn {
+  appearance: none;
+  background: transparent;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: transform 200ms ease, color 160ms ease, border-color 160ms ease;
+}
+.expandBtn:hover { color: var(--text-secondary); border-color: var(--border-light); }
+.expandBtnOpen { transform: rotate(180deg); color: var(--text-accent); border-color: color-mix(in srgb, var(--text-accent) 40%, var(--border-color)); }
+
+/* -------- Expanded stock grid ---------------------------------- */
+
+.expand {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  gap: var(--space-3);
+  padding-top: var(--space-3);
+  margin-top: var(--space-3);
+  border-top: 1px solid var(--border-color);
+}
+
+.sizeCell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+.sizeLabel {
+  font-size: 0.62rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.stepper {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-full);
+  background: var(--bg-tertiary);
+  overflow: hidden;
+}
+.stepperBtn {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  width: 26px;
+  height: 26px;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: color 140ms ease, background 140ms ease;
+}
+.stepperBtn:hover { color: var(--text-primary); background: var(--bg-elevated); }
+.stepperVal {
+  min-width: 28px;
+  text-align: center;
+  font-size: 0.78rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+}
+.stepperValZero { color: var(--error); }
+
+/* -------- Toggle (active/inactive) ----------------------------- */
+
+.toggle {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  cursor: pointer;
+}
+.toggle input {
+  appearance: none;
+  width: 32px;
+  height: 18px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-full);
+  cursor: pointer;
+  position: relative;
+  outline: none;
+  transition: background 180ms ease, border-color 180ms ease;
+}
+.toggle input::after {
+  content: '';
+  position: absolute;
+  top: 1px;
+  left: 1px;
+  width: 14px;
+  height: 14px;
+  background: var(--text-muted);
+  border-radius: 50%;
+  transition: transform 200ms ease, background 200ms ease;
+}
+.toggle input:checked {
+  background: color-mix(in srgb, var(--text-accent) 28%, var(--bg-tertiary));
+  border-color: color-mix(in srgb, var(--text-accent) 50%, var(--border-color));
+}
+.toggle input:checked::after {
+  transform: translateX(14px);
+  background: var(--text-accent);
+}
+
+/* -------- Empty / loading -------------------------------------- */
+
+.empty {
+  text-align: center;
+  padding: var(--space-12) var(--space-4);
+  color: var(--text-muted);
+  border: 1px dashed var(--border-color);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--bg-secondary) 50%, transparent);
+}
+.emptyTitle {
+  font-size: 1rem;
+  color: var(--text-secondary);
+  margin-bottom: var(--space-2);
+}
+.emptyHint {
+  font-size: 0.8rem;
+  margin-bottom: var(--space-4);
+}
+
+.skeleton {
+  height: 88px;
+  border-radius: var(--radius-md);
+  background: linear-gradient(
+    90deg,
+    var(--bg-secondary) 0%,
+    var(--bg-tertiary) 50%,
+    var(--bg-secondary) 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.6s ease-in-out infinite;
+}
+@keyframes shimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* -------- Responsive ------------------------------------------- */
+
+@media (max-width: 880px) {
+  .row {
+    grid-template-columns: 56px minmax(0, 1fr) auto;
+    grid-template-areas:
+      'thumb identity actions'
+      'thumb meta     meta'
+      'price price    price'
+      'expand expand  expand';
+    gap: var(--space-3);
+    padding: var(--space-3);
+  }
+  .thumb        { grid-area: thumb; width: 56px; height: 56px; }
+  .identity     { grid-area: identity; }
+  .priceBlock   { grid-area: price; flex-direction: row; align-items: baseline; gap: var(--space-3); }
+  .stockChip,
+  .statusPill   { display: none; } /* identity row already shows the gist */
+  .actions      { grid-area: actions; }
+}
+
+@media (max-width: 640px) {
+  .toolbar {
+    grid-template-columns: 1fr;
+  }
+}
