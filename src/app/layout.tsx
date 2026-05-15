@@ -8,6 +8,8 @@ import FooterGate from '@/components/footer/FooterGate';
 import { AuthProvider } from '@/lib/auth/AuthProvider';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { SITE_URL, BRAND } from '@/lib/seo/site';
+import { Analytics } from '@vercel/analytics/next';
+import { SpeedInsights } from '@vercel/speed-insights/next';
 
 /**
  * Root metadata.
@@ -116,6 +118,8 @@ export default async function RootLayout({
               <Footer />
             </FooterGate>
             <FeedbackButton />
+            <Analytics />
+            <SpeedInsights />
           </CartProvider>
         </AuthProvider>
       </body>
