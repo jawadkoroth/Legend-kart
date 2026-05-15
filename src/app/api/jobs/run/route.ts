@@ -35,7 +35,13 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 const BATCH_SIZE = 10;
-const LEASE_SECONDS = 120;
+// Lease must be SHORTER than the platform function timeout so a
+// crashed/timed-out runner releases its claim before the next cron
+// tick, instead of sitting "running" for two minutes while the
+// queue stalls. Vercel Hobby caps at 10s and Pro at 60s; a 30s
+// lease covers any plausible handler (email send ~1–2s, push
+// fan-out <3s) while still releasing well within one cron cycle.
+const LEASE_SECONDS = 30;
 // Soft per-invocation timeout. Vercel Hobby caps at 10s, Pro at 60s
 // for serverless functions. We stop claiming new jobs once we're
 // inside this window; in-flight handlers still finish.
