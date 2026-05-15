@@ -71,21 +71,33 @@ export default async function ProductsPage({
   const supabase = await createServerSupabaseClient();
 
   // 1. Pull all active products with the ordering the user picked.
+  // For 'latest' we let Postgres ORDER BY created_at (fast, index-backed).
+  // For price sorts we fetch unordered then sort in the server component
+  // using EFFECTIVE price = sale_price_paise ?? price_paise. The Supabase
+  // JS client cannot express COALESCE() in .order(), and a DB-generated
+  // column would require a migration. Since all active products are fetched
+  // in a single query (no cursor pagination today), the server-side sort is
+  // correct and O(n log n) on a small catalogue.
   let productsQuery = supabase
     .from('products')
     .select('id, slug, name, price_paise, sale_price_paise, images, is_active, created_at')
     .eq('is_active', true);
 
-  if (sort === 'price-asc') {
-    productsQuery = productsQuery.order('price_paise', { ascending: true });
-  } else if (sort === 'price-desc') {
-    productsQuery = productsQuery.order('price_paise', { ascending: false });
-  } else {
+  if (sort === 'latest') {
     productsQuery = productsQuery.order('created_at', { ascending: false });
   }
+  // price-asc / price-desc: fetch without DB ordering, sort below.
 
   const { data: productRows } = await productsQuery;
-  const products = (productRows ?? []) as ProductRow[];
+  let products = (productRows ?? []) as ProductRow[];
+
+  const effectivePrice = (p: ProductRow) => p.sale_price_paise ?? p.price_paise;
+
+  if (sort === 'price-asc') {
+    products = products.slice().sort((a, b) => effectivePrice(a) - effectivePrice(b));
+  } else if (sort === 'price-desc') {
+    products = products.slice().sort((a, b) => effectivePrice(b) - effectivePrice(a));
+  }
 
   // 2. Pull inventory for those product ids and aggregate explicitly.
   const ids = products.map(p => p.id);
