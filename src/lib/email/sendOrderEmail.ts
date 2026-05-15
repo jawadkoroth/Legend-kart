@@ -126,8 +126,26 @@ interface RenderOpts {
   intro: string;
   /** Optional accent line above heading, e.g. "Payment Confirmed". */
   eyebrow?: string;
-  /** Optional item block (thumb + product/size/qty) rendered above summary. */
+  /**
+   * Optional hero item block (thumb + product/size/qty) rendered
+   * above summary. For multi-line orders this is the FIRST line;
+   * the `items` field carries the rest.
+   */
   item?: { name: string; size: string; quantity: number; image_url?: string | null };
+  /**
+   * Optional full line array. When present and longer than one
+   * entry, the template renders the additional lines beneath the
+   * hero `item` block via a compact list (`renderExtraItemsBlock`).
+   * `subtotal_paise` per line drives the trailing line-total column.
+   * Single-line orders may omit this entirely.
+   */
+  items?: Array<{
+    name: string;
+    size: string;
+    quantity: number;
+    subtotal_paise: number;
+    image_url?: string | null;
+  }>;
   /** Order summary rows rendered in the dark inner card. */
   summary: { label: string; value: string }[];
   /** Address block (string lines) rendered in its own subtle card. */
@@ -138,9 +156,14 @@ interface RenderOpts {
 }
 
 function renderEmail(opts: RenderOpts): string {
-  const { heading, intro, eyebrow, item, summary, address, outro, cta } = opts;
+  const { heading, intro, eyebrow, item, items, summary, address, outro, cta } = opts;
 
   const itemBlock = item ? renderItemBlock(item) : '';
+  // Additional-lines table: rendered only when the order has >= 2
+  // lines. The hero `item` covers the first line; this block lists
+  // every line FROM index 1 onward in a compact, single-row format.
+  const extraItemsBlock =
+    items && items.length > 1 ? renderExtraItemsBlock(items.slice(1)) : '';
 
   const summaryRows = summary
     .map(
@@ -213,6 +236,8 @@ function renderEmail(opts: RenderOpts): string {
                 <p style="margin:0;color:#CFCFCF;font-size:14px;line-height:1.6;">${escapeHtml(intro)}</p>
 
                 ${itemBlock}
+
+                ${extraItemsBlock}
 
                 <!-- Summary card -->
                 <div style="background:#101012;border:1px solid rgba(255,255,255,0.06);border-radius:10px;padding:18px 20px;margin-top:14px;">
@@ -289,6 +314,49 @@ function normaliseImageUrl(raw?: string | null): string | null {
  * "Size X · Qty N" on the right. Pure inline-styled HTML for email
  * client compatibility (Gmail / Outlook / Apple Mail).
  */
+/**
+ * Compact additional-items list, rendered only for multi-line orders.
+ * Each row: 40px square thumb, name + "Size X · Qty N" meta on the
+ * left, line total on the right. Visually subordinate to the hero
+ * `renderItemBlock` so single-line emails are unchanged and
+ * multi-line emails read as "primary item + the rest".
+ */
+function renderExtraItemsBlock(extras: Array<{
+  name: string;
+  size: string;
+  quantity: number;
+  subtotal_paise: number;
+  image_url?: string | null;
+}>): string {
+  if (extras.length === 0) return '';
+  const rows = extras
+    .map((line) => {
+      const url = normaliseImageUrl(line.image_url);
+      const initials = (line.name || 'N').trim().charAt(0).toUpperCase() || 'N';
+      const qtyText = line.quantity > 1 ? ` · Qty ${line.quantity}` : '';
+      const meta = `Size ${escapeHtml(line.size)}${escapeHtml(qtyText)}`;
+      const lineTotal = '₹' + (line.subtotal_paise / 100).toLocaleString('en-IN');
+      const thumb = url
+        ? `<img src="${escapeAttr(url)}" alt="" width="40" height="40"
+                style="display:block;width:40px;height:40px;border-radius:6px;object-fit:cover;border:1px solid rgba(255,255,255,0.06);background:#0F0F11;" />`
+        : `<div style="width:40px;height:40px;border-radius:6px;background:#0F0F11;border:1px solid rgba(255,255,255,0.06);color:#9A9A9A;font-family:Georgia,serif;font-size:16px;line-height:40px;text-align:center;">${escapeHtml(initials)}</div>`;
+      return `
+        <tr>
+          <td width="40" valign="middle" style="width:40px;padding:8px 12px 8px 0;">${thumb}</td>
+          <td valign="middle" style="padding:8px 0;">
+            <p style="margin:0 0 2px;color:#E5E5E5;font-size:13px;font-weight:500;line-height:1.3;">${escapeHtml(line.name)}</p>
+            <p style="margin:0;color:#7A7A7A;font-size:11px;letter-spacing:0.04em;">${meta}</p>
+          </td>
+          <td valign="middle" align="right" style="padding:8px 0;color:#CFCFCF;font-size:13px;white-space:nowrap;">${escapeHtml(lineTotal)}</td>
+        </tr>`;
+    })
+    .join('');
+  return `
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:14px;border-top:1px solid rgba(255,255,255,0.06);">
+          ${rows}
+        </table>`;
+}
+
 function renderItemBlock(item: {
   name: string;
   size: string;
@@ -424,6 +492,20 @@ function itemForEmail(order: OrderEmailData): {
   quantity: number;
   image_url?: string | null;
 } {
+  // Prefer the first entry of items[] when present (multi-line
+  // orders, every order placed since phase B2). Falls back to the
+  // legacy `product_name / size / quantity / image_url` fields for
+  // historic single-line orders that pre-date the items[] field on
+  // OrderEmailData.
+  const head = order.items && order.items.length > 0 ? order.items[0] : null;
+  if (head) {
+    return {
+      name: head.name,
+      size: head.size,
+      quantity: head.quantity,
+      image_url: head.image_url,
+    };
+  }
   return {
     name: order.product_name,
     size: order.size,
@@ -450,6 +532,7 @@ export async function sendOrderCreatedEmail(order: OrderEmailData): Promise<void
         ? 'Your order has been placed. We will reach out before dispatch to confirm your address.'
         : 'Your order has been placed. We are confirming your payment and will email you again once it is captured.',
     item: itemForEmail(order),
+    items: order.items,
     summary: commonSummary(order),
     address: addressLines(order.shipping_address),
     cta: { label: 'View order', href: viewOrderHref(order.id) },
@@ -477,6 +560,7 @@ export async function sendPaymentSuccessEmail(order: OrderEmailData): Promise<vo
     heading: 'Payment received',
     intro: `Your payment for order ${order.order_number} has been captured. We are preparing it for dispatch.`,
     item: itemForEmail(order),
+    items: order.items,
     summary: commonSummary(order),
     address: addressLines(order.shipping_address),
     cta: { label: 'View order', href: viewOrderHref(order.id) },
@@ -501,6 +585,7 @@ export async function sendPaymentFailedEmail(order: OrderEmailData): Promise<voi
     heading: 'We could not capture your payment',
     intro: `Your payment for order ${order.order_number} did not go through. The order is on hold and stock has been released.`,
     item: itemForEmail(order),
+    items: order.items,
     summary: commonSummary(order),
     outro:
       'You can retry payment from the order page. If the amount was debited from your account, it will be refunded by your bank within 5–7 business days.',
@@ -559,6 +644,7 @@ export async function sendOrderStatusEmail(
     heading: preset.heading,
     intro: preset.intro,
     item: itemForEmail(order),
+    items: order.items,
     summary: commonSummary(order),
     address: status === 'cancelled' ? undefined : addressLines(order.shipping_address),
     outro: preset.outro,

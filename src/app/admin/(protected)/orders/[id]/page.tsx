@@ -5,13 +5,20 @@ import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { useToast } from '@/hooks/useToast';
 
-interface Order {
+interface OrderLine {
   id: string;
-  order_number: string;
   product_id: string;
+  product_name: string;
   size: string;
   quantity: number;
   unit_price_paise: number;
+  subtotal_paise: number;
+  image_url: string | null;
+}
+
+interface Order {
+  id: string;
+  order_number: string;
   subtotal_paise: number;
   discount_paise: number;
   shipping_paise: number | null;
@@ -38,7 +45,7 @@ export default function AdminOrderDetail({ params }: { params: Promise<{ id: str
   const { id } = use(params);
   const router = useRouter();
   const [order, setOrder] = useState<Order | null>(null);
-  const [productName, setProductName] = useState('');
+  const [lines, setLines] = useState<OrderLine[]>([]);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState('');
   const [cancelReason, setCancelReason] = useState('');
@@ -56,8 +63,15 @@ export default function AdminOrderDetail({ params }: { params: Promise<{ id: str
     if (data) {
       setOrder(data);
       setNoteText(data.notes || '');
-      const { data: product } = await supabase.from('products').select('name').eq('id', data.product_id).single();
-      setProductName(product?.name || '');
+      // Multi-line aware: load order_items rather than chasing
+      // legacy orders.product_id. Every order has ≥1 row since
+      // phase B1 backfill, so this is uniform across history.
+      const { data: itemRows } = await supabase
+        .from('order_items')
+        .select('id, product_id, product_name, size, quantity, unit_price_paise, subtotal_paise, image_url')
+        .eq('order_id', id)
+        .order('created_at', { ascending: true });
+      setLines((itemRows ?? []) as OrderLine[]);
     }
     setLoading(false);
   }
@@ -177,11 +191,42 @@ export default function AdminOrderDetail({ params }: { params: Promise<{ id: str
         <p className="text-sm">{order.shipping_address.city}, {order.shipping_address.state} {order.shipping_address.pincode}</p>
       </div>
 
-      {/* Product */}
+      {/* Items — multi-line aware. Each line on its own row with
+          name · size · qty and the line subtotal so admin can
+          reconcile against payment-gateway totals at a glance. */}
       <div className="card" style={{ marginBottom: 'var(--space-4)' }}>
-        <p className="input-label" style={{ marginBottom: 'var(--space-3)' }}>Product</p>
-        <p style={{ fontWeight: 500 }}>{productName} · {order.size} · Qty {order.quantity}</p>
-        {order.coupon_code && <p className="text-xs text-muted" style={{ marginTop: 'var(--space-2)' }}>Coupon: {order.coupon_code}</p>}
+        <p className="input-label" style={{ marginBottom: 'var(--space-3)' }}>
+          {lines.length > 1 ? `Items (${lines.length})` : 'Item'}
+        </p>
+        {lines.length === 0 ? (
+          <p className="text-sm text-muted">No line items.</p>
+        ) : (
+          lines.map((line, idx) => (
+            <div
+              key={line.id}
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'baseline',
+                gap: 'var(--space-3)',
+                paddingTop: idx === 0 ? 0 : 'var(--space-2)',
+                marginTop: idx === 0 ? 0 : 'var(--space-2)',
+                borderTop: idx === 0 ? 'none' : '1px solid var(--border-color)',
+              }}
+            >
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <p style={{ fontWeight: 500 }}>{line.product_name}</p>
+                <p className="text-xs text-muted">
+                  Size {line.size} · Qty {line.quantity}
+                </p>
+              </div>
+              <p style={{ fontWeight: 500, whiteSpace: 'nowrap' }}>
+                {formatPrice(line.subtotal_paise)}
+              </p>
+            </div>
+          ))
+        )}
+        {order.coupon_code && <p className="text-xs text-muted" style={{ marginTop: 'var(--space-3)' }}>Coupon: {order.coupon_code}</p>}
       </div>
 
       {/* Totals breakdown */}

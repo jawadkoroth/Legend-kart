@@ -15,14 +15,21 @@ import styles from '../orders.module.css';
  */
 export const dynamic = 'force-dynamic';
 
+type OrderLine = {
+  id: string;
+  product_id: string;
+  product_name: string;
+  size: string;
+  quantity: number;
+  unit_price_paise: number;
+  subtotal_paise: number;
+  image_url: string | null;
+};
+
 type OrderDetail = {
   id: string;
   order_number: string;
   user_id: string | null;
-  product_id: string;
-  size: string;
-  quantity: number;
-  unit_price_paise: number;
   subtotal_paise: number;
   discount_paise: number;
   shipping_paise: number | null;
@@ -43,7 +50,6 @@ type OrderDetail = {
   cancel_reason: string | null;
   created_at: string;
   updated_at: string;
-  products?: { name: string; images: string[] | null } | null;
 };
 
 const ALLOWED_STATUSES = [
@@ -113,11 +119,10 @@ export default async function OrderDetailPage({
     .from('orders')
     .select(
       `
-      id, order_number, user_id, product_id, size, quantity,
-      unit_price_paise, subtotal_paise, discount_paise, shipping_paise, cod_fee_paise, total_paise,
+      id, order_number, user_id,
+      subtotal_paise, discount_paise, shipping_paise, cod_fee_paise, total_paise,
       coupon_code, payment_method, payment_status, order_status,
-      customer, shipping_address, cancel_reason, created_at, updated_at,
-      products ( name, images )
+      customer, shipping_address, cancel_reason, created_at, updated_at
       `,
     )
     .eq('id', id)
@@ -133,15 +138,20 @@ export default async function OrderDetailPage({
     notFound();
   }
 
+  // Multi-line aware: every order has ≥1 order_items row since
+  // phase B1 (legacy orders backfilled). Ordered by created_at to
+  // match the visual sequence the user added them in at checkout.
+  const { data: itemRows } = await supabase
+    .from('order_items')
+    .select('id, product_id, product_name, size, quantity, unit_price_paise, subtotal_paise, image_url')
+    .eq('order_id', id)
+    .order('created_at', { ascending: true });
+
+  const lines = (itemRows ?? []) as OrderLine[];
+
   const status = safeStatus(order.order_status);
   const isCancelled = status === 'cancelled';
   const isPaid = order.payment_status === 'paid';
-
-  const productImage =
-    Array.isArray(order.products?.images) && order.products?.images?.[0]
-      ? order.products.images[0]
-      : null;
-  const productName = order.products?.name ?? 'Product';
 
   // Build the stepper steps. `done` = strictly past steps; `current`
   // = the active step (next-to-arrive), styled with the gold pulse.
@@ -240,32 +250,39 @@ export default async function OrderDetailPage({
         </section>
       )}
 
-      {/* Items */}
+      {/* Items — every order has ≥1 line; multi-line orders render
+          each line as its own row with thumbnail + size + qty + line
+          total. Visual contract identical to the cart and checkout
+          summary so totals reconcile by inspection. */}
       <section className={styles.section}>
-        <p className={styles.sectionLabel}>Items</p>
+        <p className={styles.sectionLabel}>
+          {lines.length > 1 ? `Items (${lines.length})` : 'Items'}
+        </p>
         <ul className={styles.itemList}>
-          <li className={styles.itemRow}>
-            <div className={styles.thumb}>
-              {productImage ? (
-                <Image
-                  src={productImage}
-                  alt={productName}
-                  fill
-                  sizes="72px"
-                  style={{ objectFit: 'cover' }}
-                />
-              ) : null}
-            </div>
-            <div className={styles.itemMeta}>
-              <p className={styles.itemName}>{productName}</p>
-              <p className={styles.itemSub}>
-                Size {order.size} · Qty {order.quantity}
+          {lines.map((line) => (
+            <li key={line.id} className={styles.itemRow}>
+              <div className={styles.thumb}>
+                {line.image_url ? (
+                  <Image
+                    src={line.image_url}
+                    alt={line.product_name}
+                    fill
+                    sizes="72px"
+                    style={{ objectFit: 'cover' }}
+                  />
+                ) : null}
+              </div>
+              <div className={styles.itemMeta}>
+                <p className={styles.itemName}>{line.product_name}</p>
+                <p className={styles.itemSub}>
+                  Size {line.size} · Qty {line.quantity}
+                </p>
+              </div>
+              <p className={styles.itemPrice}>
+                {formatPrice(line.subtotal_paise)}
               </p>
-            </div>
-            <p className={styles.itemPrice}>
-              {formatPrice(order.unit_price_paise * order.quantity)}
-            </p>
-          </li>
+            </li>
+          ))}
         </ul>
       </section>
 

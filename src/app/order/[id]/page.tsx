@@ -3,11 +3,25 @@
 import { useState, useEffect, use } from 'react';
 import styles from './page.module.css';
 
+interface OrderLine {
+  product_id: string;
+  product_name: string;
+  size: string;
+  quantity: number;
+  unit_price_paise: number;
+  subtotal_paise: number;
+  image_url: string | null;
+}
+
 interface Order {
   id: string;
   order_number: string;
+  // Legacy single-line fields. Track API still populates them from
+  // items[0] for back-compat; multi-line UI prefers `items[]`.
   product_name: string;
   size: string;
+  // Per-line breakdown — present on every order since phase B1.
+  items: OrderLine[];
   subtotal_paise?: number | null;
   total_paise: number;
   discount_paise: number;
@@ -207,10 +221,25 @@ export default function OrderPage({ params }: { params: Promise<{ id: string }> 
 
         {/* Order Details */}
         <div className="card" style={{ marginBottom: 'var(--space-5)' }}>
-          <div className={styles.detailRow}>
-            <span className="text-muted">Product</span>
-            <span>{order.product_name} · {order.size}</span>
-          </div>
+          {order.items && order.items.length > 0 ? (
+            order.items.map((line) => (
+              <div
+                key={`${line.product_id}::${line.size}`}
+                className={styles.detailRow}
+              >
+                <span className="text-muted">
+                  {line.product_name} · {line.size}
+                  {line.quantity > 1 ? ` × ${line.quantity}` : ''}
+                </span>
+                <span>{formatPrice(line.subtotal_paise)}</span>
+              </div>
+            ))
+          ) : (
+            <div className={styles.detailRow}>
+              <span className="text-muted">Product</span>
+              <span>{order.product_name} · {order.size}</span>
+            </div>
+          )}
           {(order.subtotal_paise ?? 0) > 0 && (
             <div className={styles.detailRow}>
               <span className="text-muted">Subtotal</span>
