@@ -10,6 +10,7 @@ import { withRequest } from '@/lib/observability/context';
 import { calcShipping } from '@/lib/shipping/calcShipping';
 import { evaluateCoupon } from '@/lib/coupons/evaluateCoupon';
 import { enqueue } from '@/lib/jobs/queue';
+import { notifyAdminsBestEffort } from '@/lib/push/webPush';
 import { enforceRateLimit } from '@/lib/rateLimit';
 
 /**
@@ -389,29 +390,23 @@ async function handlePOST(req: NextRequest) {
         });
       }
 
-      try {
-        const lineSummary =
-          lineItems.length === 1
-            ? `${firstLine.product_name} · ${firstLine.size} × ${firstLine.quantity}`
-            : `${lineItems.length} items`;
-        await enqueue({
-          kind: 'push.admin_notify',
-          idempotencyKey: `push.admin_notify.order_created.${orderId}`,
-          payload: {
-            push: {
-              title: `New order ${finalOrderNumber}`,
-              body: `${lineSummary} — ₹${(total / 100).toLocaleString('en-IN')}`,
-              tag: `order-${orderId}`,
-              url: `/admin/orders/${orderId}`,
-            },
-          },
-        }, supabase);
-      } catch (err) {
-        logEvent('order.push_enqueue_failed', {
-          order_id: orderId,
-          error: err instanceof Error ? err.message : String(err),
-        });
-      }
+      // Admin push goes DIRECT, not through the job queue. Queued
+      // pushes were landing 5–15 minutes late because GitHub Actions
+      // schedule events skew badly under load. Push is fast (<2s),
+      // idempotent on `tag` (the SW collapses duplicates with
+      // `renotify:true`), and best-effort by design — there is no
+      // benefit to deferring it. The helper enforces a hard 3s budget
+      // and never throws, so the order response is never blocked.
+      const lineSummary =
+        lineItems.length === 1
+          ? `${firstLine.product_name} · ${firstLine.size} × ${firstLine.quantity}`
+          : `${lineItems.length} items`;
+      await notifyAdminsBestEffort(supabase, {
+        title: `New order ${finalOrderNumber}`,
+        body: `${lineSummary} — ₹${(total / 100).toLocaleString('en-IN')}`,
+        tag: `order-${orderId}`,
+        url: `/admin/orders/${orderId}`,
+      });
     }
 
     // 10. COD short-circuits here; online proceeds to Razorpay handoff.
