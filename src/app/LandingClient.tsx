@@ -195,7 +195,7 @@ export default function LandingClient() {
           className={styles.heroVideo}
           poster="/product-1.png"
         >
-          <source src="https://ajyubbfheptelvjvpzts.supabase.co/storage/v1/object/public/test%20-video-noir/Man_wearing_linen_202604220055.mp4" type="video/mp4" />
+          <source src="https://ajyubbfheptelvjvpzts.supabase.co/storage/v1/object/sign/test%20-video-noir/Man_wearing_linen_202604220055.mp4?token=eyJraWQiOiJzdG9yYWdlLXVybC1zaWduaW5nLWtleV8yZjUzZTAxZC01MzE3LTQxMmEtYmM5YS0yYzU4NmZmZmUwNzQiLCJhbGciOiJIUzI1NiJ9.eyJ1cmwiOiJ0ZXN0IC12aWRlby1ub2lyL01hbl93ZWFyaW5nX2xpbmVuXzIwMjYwNDIyMDA1NS5tcDQiLCJpYXQiOjE3Nzg4NjI3ODIsImV4cCI6MTgxMDM5ODc4Mn0.erATWRiQuKsAgZeSwMk_Ntv8jiEqmdivFt2Ht8MWqEQ" type="video/mp4" />
         </video>
         <div className={styles.heroContent}>
           <p className={styles.heroTag}>Permanent Black</p>
