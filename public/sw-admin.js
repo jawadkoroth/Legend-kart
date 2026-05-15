@@ -48,11 +48,15 @@ self.addEventListener('push', (event) => {
     tag: payload.tag || 'admin-order',
     renotify: true,
     requireInteraction: false,
+    silent: false,
+    vibrate: [200, 100, 200],
+    icon: '/favicon.ico',
+    badge: '/favicon.ico',
     data: { url: payload.url || '/admin/dashboard' },
   };
-  // Intentionally no `icon` / `badge`: browsers fall back to the
-  // site's default favicon, and referencing a missing asset makes
-  // some Android Chrome builds drop the notification silently.
+  // icon + badge: required on Android Chrome to render a proper
+  // notification. Some builds silently drop notifications with no
+  // icon. We use favicon.ico as a safe universal fallback.
   event.waitUntil(self.registration.showNotification(title, options));
 });
 

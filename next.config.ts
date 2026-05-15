@@ -29,7 +29,7 @@ const csp = [
   // Web manifest, service worker scope.
   "manifest-src 'self'",
   "worker-src 'self' blob:",
-  "media-src 'self' blob: data:",
+  "media-src 'self' blob: data: https://*.supabase.co",
   "object-src 'none'",
   "base-uri 'self'",
   "form-action 'self'",
@@ -59,6 +59,15 @@ const securityHeaders = [
 ];
 
 const nextConfig: NextConfig = {
+  images: {
+    remotePatterns: [
+      {
+        protocol: 'https',
+        hostname: '**.supabase.co',
+        pathname: '/storage/v1/object/**',
+      },
+    ],
+  },
   async headers() {
     return [
       {

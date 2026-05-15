@@ -71,17 +71,17 @@ export default async function ProductsPage({
   const supabase = await createServerSupabaseClient();
 
   // 1. Pull all active products with the ordering the user picked.
-  const productsQuery = supabase
+  let productsQuery = supabase
     .from('products')
     .select('id, slug, name, price_paise, sale_price_paise, images, is_active, created_at')
     .eq('is_active', true);
 
   if (sort === 'price-asc') {
-    productsQuery.order('price_paise', { ascending: true });
+    productsQuery = productsQuery.order('price_paise', { ascending: true });
   } else if (sort === 'price-desc') {
-    productsQuery.order('price_paise', { ascending: false });
+    productsQuery = productsQuery.order('price_paise', { ascending: false });
   } else {
-    productsQuery.order('created_at', { ascending: false });
+    productsQuery = productsQuery.order('created_at', { ascending: false });
   }
 
   const { data: productRows } = await productsQuery;

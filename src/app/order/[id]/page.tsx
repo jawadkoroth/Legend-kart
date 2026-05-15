@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, use } from 'react';
+import Image from 'next/image';
 import styles from './page.module.css';
 
 interface OrderLine {
@@ -136,21 +137,14 @@ export default function OrderPage({ params }: { params: Promise<{ id: string }> 
     }
   }
 
-  if (loading) {
+  if (loading || !order) {
     return (
       <div className={styles.page}>
         <div className={styles.centerContent}>
-          <div className="animate-pulse text-muted">Loading order...</div>
-        </div>
-      </div>
-    );
-  }
-
-  if (!order) {
-    return (
-      <div className={styles.page}>
-        <div className={styles.centerContent}>
-          <p className="text-muted">Order not found</p>
+          {loading
+            ? <div className="animate-pulse text-muted">Loading order...</div>
+            : <p className="text-muted">Order not found</p>
+          }
         </div>
       </div>
     );
@@ -221,25 +215,32 @@ export default function OrderPage({ params }: { params: Promise<{ id: string }> 
 
         {/* Order Details */}
         <div className="card" style={{ marginBottom: 'var(--space-5)' }}>
-          {order.items && order.items.length > 0 ? (
-            order.items.map((line) => (
-              <div
-                key={`${line.product_id}::${line.size}`}
-                className={styles.detailRow}
-              >
+          {order.items.map((line) => (
+            <div
+              key={`${line.product_id}::${line.size}`}
+              className={styles.detailRow}
+              style={{ alignItems: 'flex-start', gap: 'var(--space-3)' }}
+            >
+              {line.image_url && (
+                <div style={{ flexShrink: 0, width: 48, height: 48, position: 'relative', borderRadius: 4, overflow: 'hidden', background: 'var(--bg-secondary)' }}>
+                  <Image
+                    src={line.image_url}
+                    alt={line.product_name}
+                    fill
+                    sizes="48px"
+                    style={{ objectFit: 'cover' }}
+                  />
+                </div>
+              )}
+              <div style={{ flex: 1 }}>
                 <span className="text-muted">
                   {line.product_name} · {line.size}
                   {line.quantity > 1 ? ` × ${line.quantity}` : ''}
                 </span>
-                <span>{formatPrice(line.subtotal_paise)}</span>
               </div>
-            ))
-          ) : (
-            <div className={styles.detailRow}>
-              <span className="text-muted">Product</span>
-              <span>{order.product_name} · {order.size}</span>
+              <span>{formatPrice(line.subtotal_paise)}</span>
             </div>
-          )}
+          ))}
           {(order.subtotal_paise ?? 0) > 0 && (
             <div className={styles.detailRow}>
               <span className="text-muted">Subtotal</span>

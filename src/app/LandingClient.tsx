@@ -21,7 +21,6 @@ export default function LandingClient() {
   const [activeIndex, setActiveIndex] = useState(0);
   const [touchOffset, setTouchOffset] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
-  const [isVideoReady, setIsVideoReady] = useState(false);
   const [storyVisible, setStoryVisible] = useState(false);
 
   const touchStartPos = useRef({ x: 0, y: 0, time: 0 });
@@ -193,10 +192,10 @@ export default function LandingClient() {
           loop
           muted
           playsInline
-          className={`${styles.heroVideo} ${isVideoReady ? styles.heroVideoReady : ''}`}
-          onCanPlay={() => setIsVideoReady(true)}
+          className={styles.heroVideo}
+          poster="/product-1.png"
         >
-          <source src="https://ajyubbfheptelvjvpzts.supabase.co/storage/v1/object/sign/test%20-video-noir/Man_wearing_linen_202604220055.mp4?token=eyJraWQiOiJzdG9yYWdlLXVybC1zaWduaW5nLWtleV8yZjUzZTAxZC01MzE3LTQxMmEtYmM5YS0yYzU4NmZmZmUwNzQiLCJhbGciOiJIUzI1NiJ9.eyJ1cmwiOiJ0ZXN0IC12aWRlby1ub2lyL01hbl93ZWFyaW5nX2xpbmVuXzIwMjYwNDIyMDA1NS5tcDQiLCJpYXQiOjE3NzY3OTk2NTMsImV4cCI6MjA5MjE1OTY1M30.9MYJihhB73Ms3KO4U_JnAOa_p4YEQzk0gqNEp-ZfFHY" type="video/mp4" />
+          <source src="https://ajyubbfheptelvjvpzts.supabase.co/storage/v1/object/public/test%20-video-noir/Man_wearing_linen_202604220055.mp4" type="video/mp4" />
         </video>
         <div className={styles.heroContent}>
           <p className={styles.heroTag}>Permanent Black</p>

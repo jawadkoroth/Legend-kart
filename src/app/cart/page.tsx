@@ -61,6 +61,7 @@ export default function CartPage() {
     clamped: string[];
   } | null>(null);
   const [softWarning, setSoftWarning] = useState(false);
+  const [retryCount, setRetryCount] = useState(0);
   const [isRouting, setIsRouting] = useState(false);
 
   // The current in-flight validation promise (if any). handleCheckout
@@ -100,9 +101,6 @@ export default function CartPage() {
     validatedRef.current = true;
 
     let cancelled = false;
-    // Already true via the lazy useState initializer; explicit set is
-    // here as a hard guarantee for cases where StrictMode replayed the
-    // effect after a previous run flipped it false.
     setIsValidating(true);
     validationOkRef.current = false;
 
@@ -166,11 +164,10 @@ export default function CartPage() {
     return () => {
       cancelled = true;
     };
-    // We intentionally depend only on the initial-mount items.length;
-    // re-running on every items change would loop because
-    // applyValidation itself updates items.
+    // retryCount is included so the user can explicitly re-trigger
+    // validation after a network failure without a full page reload.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [retryCount]);
 
   // Stable, ordered keys for memoized list rendering.
   const renderedItems = useMemo(() => items, [items]);
@@ -401,8 +398,9 @@ export default function CartPage() {
       // cartInvalid memo will re-evaluate on the next render but the
       // local closure is stale, so re-read both flags via refs.
       if (!validationOkRef.current) {
-        // Hard validation failure (network / 5xx). Do NOT navigate.
-        // The soft-warning banner is already on screen.
+        // Validation failed (network / 5xx). Surface the warning
+        // so the user sees the retry option, but do NOT navigate.
+        setSoftWarning(true);
         return;
       }
       // Re-pull the latest items synchronously: applyValidation may
@@ -479,8 +477,30 @@ export default function CartPage() {
             role="status"
             className={`${styles.banner} ${styles.bannerSoft}`}
           >
-            Couldn&rsquo;t verify stock right now — quantities will be
-            re-checked at checkout.
+            <span>
+              Couldn&rsquo;t verify stock right now —{' '}
+              <button
+                type="button"
+                onClick={() => {
+                  setSoftWarning(false);
+                  setIsValidating(true);
+                  validationOkRef.current = false;
+                  validatedRef.current = false;
+                  setRetryCount(c => c + 1);
+                }}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  padding: 0,
+                  textDecoration: 'underline',
+                  cursor: 'pointer',
+                  color: 'inherit',
+                  font: 'inherit',
+                }}
+              >
+                tap to retry
+              </button>.
+            </span>
           </div>
         )}
 
@@ -682,17 +702,13 @@ export default function CartPage() {
         <button
           className="btn btn-primary"
           onClick={handleCheckout}
-          disabled={
-            isValidating || isRouting || cartInvalid || softWarning
-          }
+          disabled={isValidating || isRouting || cartInvalid}
         >
           {isValidating || isRouting
             ? 'CHECKING STOCK…'
             : cartInvalid
               ? 'REVIEW CART TO CONTINUE'
-              : softWarning
-                ? 'STOCK CHECK FAILED — RELOAD'
-                : `PROCEED TO CHECKOUT — ${formatPaise(totalPaise)}`}
+              : `PROCEED TO CHECKOUT — ${formatPaise(totalPaise)}`}
         </button>
       </div>
     </div>
