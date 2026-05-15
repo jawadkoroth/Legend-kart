@@ -1,26 +1,27 @@
 import Link from 'next/link';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { JobActions } from './JobActions';
+import styles from './diagnostics.module.css';
 
 /**
- * NOIR Admin — Diagnostics surface.
+ * NOIR Admin — System Health.
  *
- * Single read-only window into the two operational tables we ship in
- * this hardening pass:
+ * Rebrand of the old "Diagnostics" surface. Same data, same queries,
+ * same RLS contract — purely a visual and naming upgrade:
  *
- *   * app_events  — every server-side `logEvent` call lands here.
- *   * job_queue   — every async unit (email, push) waiting / running /
- *                   retrying / dead.
- *
- * Read access is enforced by RLS (admin_users membership). The
- * protected layout above us already verifies the session, so we can
- * use the SSR cookie-bound client directly and let the policy do the
- * gating. No service-role here — keeping admin reads RLS-policed
- * means a leaked admin session can't escalate to system-level data.
+ *   - Title: "System Health" (operator language, not dev jargon).
+ *   - Stat bar counts (queued / running / failed / dead) always
+ *     visible above the tabs; dead + failed glow red/amber so a
+ *     single glance confirms pipeline health.
+ *   - Tabs: "Events" and "Jobs" — unchanged labels, new gold active
+ *     underline to match the rest of NOIR Admin.
+ *   - Filter toolbars: compact field groups with NOIR input tokens.
+ *   - Tables: monochrome hairline rows, mono font for code values,
+ *     severity/status chips that use border+text colour rather than
+ *     filled backgrounds so 100 rows don't look like a traffic light.
  *
  * Filters live in the URL (?tab, ?severity, ?source, ?q, ?request_id,
- * ?status, ?kind) so links can be shared, browser back works, and
- * the server can re-render with fresh data on every navigation.
+ * ?entity_id, ?status, ?kind) — unchanged for shareability / back nav.
  */
 
 export const dynamic = 'force-dynamic';
@@ -87,42 +88,30 @@ export default async function DiagnosticsPage({
   const sp = await searchParams;
   const tab: Tab = sp.tab === 'jobs' ? 'jobs' : 'events';
   const supabase = await createServerSupabaseClient();
-
-  // Job-queue summary always renders in the header so admins can see
-  // dead-letter pressure regardless of which tab they're on.
   const counts = await loadJobCounts(supabase);
 
   return (
-    <div style={{ padding: 'var(--space-4)' }}>
-      <header
-        style={{
-          display: 'flex',
-          flexDirection: 'column',
-          gap: 'var(--space-2)',
-          marginBottom: 'var(--space-4)',
-        }}
-      >
-        <h1
-          style={{
-            fontFamily: 'var(--font-serif)',
-            fontSize: '1.5rem',
-            margin: 0,
-          }}
-        >
-          Diagnostics
-        </h1>
-        <p
-          style={{
-            color: 'var(--text-muted)',
-            fontSize: '0.85rem',
-            margin: 0,
-          }}
-        >
-          Structured logs and async job queue. Read-only — except for
-          dead-letter retry / discard.
-        </p>
+    <div className={styles.page}>
+      <header className={styles.header}>
+        <div className={styles.titleRow}>
+          <div>
+            <h1 className={styles.title}>System Health</h1>
+            <p className={styles.subtitle}>
+              Structured event log and async job queue. Read-only — except
+              for dead-letter retry / discard.
+            </p>
+          </div>
+          <Link
+            href={`/admin/diagnostics?tab=${tab}`}
+            className={styles.refreshLink}
+          >
+            ↺ Refresh
+          </Link>
+        </div>
+
         <JobSummary counts={counts} />
-        <Tabs active={tab} sp={sp} />
+
+        <TabNav active={tab} sp={sp} />
       </header>
 
       {tab === 'events' ? (
@@ -135,54 +124,34 @@ export default async function DiagnosticsPage({
 }
 
 /* ------------------------------------------------------------------ */
-/* Job summary header                                                  */
+/* Job summary stat bar                                                */
 /* ------------------------------------------------------------------ */
 
 function JobSummary({ counts }: { counts: CountsByStatus }) {
-  const cards: Array<{ label: string; value: number; tone: string }> = [
-    { label: 'Queued', value: counts.queued, tone: 'var(--text)' },
-    { label: 'Running', value: counts.running, tone: 'var(--accent)' },
-    { label: 'Failed', value: counts.failed, tone: 'var(--warn, #b45309)' },
-    { label: 'Dead', value: counts.dead, tone: 'var(--error, #b91c1c)' },
+  const cards: Array<{
+    label: string;
+    value: number;
+    cls?: string;
+  }> = [
+    { label: 'Queued',    value: counts.queued },
+    { label: 'Running',   value: counts.running,  cls: counts.running  > 0 ? styles.statRunning : undefined },
+    { label: 'Failed',    value: counts.failed,   cls: counts.failed   > 0 ? styles.statWarn    : undefined },
+    { label: 'Dead',      value: counts.dead,     cls: counts.dead     > 0 ? styles.statAlert   : undefined },
   ];
+
   return (
-    <div
-      style={{
-        display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))',
-        gap: 'var(--space-2)',
-        marginTop: 'var(--space-2)',
-      }}
-    >
-      {cards.map(c => (
+    <div className={styles.statBar}>
+      {cards.map((c) => (
         <div
           key={c.label}
-          style={{
-            border: '1px solid var(--border)',
-            borderRadius: 'var(--radius)',
-            padding: 'var(--space-2)',
-          }}
+          className={`${styles.statCard} ${
+            c.value === 0 ? styles.statCardDim : ''
+          }`}
         >
-          <div
-            style={{
-              fontSize: '0.7rem',
-              letterSpacing: '0.1em',
-              textTransform: 'uppercase',
-              color: 'var(--text-muted)',
-            }}
-          >
-            {c.label}
-          </div>
-          <div
-            style={{
-              fontSize: '1.5rem',
-              fontWeight: 600,
-              color: c.tone,
-              fontVariantNumeric: 'tabular-nums',
-            }}
-          >
+          <span className={styles.statLabel}>{c.label}</span>
+          <span className={`${styles.statValue} ${c.cls ?? ''}`}>
             {c.value}
-          </div>
+          </span>
         </div>
       ))}
     </div>
@@ -190,50 +159,37 @@ function JobSummary({ counts }: { counts: CountsByStatus }) {
 }
 
 /* ------------------------------------------------------------------ */
-/* Tabs                                                                */
+/* Tab nav                                                             */
 /* ------------------------------------------------------------------ */
 
-function Tabs({
+function TabNav({
   active,
   sp,
 }: {
   active: Tab;
   sp: { request_id?: string; entity_id?: string };
 }) {
-  // Preserve cross-tab search keys (request_id, entity_id) so an
-  // admin drilling into "everything for this order" can flip between
-  // events and the related job rows without losing the filter.
   const carry = new URLSearchParams();
   if (sp.request_id) carry.set('request_id', sp.request_id);
   if (sp.entity_id) carry.set('entity_id', sp.entity_id);
+
   const tabs: Array<{ id: Tab; label: string }> = [
     { id: 'events', label: 'Events' },
-    { id: 'jobs', label: 'Jobs' },
+    { id: 'jobs',   label: 'Jobs' },
   ];
+
   return (
-    <nav
-      style={{
-        display: 'flex',
-        gap: 'var(--space-3)',
-        borderBottom: '1px solid var(--border)',
-        marginTop: 'var(--space-2)',
-      }}
-    >
-      {tabs.map(t => {
+    <nav className={styles.tabs}>
+      {tabs.map((t) => {
         const params = new URLSearchParams(carry);
         params.set('tab', t.id);
-        const isActive = active === t.id;
         return (
           <Link
             key={t.id}
             href={`/admin/diagnostics?${params.toString()}`}
-            style={{
-              padding: 'var(--space-2) 0',
-              borderBottom: `2px solid ${isActive ? 'var(--text)' : 'transparent'}`,
-              color: isActive ? 'var(--text)' : 'var(--text-muted)',
-              fontWeight: isActive ? 600 : 400,
-              textDecoration: 'none',
-            }}
+            className={`${styles.tabLink} ${
+              active === t.id ? styles.tabActive : ''
+            }`}
           >
             {t.label}
           </Link>
@@ -260,9 +216,6 @@ async function EventsView({
 }) {
   const supabase = await createServerSupabaseClient();
 
-  // Build the query progressively — every filter is optional. We
-  // cap at PAGE_SIZE rows because the page is intended for triage
-  // not pagination; deep-history forensics happens in SQL.
   let query = supabase
     .from('app_events')
     .select(
@@ -277,18 +230,9 @@ async function EventsView({
   if (sp.source && (SOURCES as readonly string[]).includes(sp.source)) {
     query = query.eq('source', sp.source);
   }
-  if (sp.request_id) {
-    query = query.eq('request_id', sp.request_id);
-  }
-  if (sp.entity_id) {
-    query = query.eq('entity_id', sp.entity_id);
-  }
-  if (sp.q) {
-    // ILIKE on event name. Substring match is enough for triage;
-    // metadata search is intentionally out of scope to keep the
-    // index plan predictable (idx_app_events_event_created).
-    query = query.ilike('event', `%${sp.q}%`);
-  }
+  if (sp.request_id) query = query.eq('request_id', sp.request_id);
+  if (sp.entity_id)  query = query.eq('entity_id', sp.entity_id);
+  if (sp.q)          query = query.ilike('event', `%${sp.q}%`);
 
   const { data, error } = await query;
   const rows = (data ?? []) as AppEventRow[];
@@ -297,12 +241,12 @@ async function EventsView({
     <section>
       <EventsFilters sp={sp} />
       {error && (
-        <p style={{ color: 'var(--error, #b91c1c)' }}>
+        <p className={styles.queryError}>
           Failed to load events: {error.message}
         </p>
       )}
       {!error && rows.length === 0 && (
-        <p style={{ color: 'var(--text-muted)' }}>No events match.</p>
+        <div className={styles.empty}>No events match the current filters.</div>
       )}
       {rows.length > 0 && <EventsTable rows={rows} />}
     </section>
@@ -321,130 +265,113 @@ function EventsFilters({
   };
 }) {
   return (
-    <form
-      method="GET"
-      style={{
-        display: 'flex',
-        flexWrap: 'wrap',
-        gap: 'var(--space-2)',
-        margin: 'var(--space-3) 0',
-        alignItems: 'flex-end',
-      }}
-    >
+    <form method="GET" className={styles.filterBar}>
       <input type="hidden" name="tab" value="events" />
-      <Field label="Severity">
+
+      <div className={styles.fieldGroup}>
+        <span className={styles.fieldLabel}>Severity</span>
         <select
           name="severity"
           defaultValue={sp.severity ?? ''}
-          style={selectStyle}
+          className={styles.fieldSelect}
         >
           <option value="">any</option>
-          {SEVERITIES.map(s => (
-            <option key={s} value={s}>
-              {s}
-            </option>
+          {SEVERITIES.map((s) => (
+            <option key={s} value={s}>{s}</option>
           ))}
         </select>
-      </Field>
-      <Field label="Source">
-        <select name="source" defaultValue={sp.source ?? ''} style={selectStyle}>
+      </div>
+
+      <div className={styles.fieldGroup}>
+        <span className={styles.fieldLabel}>Source</span>
+        <select
+          name="source"
+          defaultValue={sp.source ?? ''}
+          className={styles.fieldSelect}
+        >
           <option value="">any</option>
-          {SOURCES.map(s => (
-            <option key={s} value={s}>
-              {s}
-            </option>
+          {SOURCES.map((s) => (
+            <option key={s} value={s}>{s}</option>
           ))}
         </select>
-      </Field>
-      <Field label="Event contains">
+      </div>
+
+      <div className={styles.fieldGroup}>
+        <span className={styles.fieldLabel}>Event contains</span>
         <input
           name="q"
           defaultValue={sp.q ?? ''}
           placeholder="e.g. payment."
-          style={inputStyle}
+          className={styles.fieldInput}
         />
-      </Field>
-      <Field label="Request ID">
+      </div>
+
+      <div className={styles.fieldGroup}>
+        <span className={styles.fieldLabel}>Request ID</span>
         <input
           name="request_id"
           defaultValue={sp.request_id ?? ''}
           placeholder="x-request-id"
-          style={inputStyle}
+          className={styles.fieldInput}
         />
-      </Field>
-      <Field label="Entity ID">
+      </div>
+
+      <div className={styles.fieldGroup}>
+        <span className={styles.fieldLabel}>Entity ID</span>
         <input
           name="entity_id"
           defaultValue={sp.entity_id ?? ''}
           placeholder="order id, etc."
-          style={inputStyle}
+          className={styles.fieldInput}
         />
-      </Field>
-      <button type="submit" style={primaryBtnStyle}>
-        Apply
-      </button>
-      <Link
-        href="/admin/diagnostics?tab=events"
-        style={{
-          ...secondaryBtnStyle,
-          textDecoration: 'none',
-          display: 'inline-flex',
-          alignItems: 'center',
-        }}
-      >
-        Clear
-      </Link>
+      </div>
+
+      <div className={styles.filterActions}>
+        <button type="submit" className={styles.applyBtn}>Apply</button>
+        <Link
+          href="/admin/diagnostics?tab=events"
+          className={styles.clearLink}
+        >
+          Clear
+        </Link>
+      </div>
     </form>
   );
 }
 
 function EventsTable({ rows }: { rows: AppEventRow[] }) {
   return (
-    <div style={{ overflowX: 'auto' }}>
-      <table
-        style={{
-          width: '100%',
-          borderCollapse: 'collapse',
-          fontSize: '0.85rem',
-        }}
-      >
+    <div className={styles.tableWrap}>
+      <table className={styles.table}>
         <thead>
-          <tr style={{ textAlign: 'left', borderBottom: '1px solid var(--border)' }}>
-            <th style={thStyle}>When</th>
-            <th style={thStyle}>Sev</th>
-            <th style={thStyle}>Src</th>
-            <th style={thStyle}>Event</th>
-            <th style={thStyle}>Entity</th>
-            <th style={thStyle}>Request</th>
-            <th style={thStyle}>Metadata</th>
+          <tr>
+            <th className={styles.th}>When</th>
+            <th className={styles.th}>Sev</th>
+            <th className={styles.th}>Source</th>
+            <th className={styles.th}>Event</th>
+            <th className={styles.th}>Entity</th>
+            <th className={styles.th}>Request</th>
+            <th className={styles.th}>Metadata</th>
           </tr>
         </thead>
         <tbody>
-          {rows.map(r => (
-            <tr
-              key={r.id}
-              style={{
-                borderBottom: '1px solid var(--border)',
-                verticalAlign: 'top',
-              }}
-            >
-              <td style={tdStyle}>{formatTime(r.created_at)}</td>
-              <td style={tdStyle}>
+          {rows.map((r) => (
+            <tr key={r.id}>
+              <td className={styles.td}>{formatTime(r.created_at)}</td>
+              <td className={styles.td}>
                 <SeverityChip severity={r.severity} />
               </td>
-              <td style={tdStyle}>
-                <code style={codeStyle}>{r.source}</code>
+              <td className={styles.td}>
+                <code className={styles.mono}>{r.source}</code>
               </td>
-              <td style={tdStyle}>
-                <code style={codeStyle}>{r.event}</code>
+              <td className={styles.td}>
+                <code className={styles.mono}>{r.event}</code>
               </td>
-              <td style={tdStyle}>
+              <td className={styles.td}>
                 {r.entity_type && r.entity_id ? (
                   <Link
-                    href={`/admin/diagnostics?tab=events&entity_id=${encodeURIComponent(
-                      r.entity_id,
-                    )}`}
-                    style={linkStyle}
+                    href={`/admin/diagnostics?tab=events&entity_id=${encodeURIComponent(r.entity_id)}`}
+                    className={styles.entityLink}
                   >
                     {r.entity_type}:{shorten(r.entity_id)}
                   </Link>
@@ -452,13 +379,11 @@ function EventsTable({ rows }: { rows: AppEventRow[] }) {
                   <span style={{ color: 'var(--text-muted)' }}>—</span>
                 )}
               </td>
-              <td style={tdStyle}>
+              <td className={styles.td}>
                 {r.request_id ? (
                   <Link
-                    href={`/admin/diagnostics?tab=events&request_id=${encodeURIComponent(
-                      r.request_id,
-                    )}`}
-                    style={linkStyle}
+                    href={`/admin/diagnostics?tab=events&request_id=${encodeURIComponent(r.request_id)}`}
+                    className={styles.requestLink}
                   >
                     {shorten(r.request_id)}
                   </Link>
@@ -466,7 +391,7 @@ function EventsTable({ rows }: { rows: AppEventRow[] }) {
                   <span style={{ color: 'var(--text-muted)' }}>—</span>
                 )}
               </td>
-              <td style={{ ...tdStyle, maxWidth: 360 }}>
+              <td className={`${styles.td} ${styles.tdWrap}`}>
                 <MetaPreview metadata={r.metadata} />
               </td>
             </tr>
@@ -488,8 +413,6 @@ async function JobsView({
 }) {
   const supabase = await createServerSupabaseClient();
 
-  // Default sort: most recently updated first — matches "what just
-  // happened" mental model when investigating dead letters.
   let query = supabase
     .from('job_queue')
     .select(
@@ -501,12 +424,8 @@ async function JobsView({
   if (sp.status && (STATUSES as readonly string[]).includes(sp.status)) {
     query = query.eq('status', sp.status);
   }
-  if (sp.kind) {
-    query = query.eq('kind', sp.kind);
-  }
-  if (sp.q) {
-    query = query.ilike('kind', `%${sp.q}%`);
-  }
+  if (sp.kind) query = query.eq('kind', sp.kind);
+  if (sp.q)    query = query.ilike('kind', `%${sp.q}%`);
 
   const { data, error } = await query;
   const rows = (data ?? []) as JobRow[];
@@ -515,12 +434,12 @@ async function JobsView({
     <section>
       <JobsFilters sp={sp} />
       {error && (
-        <p style={{ color: 'var(--error, #b91c1c)' }}>
+        <p className={styles.queryError}>
           Failed to load jobs: {error.message}
         </p>
       )}
       {!error && rows.length === 0 && (
-        <p style={{ color: 'var(--text-muted)' }}>No jobs match.</p>
+        <div className={styles.empty}>No jobs match the current filters.</div>
       )}
       {rows.length > 0 && <JobsTable rows={rows} />}
     </section>
@@ -533,119 +452,89 @@ function JobsFilters({
   sp: { status?: string; kind?: string; q?: string };
 }) {
   return (
-    <form
-      method="GET"
-      style={{
-        display: 'flex',
-        flexWrap: 'wrap',
-        gap: 'var(--space-2)',
-        margin: 'var(--space-3) 0',
-        alignItems: 'flex-end',
-      }}
-    >
+    <form method="GET" className={styles.filterBar}>
       <input type="hidden" name="tab" value="jobs" />
-      <Field label="Status">
-        <select name="status" defaultValue={sp.status ?? ''} style={selectStyle}>
+
+      <div className={styles.fieldGroup}>
+        <span className={styles.fieldLabel}>Status</span>
+        <select
+          name="status"
+          defaultValue={sp.status ?? ''}
+          className={styles.fieldSelect}
+        >
           <option value="">any</option>
-          {STATUSES.map(s => (
-            <option key={s} value={s}>
-              {s}
-            </option>
+          {STATUSES.map((s) => (
+            <option key={s} value={s}>{s}</option>
           ))}
         </select>
-      </Field>
-      <Field label="Kind">
+      </div>
+
+      <div className={styles.fieldGroup}>
+        <span className={styles.fieldLabel}>Kind</span>
         <input
           name="kind"
           defaultValue={sp.kind ?? ''}
           placeholder="email.order_created"
-          style={inputStyle}
+          className={styles.fieldInput}
         />
-      </Field>
-      <button type="submit" style={primaryBtnStyle}>
-        Apply
-      </button>
-      <Link
-        href="/admin/diagnostics?tab=jobs"
-        style={{
-          ...secondaryBtnStyle,
-          textDecoration: 'none',
-          display: 'inline-flex',
-          alignItems: 'center',
-        }}
-      >
-        Clear
-      </Link>
+      </div>
+
+      <div className={styles.filterActions}>
+        <button type="submit" className={styles.applyBtn}>Apply</button>
+        <Link
+          href="/admin/diagnostics?tab=jobs"
+          className={styles.clearLink}
+        >
+          Clear
+        </Link>
+      </div>
     </form>
   );
 }
 
 function JobsTable({ rows }: { rows: JobRow[] }) {
   return (
-    <div style={{ overflowX: 'auto' }}>
-      <table
-        style={{
-          width: '100%',
-          borderCollapse: 'collapse',
-          fontSize: '0.85rem',
-        }}
-      >
+    <div className={styles.tableWrap}>
+      <table className={styles.table}>
         <thead>
-          <tr style={{ textAlign: 'left', borderBottom: '1px solid var(--border)' }}>
-            <th style={thStyle}>Updated</th>
-            <th style={thStyle}>Kind</th>
-            <th style={thStyle}>Status</th>
-            <th style={thStyle}>Attempts</th>
-            <th style={thStyle}>Run at</th>
-            <th style={thStyle}>Last error</th>
-            <th style={thStyle}>Payload</th>
-            <th style={thStyle}>Actions</th>
+          <tr>
+            <th className={styles.th}>Updated</th>
+            <th className={styles.th}>Kind</th>
+            <th className={styles.th}>Status</th>
+            <th className={styles.th}>Attempts</th>
+            <th className={styles.th}>Run at</th>
+            <th className={styles.th}>Last error</th>
+            <th className={styles.th}>Payload</th>
+            <th className={styles.th}>Actions</th>
           </tr>
         </thead>
         <tbody>
-          {rows.map(j => (
-            <tr
-              key={j.id}
-              style={{
-                borderBottom: '1px solid var(--border)',
-                verticalAlign: 'top',
-              }}
-            >
-              <td style={tdStyle}>{formatTime(j.updated_at)}</td>
-              <td style={tdStyle}>
-                <code style={codeStyle}>{j.kind}</code>
+          {rows.map((j) => (
+            <tr key={j.id}>
+              <td className={styles.td}>{formatTime(j.updated_at)}</td>
+              <td className={styles.td}>
+                <code className={styles.mono}>{j.kind}</code>
               </td>
-              <td style={tdStyle}>
+              <td className={styles.td}>
                 <StatusChip status={j.status} />
               </td>
-              <td style={tdStyle}>
+              <td className={styles.td}>
                 {j.attempts} / {j.max_attempts}
               </td>
-              <td style={tdStyle}>{formatTime(j.run_at)}</td>
-              <td style={{ ...tdStyle, maxWidth: 280 }}>
+              <td className={styles.td}>{formatTime(j.run_at)}</td>
+              <td className={`${styles.td} ${styles.tdWrap}`}>
                 {j.last_error ? (
-                  <span
-                    style={{
-                      color: 'var(--error, #b91c1c)',
-                      fontFamily: 'var(--font-mono, monospace)',
-                      fontSize: '0.75rem',
-                      display: '-webkit-box',
-                      WebkitLineClamp: 3,
-                      WebkitBoxOrient: 'vertical',
-                      overflow: 'hidden',
-                    }}
-                    title={j.last_error}
-                  >
+                  <span className={styles.errorText} title={j.last_error}>
                     {j.last_error}
                   </span>
                 ) : (
                   <span style={{ color: 'var(--text-muted)' }}>—</span>
                 )}
               </td>
-              <td style={{ ...tdStyle, maxWidth: 320 }}>
+              <td className={`${styles.td} ${styles.tdWrap}`}>
                 <MetaPreview metadata={j.payload} />
               </td>
-              <td style={tdStyle}>
+              <td className={styles.td}>
                 {j.status === 'dead' || j.status === 'failed' ? (
                   <JobActions id={j.id} status={j.status} />
                 ) : (
@@ -661,15 +550,57 @@ function JobsTable({ rows }: { rows: JobRow[] }) {
 }
 
 /* ------------------------------------------------------------------ */
-/* Helpers                                                             */
+/* Chips                                                               */
+/* ------------------------------------------------------------------ */
+
+function SeverityChip({ severity }: { severity: string }) {
+  const cls =
+    severity === 'fatal' ? styles.sevFatal
+    : severity === 'error' ? styles.sevError
+    : severity === 'warn'  ? styles.sevWarn
+    : severity === 'debug' ? styles.sevDebug
+    : styles.sevInfo;
+  return <span className={`${styles.chip} ${cls}`}>{severity}</span>;
+}
+
+function StatusChip({ status }: { status: string }) {
+  const cls =
+    status === 'dead'      ? styles.statusDead
+    : status === 'failed'  ? styles.statusFailed
+    : status === 'running' ? styles.statusRunning
+    : status === 'succeeded' ? styles.statusSucceeded
+    : styles.statusQueued;
+  return <span className={`${styles.chip} ${cls}`}>{status}</span>;
+}
+
+/* ------------------------------------------------------------------ */
+/* Meta preview                                                        */
+/* ------------------------------------------------------------------ */
+
+function MetaPreview({ metadata }: { metadata: Record<string, unknown> }) {
+  let text: string;
+  try {
+    text = JSON.stringify(metadata);
+  } catch {
+    text = '[unserializable]';
+  }
+  if (!text || text === '{}') {
+    return <span style={{ color: 'var(--text-muted)' }}>—</span>;
+  }
+  return (
+    <code className={styles.metaCode} title={text}>
+      {text}
+    </code>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* DB helpers                                                          */
 /* ------------------------------------------------------------------ */
 
 async function loadJobCounts(
   supabase: Awaited<ReturnType<typeof createServerSupabaseClient>>,
 ): Promise<CountsByStatus> {
-  // One round trip per status. PostgREST has no GROUP BY; the
-  // alternatives (RPC, raw select then count) are heavier than five
-  // bounded `head: true` counts on a status-indexed table.
   const empty: CountsByStatus = {
     queued: 0,
     running: 0,
@@ -678,7 +609,7 @@ async function loadJobCounts(
     dead: 0,
   };
   const results = await Promise.all(
-    STATUSES.map(async s => {
+    STATUSES.map(async (s) => {
       const { count } = await supabase
         .from('job_queue')
         .select('id', { count: 'exact', head: true })
@@ -693,118 +624,13 @@ async function loadJobCounts(
   return out;
 }
 
-function SeverityChip({ severity }: { severity: string }) {
-  const tone =
-    severity === 'fatal' || severity === 'error'
-      ? { bg: '#fee2e2', fg: '#991b1b' }
-      : severity === 'warn'
-        ? { bg: '#fef3c7', fg: '#92400e' }
-        : severity === 'debug'
-          ? { bg: '#e0e7ff', fg: '#3730a3' }
-          : { bg: '#e5e7eb', fg: '#374151' };
-  return (
-    <span
-      style={{
-        display: 'inline-block',
-        padding: '2px 8px',
-        borderRadius: 999,
-        fontSize: '0.7rem',
-        fontWeight: 600,
-        letterSpacing: '0.05em',
-        textTransform: 'uppercase',
-        background: tone.bg,
-        color: tone.fg,
-      }}
-    >
-      {severity}
-    </span>
-  );
-}
-
-function StatusChip({ status }: { status: string }) {
-  const tone =
-    status === 'dead'
-      ? { bg: '#fee2e2', fg: '#991b1b' }
-      : status === 'failed'
-        ? { bg: '#fef3c7', fg: '#92400e' }
-        : status === 'running'
-          ? { bg: '#dbeafe', fg: '#1e40af' }
-          : status === 'succeeded'
-            ? { bg: '#dcfce7', fg: '#166534' }
-            : { bg: '#e5e7eb', fg: '#374151' };
-  return (
-    <span
-      style={{
-        display: 'inline-block',
-        padding: '2px 8px',
-        borderRadius: 999,
-        fontSize: '0.7rem',
-        fontWeight: 600,
-        letterSpacing: '0.05em',
-        textTransform: 'uppercase',
-        background: tone.bg,
-        color: tone.fg,
-      }}
-    >
-      {status}
-    </span>
-  );
-}
-
-function MetaPreview({ metadata }: { metadata: Record<string, unknown> }) {
-  let text: string;
-  try {
-    text = JSON.stringify(metadata);
-  } catch {
-    text = '[unserializable]';
-  }
-  if (!text || text === '{}') {
-    return <span style={{ color: 'var(--text-muted)' }}>—</span>;
-  }
-  return (
-    <code
-      title={text}
-      style={{
-        ...codeStyle,
-        display: '-webkit-box',
-        WebkitLineClamp: 2,
-        WebkitBoxOrient: 'vertical',
-        overflow: 'hidden',
-        fontSize: '0.7rem',
-      }}
-    >
-      {text}
-    </code>
-  );
-}
-
-function Field({
-  label,
-  children,
-}: {
-  label: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <label
-      style={{
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 4,
-        fontSize: '0.75rem',
-        color: 'var(--text-muted)',
-      }}
-    >
-      {label}
-      {children}
-    </label>
-  );
-}
+/* ------------------------------------------------------------------ */
+/* Pure helpers                                                        */
+/* ------------------------------------------------------------------ */
 
 function formatTime(iso: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
-  // Compact local timestamp; we trade precision for table density.
   return d.toLocaleString(undefined, {
     month: 'short',
     day: '2-digit',
@@ -818,70 +644,3 @@ function shorten(s: string): string {
   if (s.length <= 14) return s;
   return `${s.slice(0, 6)}…${s.slice(-4)}`;
 }
-
-/* ------------------------------------------------------------------ */
-/* Inline style fragments                                              */
-/* ------------------------------------------------------------------ */
-
-const thStyle: React.CSSProperties = {
-  padding: 'var(--space-2)',
-  fontSize: '0.7rem',
-  letterSpacing: '0.1em',
-  textTransform: 'uppercase',
-  color: 'var(--text-muted)',
-  fontWeight: 600,
-  whiteSpace: 'nowrap',
-};
-
-const tdStyle: React.CSSProperties = {
-  padding: 'var(--space-2)',
-  whiteSpace: 'nowrap',
-};
-
-const codeStyle: React.CSSProperties = {
-  fontFamily: 'var(--font-mono, ui-monospace, monospace)',
-  fontSize: '0.75rem',
-};
-
-const inputStyle: React.CSSProperties = {
-  padding: '6px 10px',
-  border: '1px solid var(--border)',
-  borderRadius: 'var(--radius)',
-  background: 'var(--bg)',
-  color: 'var(--text)',
-  fontSize: '0.85rem',
-  minWidth: 160,
-};
-
-const selectStyle: React.CSSProperties = {
-  ...inputStyle,
-  minWidth: 120,
-};
-
-const primaryBtnStyle: React.CSSProperties = {
-  padding: '6px 14px',
-  border: '1px solid var(--text)',
-  background: 'var(--text)',
-  color: 'var(--bg)',
-  borderRadius: 'var(--radius)',
-  fontSize: '0.85rem',
-  fontWeight: 600,
-  cursor: 'pointer',
-};
-
-const secondaryBtnStyle: React.CSSProperties = {
-  padding: '6px 14px',
-  border: '1px solid var(--border)',
-  background: 'transparent',
-  color: 'var(--text)',
-  borderRadius: 'var(--radius)',
-  fontSize: '0.85rem',
-  cursor: 'pointer',
-};
-
-const linkStyle: React.CSSProperties = {
-  color: 'var(--accent, #2563eb)',
-  textDecoration: 'underline',
-  fontFamily: 'var(--font-mono, ui-monospace, monospace)',
-  fontSize: '0.75rem',
-};

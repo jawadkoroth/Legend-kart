@@ -1,0 +1,463 @@
+/*
+ * NOIR Admin — System Health (Diagnostics).
+ *
+ * Designed as a quiet operator surface: dense, scannable, data-first.
+ * No decorative chrome. Severity and status communicate through
+ * restrained colour cues that match NOIR's design language:
+ *
+ *   - Warm parchment / charcoal tokens from globals.css, not hard-coded.
+ *   - Gold accent ONLY on the active tab underline and filter pill.
+ *   - Severity / status chips are monochrome-first; red only for
+ *     error/fatal/dead, amber for warn/failed — never the full
+ *     primary-colour chips that would overwhelm a table of 100 rows.
+ *   - Tables have a single hairline border per row (no zebra stripe
+ *     that fights the dark bg) and mono font for code-like values.
+ *
+ * Layout mirrors the products redesign: sticky toolbar → content.
+ * The job-summary stat bar lives above the tabs in the header so
+ * at-a-glance health is never hidden behind a filter.
+ */
+
+/* -------- Page wrapper ----------------------------------------- */
+
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+/* -------- Header ----------------------------------------------- */
+
+.header {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.titleRow {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+
+.title {
+  font-family: var(--font-serif);
+  font-size: 1.5rem;
+  font-weight: 400;
+  letter-spacing: 0.01em;
+  margin: 0;
+  color: var(--text-primary);
+}
+
+.subtitle {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  margin: 0;
+  line-height: 1.5;
+}
+
+.refreshLink {
+  font-size: 0.72rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  text-decoration: none;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-full);
+  padding: 5px 12px;
+  white-space: nowrap;
+  transition: color 160ms ease, border-color 160ms ease;
+}
+.refreshLink:hover {
+  color: var(--text-secondary);
+  border-color: var(--border-light);
+}
+
+/* -------- Job summary stat bar --------------------------------- */
+
+.statBar {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--space-2);
+}
+
+.statCard {
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background: var(--bg-secondary);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.statLabel {
+  font-size: 0.62rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.statValue {
+  font-size: 1.75rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  color: var(--text-primary);
+}
+
+.statAlert   { color: var(--error); }
+.statWarn    { color: var(--warning); }
+.statRunning { color: var(--text-accent); }
+
+/* Zero-count cards can be dimmed slightly to flatten visual noise */
+.statCardDim { opacity: 0.55; }
+
+/* -------- Tab nav --------------------------------------------- */
+
+.tabs {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid var(--border-color);
+  margin-top: var(--space-1);
+}
+
+.tabLink {
+  padding: var(--space-2) var(--space-4);
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  text-decoration: none;
+  color: var(--text-muted);
+  border-bottom: 2px solid transparent;
+  transition: color 160ms ease, border-color 160ms ease;
+  margin-bottom: -1px;
+}
+.tabLink:hover { color: var(--text-secondary); }
+.tabActive {
+  color: var(--text-accent);
+  border-bottom-color: var(--text-accent);
+}
+
+/* -------- Filter toolbar --------------------------------------- */
+
+.filterBar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: flex-end;
+  padding: var(--space-3);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+}
+
+.fieldGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.fieldLabel {
+  font-size: 0.65rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.fieldInput,
+.fieldSelect {
+  background: var(--bg-input);
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
+  border-radius: var(--radius-sm);
+  padding: 7px 10px;
+  font-size: 0.82rem;
+  outline: none;
+  transition: border-color 160ms ease;
+}
+.fieldInput:focus,
+.fieldSelect:focus { border-color: var(--text-accent); }
+.fieldInput::placeholder { color: var(--text-muted); }
+.fieldInput  { min-width: 160px; }
+.fieldSelect { min-width: 120px; }
+
+.filterActions {
+  display: flex;
+  gap: var(--space-2);
+  align-items: flex-end;
+}
+
+.applyBtn {
+  padding: 7px 16px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-light);
+  color: var(--text-primary);
+  border-radius: var(--radius-sm);
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+  transition: border-color 160ms ease, background 160ms ease;
+}
+.applyBtn:hover {
+  border-color: var(--text-accent);
+  background: color-mix(in srgb, var(--bg-elevated) 80%, var(--text-accent) 8%);
+}
+
+.clearLink {
+  padding: 7px 14px;
+  background: transparent;
+  border: 1px solid var(--border-color);
+  color: var(--text-muted);
+  border-radius: var(--radius-sm);
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  transition: color 160ms ease, border-color 160ms ease;
+}
+.clearLink:hover {
+  color: var(--text-secondary);
+  border-color: var(--border-light);
+}
+
+/* -------- Table shell ------------------------------------------ */
+
+.tableWrap {
+  overflow-x: auto;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background: var(--bg-secondary);
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+}
+
+.table thead tr {
+  border-bottom: 1px solid var(--border-color);
+}
+
+.th {
+  padding: var(--space-2) var(--space-3);
+  font-size: 0.62rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  font-weight: 600;
+  text-align: left;
+  white-space: nowrap;
+  background: color-mix(in srgb, var(--bg-secondary) 60%, var(--bg-tertiary) 40%);
+}
+
+.td {
+  padding: var(--space-2) var(--space-3);
+  vertical-align: top;
+  border-bottom: 1px solid var(--border-color);
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+.table tbody tr:last-child .td {
+  border-bottom: none;
+}
+.table tbody tr:hover .td {
+  background: color-mix(in srgb, var(--bg-secondary) 50%, var(--bg-tertiary) 50%);
+}
+
+.mono {
+  font-family: ui-monospace, 'SF Mono', 'Cascadia Code', monospace;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+
+.tdWrap {
+  white-space: normal;
+  max-width: 340px;
+}
+
+.metaCode {
+  font-family: ui-monospace, 'SF Mono', 'Cascadia Code', monospace;
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  cursor: help;
+}
+
+.errorText {
+  font-family: ui-monospace, 'SF Mono', 'Cascadia Code', monospace;
+  font-size: 0.72rem;
+  color: var(--error);
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  cursor: help;
+}
+
+.entityLink,
+.requestLink {
+  font-family: ui-monospace, 'SF Mono', 'Cascadia Code', monospace;
+  font-size: 0.72rem;
+  color: var(--text-accent);
+  text-decoration: none;
+  letter-spacing: 0.02em;
+  transition: opacity 140ms ease;
+}
+.entityLink:hover,
+.requestLink:hover { opacity: 0.75; }
+
+/* -------- Severity chips --------------------------------------- */
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+
+/* Severity */
+.sevFatal,
+.sevError {
+  color: var(--error);
+  border-color: color-mix(in srgb, var(--error) 40%, var(--border-color));
+  background: color-mix(in srgb, var(--error) 12%, var(--bg-tertiary));
+}
+.sevWarn {
+  color: var(--warning);
+  border-color: color-mix(in srgb, var(--warning) 40%, var(--border-color));
+  background: color-mix(in srgb, var(--warning) 10%, var(--bg-tertiary));
+}
+.sevDebug {
+  color: var(--text-muted);
+  border-color: var(--border-color);
+  background: var(--bg-tertiary);
+}
+.sevInfo {
+  color: var(--text-secondary);
+  border-color: var(--border-color);
+  background: transparent;
+}
+
+/* Job status */
+.statusDead {
+  color: var(--error);
+  border-color: color-mix(in srgb, var(--error) 40%, var(--border-color));
+  background: color-mix(in srgb, var(--error) 12%, var(--bg-tertiary));
+}
+.statusFailed {
+  color: var(--warning);
+  border-color: color-mix(in srgb, var(--warning) 40%, var(--border-color));
+  background: color-mix(in srgb, var(--warning) 10%, var(--bg-tertiary));
+}
+.statusRunning {
+  color: var(--text-accent);
+  border-color: color-mix(in srgb, var(--text-accent) 40%, var(--border-color));
+  background: color-mix(in srgb, var(--text-accent) 8%, var(--bg-tertiary));
+}
+.statusSucceeded {
+  color: var(--success);
+  border-color: color-mix(in srgb, var(--success) 35%, var(--border-color));
+  background: color-mix(in srgb, var(--success) 8%, var(--bg-tertiary));
+}
+.statusQueued {
+  color: var(--text-muted);
+  border-color: var(--border-color);
+  background: transparent;
+}
+
+/* -------- Job action buttons ----------------------------------- */
+
+.actionCell {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.actionBtns {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.retryBtn {
+  padding: 4px 10px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-light);
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: border-color 160ms ease, background 160ms ease;
+}
+.retryBtn:hover:not(:disabled) {
+  border-color: var(--text-accent);
+  background: color-mix(in srgb, var(--bg-elevated) 80%, var(--text-accent) 8%);
+}
+.retryBtn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.discardBtn {
+  padding: 4px 10px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  border-radius: var(--radius-sm);
+  border: 1px solid color-mix(in srgb, var(--error) 40%, var(--border-color));
+  background: transparent;
+  color: var(--error);
+  cursor: pointer;
+  transition: background 160ms ease;
+}
+.discardBtn:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--error) 10%, var(--bg-tertiary));
+}
+.discardBtn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.actionError {
+  font-size: 0.7rem;
+  color: var(--error);
+}
+
+/* -------- Empty / error states --------------------------------- */
+
+.empty {
+  padding: var(--space-8) var(--space-4);
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  border: 1px dashed var(--border-color);
+  border-radius: var(--radius-md);
+}
+
+.queryError {
+  color: var(--error);
+  font-size: 0.85rem;
+  padding: var(--space-4);
+  border: 1px solid color-mix(in srgb, var(--error) 30%, var(--border-color));
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--error) 8%, var(--bg-secondary));
+}
+
+/* -------- Responsive ------------------------------------------- */
+
+@media (max-width: 640px) {
+  .statBar { grid-template-columns: repeat(2, 1fr); }
+  .filterBar { flex-direction: column; align-items: stretch; }
+  .fieldInput, .fieldSelect { min-width: unset; width: 100%; }
+}

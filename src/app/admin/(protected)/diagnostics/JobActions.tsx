@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
+import styles from './diagnostics.module.css';
 
 /**
  * Minimal action cell for a row in the jobs table.
@@ -57,12 +58,12 @@ export function JobActions({
   const disabled = busy !== null || pending;
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-      <div style={{ display: 'flex', gap: 6 }}>
+    <div className={styles.actionCell}>
+      <div className={styles.actionBtns}>
         <button
           onClick={() => run('retry')}
           disabled={disabled}
-          style={btnStyle('primary', disabled)}
+          className={styles.retryBtn}
           title="Re-queue for immediate execution"
         >
           {busy === 'retry' ? 'Retrying…' : 'Retry'}
@@ -79,51 +80,14 @@ export function JobActions({
               }
             }}
             disabled={disabled}
-            style={btnStyle('danger', disabled)}
+            className={styles.discardBtn}
             title="Force terminal 'dead' status"
           >
             {busy === 'discard' ? 'Discarding…' : 'Discard'}
           </button>
         )}
       </div>
-      {error && (
-        <span
-          style={{
-            color: 'var(--error, #b91c1c)',
-            fontSize: '0.7rem',
-          }}
-        >
-          {error}
-        </span>
-      )}
+      {error && <span className={styles.actionError}>{error}</span>}
     </div>
   );
-}
-
-function btnStyle(
-  variant: 'primary' | 'danger',
-  disabled: boolean,
-): React.CSSProperties {
-  const base: React.CSSProperties = {
-    padding: '4px 10px',
-    fontSize: '0.75rem',
-    fontWeight: 600,
-    borderRadius: 'var(--radius)',
-    cursor: disabled ? 'not-allowed' : 'pointer',
-    opacity: disabled ? 0.6 : 1,
-  };
-  if (variant === 'danger') {
-    return {
-      ...base,
-      border: '1px solid var(--error, #b91c1c)',
-      background: 'transparent',
-      color: 'var(--error, #b91c1c)',
-    };
-  }
-  return {
-    ...base,
-    border: '1px solid var(--text)',
-    background: 'var(--text)',
-    color: 'var(--bg)',
-  };
 }
