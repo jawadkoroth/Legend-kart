@@ -13,6 +13,7 @@
 import { createAdminClient } from '@/lib/supabase/admin';
 import { logEvent } from '@/lib/log';
 import { DelhiveryProvider } from './delhivery';
+import { ShiprocketProvider } from './shiprocket';
 import type { ShippingProvider, ProviderConfig } from './types';
 
 /**
@@ -23,6 +24,8 @@ function instantiateProvider(config: ProviderConfig): ShippingProvider {
   switch (config.name) {
     case 'delhivery':
       return new DelhiveryProvider(config);
+    case 'shiprocket':
+      return new ShiprocketProvider(config);
     default:
       throw new Error(`[shipping/registry] Unknown provider: ${config.name}`);
   }

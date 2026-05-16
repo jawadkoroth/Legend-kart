@@ -22,3 +22,4 @@ export type { CanonicalShipmentStatus } from './state';
 export { getActiveProvider, getActiveProviderConfig } from './registry';
 export { createShipmentForOrder } from './createShipmentForOrder';
 export type { CreateShipmentForOrderInput, CreateShipmentForOrderResult } from './createShipmentForOrder';
+export { ShiprocketProvider, mapShiprocketStatus } from './shiprocket';
