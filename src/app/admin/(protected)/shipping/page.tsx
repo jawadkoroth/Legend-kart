@@ -1,8 +1,11 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useToast } from '@/hooks/useToast';
 
+/* ─────────────────────────────────────────────────────────────────────
+   Types
+───────────────────────────────────────────────────────────────────── */
 interface SettingsState {
   provider_enabled: boolean;
   provider_name: string;
@@ -21,6 +24,11 @@ interface SettingsState {
   cod_fee_paise: number;
 }
 
+type Tab = 'providers' | 'pricing' | 'cod' | 'diagnostics';
+
+/* ─────────────────────────────────────────────────────────────────────
+   Constants
+───────────────────────────────────────────────────────────────────── */
 const EMPTY: SettingsState = {
   provider_enabled: false,
   provider_name: 'delhivery',
@@ -39,45 +47,47 @@ const EMPTY: SettingsState = {
   cod_fee_paise: 0,
 };
 
+const PROVIDER_META: Record<string, { label: string; defaultUrl: string; description: string }> = {
+  delhivery: {
+    label: 'DELHIVERY',
+    defaultUrl: 'https://track.delhivery.com/api',
+    description: 'Surface network · 18,500+ pin codes',
+  },
+  shiprocket: {
+    label: 'SHIPROCKET',
+    defaultUrl: 'https://apiv2.shiprocket.in/v1/external',
+    description: 'Multi-courier aggregator · JWT auth',
+  },
+};
+
+/* ─────────────────────────────────────────────────────────────────────
+   Utils
+───────────────────────────────────────────────────────────────────── */
 const paiseToRupees = (p: number) => (p === 0 ? '' : (p / 100).toString());
 const rupeesToPaise = (r: string) => {
   const n = Number(r);
   return Number.isFinite(n) && n >= 0 ? Math.round(n * 100) : 0;
 };
-
-const PROVIDER_META: Record<string, { label: string; defaultUrl: string }> = {
-  delhivery: { label: 'DELHIVERY', defaultUrl: 'https://track.delhivery.com/api' },
-  shiprocket: { label: 'SHIPROCKET', defaultUrl: 'https://apiv2.shiprocket.in/v1/external' },
-};
-
 function pickupOneliner(s: SettingsState): string {
   const parts = [s.pickup_address_line1, s.pickup_city, s.pickup_state]
-    .map((x) => x.trim())
+    .map((x) => (x ?? '').trim())
     .filter(Boolean);
   return parts.length ? parts.join(', ') : 'No pickup address';
 }
 
-/* ─── Field ──────────────────────────────────────────────────────── */
+/* ─────────────────────────────────────────────────────────────────────
+   Primitive components
+───────────────────────────────────────────────────────────────────── */
 function Field({
-  label,
-  error,
-  children,
-  hint,
+  label, error, hint, children,
 }: {
-  label: string;
-  error?: string;
-  children: React.ReactNode;
-  hint?: string;
+  label: string; error?: string; hint?: string; children: React.ReactNode;
 }) {
   return (
     <div className="input-group">
       <label className="input-label">
         {label}
-        {hint && (
-          <span style={{ fontWeight: 400, marginLeft: 6, opacity: 0.6 }}>
-            {hint}
-          </span>
-        )}
+        {hint && <span style={{ fontWeight: 400, marginLeft: 6, opacity: 0.55 }}>{hint}</span>}
       </label>
       {children}
       {error && <span className="input-error-text">{error}</span>}
@@ -85,206 +95,530 @@ function Field({
   );
 }
 
-/* ─── Section divider ────────────────────────────────────────────── */
-function SectionHead({ label }: { label: string }) {
+function SectionRule({ label }: { label: string }) {
   return (
-    <div
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: 'var(--space-3)',
-        margin: 'var(--space-6) 0 var(--space-4)',
-      }}
-    >
-      <span
-        style={{
-          fontSize: '0.6875rem',
-          fontWeight: 700,
-          letterSpacing: '0.12em',
-          textTransform: 'uppercase',
-          color: 'var(--text-muted)',
-          whiteSpace: 'nowrap',
-        }}
-      >
+    <div style={{ display: 'flex', alignItems: 'center', gap: 12, margin: '28px 0 18px' }}>
+      <span style={{ fontSize: '0.625rem', fontWeight: 700, letterSpacing: '0.13em', textTransform: 'uppercase', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
         {label}
       </span>
-      <div
-        style={{
-          flex: 1,
-          height: '1px',
-          background: 'var(--border-color)',
-        }}
-      />
+      <div style={{ flex: 1, height: 1, background: 'var(--border-color)' }} />
     </div>
   );
 }
 
-/* ─── Capability pill ────────────────────────────────────────────── */
-function CapPill({ label, active }: { label: string; active: boolean }) {
+function ToggleRow({
+  title, subtitle, checked, onChange,
+}: {
+  title: string; subtitle: string; checked: boolean; onChange: (v: boolean) => void;
+}) {
   return (
-    <span
-      style={{
-        display: 'inline-flex',
-        alignItems: 'center',
-        gap: 4,
-        padding: '3px 10px',
-        borderRadius: 99,
-        fontSize: '0.6875rem',
-        fontWeight: 600,
-        letterSpacing: '0.07em',
-        textTransform: 'uppercase',
-        border: `1px solid ${active ? 'var(--border-light)' : 'var(--border-color)'}`,
-        color: active ? 'var(--text-secondary)' : 'var(--text-muted)',
-        opacity: active ? 1 : 0.45,
-      }}
-    >
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 16px', background: 'var(--bg-input)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-color)' }}>
+      <div>
+        <div style={{ fontSize: '0.8125rem', fontWeight: 600, color: 'var(--text-primary)' }}>{title}</div>
+        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 2 }}>{subtitle}</div>
+      </div>
+      <label className="premium-toggle">
+        <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} />
+        <span className="premium-toggle-slider" />
+      </label>
+    </div>
+  );
+}
+
+function StatusDot({ active }: { active: boolean }) {
+  return (
+    <div style={{
+      width: 8, height: 8, borderRadius: '50%', flexShrink: 0,
+      background: active ? 'var(--success)' : 'var(--border-light)',
+      boxShadow: active ? '0 0 0 3px rgba(76,175,80,0.15)' : 'none',
+      transition: 'all 0.2s',
+    }} />
+  );
+}
+
+function Pill({ label, tone = 'neutral' }: { label: string; tone?: 'active' | 'muted' | 'neutral' | 'error' }) {
+  const styles: Record<string, React.CSSProperties> = {
+    active:  { background: 'rgba(76,175,80,0.12)',  color: 'var(--success)',      border: '1px solid rgba(76,175,80,0.25)' },
+    error:   { background: 'rgba(229,57,53,0.1)',   color: 'var(--error)',        border: '1px solid rgba(229,57,53,0.2)' },
+    muted:   { background: 'var(--bg-input)',       color: 'var(--text-muted)',   border: '1px solid var(--border-color)' },
+    neutral: { background: 'var(--bg-tertiary)',    color: 'var(--text-muted)',   border: '1px solid var(--border-color)' },
+  };
+  return (
+    <span style={{ fontSize: '0.5625rem', fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', padding: '2px 8px', borderRadius: 3, ...styles[tone] }}>
       {label}
     </span>
   );
 }
 
-/* ─── Provider card (collapsed header) ───────────────────────────── */
-function ProviderCardHeader({
-  state,
-  expanded,
-  onToggleExpand,
-}: {
-  state: SettingsState;
-  expanded: boolean;
-  onToggleExpand: () => void;
-}) {
-  const meta = PROVIDER_META[state.provider_name] ?? PROVIDER_META.delhivery;
-  const isActive = state.provider_enabled;
-  const pickup = pickupOneliner(state);
-  const hasKey = state.api_key_set;
-
+function CapPill({ label, active }: { label: string; active: boolean }) {
   return (
-    <button
-      onClick={onToggleExpand}
-      style={{
-        width: '100%',
-        background: 'none',
-        border: 'none',
-        padding: 0,
-        cursor: 'pointer',
-        textAlign: 'left',
-        WebkitTapHighlightColor: 'transparent',
-      }}
-      aria-expanded={expanded}
-    >
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 'var(--space-4)',
-        }}
-      >
-        {/* Active indicator */}
-        <div
-          style={{
-            width: 8,
-            height: 8,
-            borderRadius: '50%',
-            flexShrink: 0,
-            background: isActive ? 'var(--success)' : 'var(--border-light)',
-            boxShadow: isActive ? '0 0 0 3px rgba(76,175,80,0.15)' : 'none',
-            transition: 'all 0.2s',
-          }}
-        />
-
-        {/* Name + meta */}
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)', flexWrap: 'wrap' }}>
-            <span
-              style={{
-                fontFamily: 'var(--font-sans)',
-                fontSize: '0.8125rem',
-                fontWeight: 700,
-                letterSpacing: '0.1em',
-                color: isActive ? 'var(--text-primary)' : 'var(--text-muted)',
-              }}
-            >
-              {meta.label}
-            </span>
-
-            {isActive && (
-              <span
-                style={{
-                  fontSize: '0.625rem',
-                  fontWeight: 700,
-                  letterSpacing: '0.12em',
-                  textTransform: 'uppercase',
-                  padding: '2px 8px',
-                  borderRadius: 3,
-                  background: 'rgba(76,175,80,0.12)',
-                  color: 'var(--success)',
-                  border: '1px solid rgba(76,175,80,0.25)',
-                }}
-              >
-                ACTIVE
-              </span>
-            )}
-
-            <span
-              style={{
-                fontSize: '0.625rem',
-                fontWeight: 700,
-                letterSpacing: '0.1em',
-                textTransform: 'uppercase',
-                padding: '2px 7px',
-                borderRadius: 3,
-                background: 'var(--bg-input)',
-                color: 'var(--text-muted)',
-                border: '1px solid var(--border-color)',
-              }}
-            >
-              SANDBOX
-            </span>
-          </div>
-
-          <div
-            style={{
-              marginTop: 4,
-              fontSize: '0.75rem',
-              color: 'var(--text-muted)',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 'var(--space-2)',
-            }}
-          >
-            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {pickup}
-            </span>
-            <span style={{ opacity: 0.4 }}>·</span>
-            <span style={{ color: hasKey ? 'var(--success)' : 'var(--error)', flexShrink: 0 }}>
-              {hasKey ? 'Connected' : 'Not configured'}
-            </span>
-          </div>
-        </div>
-
-        {/* Chevron */}
-        <span
-          style={{
-            fontSize: '0.75rem',
-            color: 'var(--text-muted)',
-            transform: expanded ? 'rotate(180deg)' : 'rotate(0deg)',
-            transition: 'transform 0.2s',
-            flexShrink: 0,
-          }}
-        >
-          ▾
-        </span>
-      </div>
-    </button>
+    <span style={{
+      display: 'inline-flex', alignItems: 'center', padding: '3px 10px', borderRadius: 99,
+      fontSize: '0.625rem', fontWeight: 600, letterSpacing: '0.07em', textTransform: 'uppercase',
+      border: `1px solid ${active ? 'var(--border-light)' : 'var(--border-color)'}`,
+      color: active ? 'var(--text-secondary)' : 'var(--text-muted)',
+      opacity: active ? 1 : 0.4,
+    }}>
+      {label}
+    </span>
   );
 }
 
-/* ─── Main page ──────────────────────────────────────────────────── */
+/* ─────────────────────────────────────────────────────────────────────
+   Tab bar
+───────────────────────────────────────────────────────────────────── */
+const TABS: { id: Tab; label: string }[] = [
+  { id: 'providers',   label: 'Providers' },
+  { id: 'pricing',     label: 'Pricing' },
+  { id: 'cod',         label: 'COD' },
+  { id: 'diagnostics', label: 'Diagnostics' },
+];
+
+function TabBar({ active, onChange }: { active: Tab; onChange: (t: Tab) => void }) {
+  return (
+    <div style={{ display: 'flex', gap: 0, borderBottom: '1px solid var(--border-color)', marginBottom: 32 }}>
+      {TABS.map((t) => {
+        const isActive = t.id === active;
+        return (
+          <button
+            key={t.id}
+            onClick={() => onChange(t.id)}
+            style={{
+              background: 'none', border: 'none', cursor: 'pointer',
+              padding: '10px 20px', fontSize: '0.8125rem', fontWeight: isActive ? 700 : 500,
+              letterSpacing: '0.04em', color: isActive ? 'var(--text-primary)' : 'var(--text-muted)',
+              borderBottom: isActive ? '2px solid var(--text-primary)' : '2px solid transparent',
+              marginBottom: -1, transition: 'color 0.15s',
+              WebkitTapHighlightColor: 'transparent',
+            }}
+          >
+            {t.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/* ─────────────────────────────────────────────────────────────────────
+   Provider card
+───────────────────────────────────────────────────────────────────── */
+function ProviderCard({
+  providerKey, state, isExpanded, onExpand, onStateChange, errors, newApiKey, onApiKeyChange, onSave, saving,
+}: {
+  providerKey: string;
+  state: SettingsState;
+  isExpanded: boolean;
+  onExpand: () => void;
+  onStateChange: (patch: Partial<SettingsState>) => void;
+  errors: Record<string, string>;
+  newApiKey: string;
+  onApiKeyChange: (v: string) => void;
+  onSave: () => void;
+  saving: boolean;
+}) {
+  const meta = PROVIDER_META[providerKey] ?? PROVIDER_META.delhivery;
+  const isActive = state.provider_name === providerKey && state.provider_enabled;
+  const hasKey = state.api_key_set;
+  const pickup = pickupOneliner(state);
+
+  return (
+    <div style={{
+      border: `1px solid ${isActive ? 'var(--border-light)' : 'var(--border-color)'}`,
+      borderRadius: 'var(--radius-lg)', overflow: 'hidden', marginBottom: 12,
+      transition: 'border-color 0.2s',
+    }}>
+      {/* ── Collapsed header ── */}
+      <button
+        onClick={onExpand}
+        style={{ width: '100%', background: isExpanded ? 'var(--bg-secondary)' : 'var(--bg-secondary)', border: 'none', padding: '18px 24px', cursor: 'pointer', textAlign: 'left', WebkitTapHighlightColor: 'transparent' }}
+        aria-expanded={isExpanded}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+          <StatusDot active={isActive} />
+
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <span style={{ fontSize: '0.8125rem', fontWeight: 700, letterSpacing: '0.1em', color: isActive ? 'var(--text-primary)' : 'var(--text-muted)' }}>
+                {meta.label}
+              </span>
+              {isActive && <Pill label="ACTIVE" tone="active" />}
+              <Pill label="SANDBOX" tone="muted" />
+            </div>
+            <div style={{ marginTop: 4, fontSize: '0.75rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <span style={{ color: hasKey && state.provider_name === providerKey ? 'var(--success)' : 'var(--text-muted)' }}>
+                {hasKey && state.provider_name === providerKey ? 'Connected' : 'Not configured'}
+              </span>
+              {pickup !== 'No pickup address' && state.provider_name === providerKey && (
+                <>
+                  <span style={{ opacity: 0.35 }}>·</span>
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{pickup}</span>
+                </>
+              )}
+            </div>
+          </div>
+
+          <span style={{ fontSize: '0.6875rem', color: 'var(--text-muted)', transform: isExpanded ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s', flexShrink: 0 }}>▾</span>
+        </div>
+      </button>
+
+      {/* ── Expanded body ── */}
+      {isExpanded && (
+        <>
+          <div style={{ height: 1, background: 'var(--border-color)' }} />
+          <div style={{ padding: '20px 24px 28px', background: 'var(--bg-secondary)' }}>
+
+            {/* Operational status bar */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 10, marginBottom: 22 }}>
+              {[
+                { label: 'API', value: hasKey && state.provider_name === providerKey ? 'Connected' : 'Not set', ok: hasKey && state.provider_name === providerKey },
+                { label: 'Environment', value: 'Sandbox', ok: true },
+                { label: 'Webhooks', value: 'Pending setup', ok: false },
+                { label: 'Last shipment', value: '—', ok: null },
+              ].map((item) => (
+                <div key={item.label} style={{ padding: '10px 12px', background: 'var(--bg-input)', borderRadius: 6, border: '1px solid var(--border-color)' }}>
+                  <div style={{ fontSize: '0.5625rem', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: 4 }}>{item.label}</div>
+                  <div style={{ fontSize: '0.75rem', fontWeight: 600, color: item.ok === true ? 'var(--success)' : item.ok === false ? 'var(--text-muted)' : 'var(--text-secondary)' }}>{item.value}</div>
+                </div>
+              ))}
+            </div>
+
+            {/* Provider activation */}
+            <ToggleRow
+              title="Provider active"
+              subtitle={isActive ? 'Shipments routed through this courier' : 'Enable to route shipments through this courier'}
+              checked={isActive}
+              onChange={(v) => onStateChange({ provider_enabled: v, provider_name: v ? providerKey : state.provider_name })}
+            />
+
+            {/* Capabilities */}
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', margin: '18px 0' }}>
+              <CapPill label="COD" active={state.cod_enabled} />
+              <CapPill label="Prepaid" active />
+              <CapPill label="Reverse" active={false} />
+              <CapPill label="Insurance" active={false} />
+            </div>
+
+            {/* Credentials */}
+            <SectionRule label="Credentials" />
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              <Field label="API URL" error={errors.api_url}>
+                <input
+                  className={`input-field${errors.api_url ? ' input-error' : ''}`}
+                  placeholder={meta.defaultUrl}
+                  value={state.api_url}
+                  onChange={(e) => onStateChange({ api_url: e.target.value })}
+                />
+              </Field>
+              <Field label="API Key" error={errors.api_key} hint={hasKey ? '(leave blank to keep existing)' : undefined}>
+                <div style={{ position: 'relative' }}>
+                  <input
+                    className={`input-field${errors.api_key ? ' input-error' : ''}`}
+                    type="password"
+                    placeholder={hasKey ? '••••••••' : 'Enter API key'}
+                    value={newApiKey}
+                    onChange={(e) => onApiKeyChange(e.target.value)}
+                    autoComplete="new-password"
+                    style={{ paddingRight: hasKey ? 70 : undefined }}
+                  />
+                  {hasKey && (
+                    <span style={{ position: 'absolute', right: 14, top: '50%', transform: 'translateY(-50%)', fontSize: '0.5625rem', fontWeight: 700, letterSpacing: '0.1em', color: 'var(--success)', pointerEvents: 'none' }}>
+                      SET ✓
+                    </span>
+                  )}
+                </div>
+              </Field>
+            </div>
+
+            {/* Pickup address */}
+            <SectionRule label="Pickup Address" />
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              <div className="input-row">
+                <Field label="Contact name" error={errors.pickup_name}>
+                  <input className={`input-field${errors.pickup_name ? ' input-error' : ''}`} placeholder="Warehouse manager" value={state.pickup_name} onChange={(e) => onStateChange({ pickup_name: e.target.value })} />
+                </Field>
+                <Field label="Phone" error={errors.pickup_phone}>
+                  <input className={`input-field${errors.pickup_phone ? ' input-error' : ''}`} placeholder="10-digit mobile" value={state.pickup_phone} onChange={(e) => onStateChange({ pickup_phone: e.target.value })} />
+                </Field>
+              </div>
+              <Field label="Address line 1" error={errors.pickup_address_line1}>
+                <input className={`input-field${errors.pickup_address_line1 ? ' input-error' : ''}`} placeholder="Street, building, unit" value={state.pickup_address_line1} onChange={(e) => onStateChange({ pickup_address_line1: e.target.value })} />
+              </Field>
+              <Field label="Address line 2">
+                <input className="input-field" placeholder="Landmark, area (optional)" value={state.pickup_address_line2} onChange={(e) => onStateChange({ pickup_address_line2: e.target.value })} />
+              </Field>
+              <div className="input-row">
+                <Field label="City" error={errors.pickup_city}>
+                  <input className={`input-field${errors.pickup_city ? ' input-error' : ''}`} value={state.pickup_city} onChange={(e) => onStateChange({ pickup_city: e.target.value })} />
+                </Field>
+                <Field label="State" error={errors.pickup_state}>
+                  <input className={`input-field${errors.pickup_state ? ' input-error' : ''}`} value={state.pickup_state} onChange={(e) => onStateChange({ pickup_state: e.target.value })} />
+                </Field>
+              </div>
+              <Field label="Pincode" error={errors.pickup_pincode}>
+                <input className={`input-field${errors.pickup_pincode ? ' input-error' : ''}`} placeholder="6-digit pincode" value={state.pickup_pincode} onChange={(e) => onStateChange({ pickup_pincode: e.target.value })} />
+              </Field>
+            </div>
+
+            {/* Actions */}
+            <div style={{ marginTop: 24, paddingTop: 20, borderTop: '1px solid var(--border-color)', display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+              <button className={`btn btn-primary btn-sm${saving ? ' btn-loading' : ''}`} onClick={onSave} disabled={saving} style={{ width: 'auto', minWidth: 130 }}>
+                SAVE PROVIDER
+              </button>
+              <button className="btn btn-secondary btn-sm" style={{ width: 'auto' }} disabled>
+                TEST CONNECTION
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+/* ─────────────────────────────────────────────────────────────────────
+   Tab content components
+───────────────────────────────────────────────────────────────────── */
+function ProvidersTab({
+  state, onStateChange, errors, newApiKey, onApiKeyChange, onSave, saving,
+}: {
+  state: SettingsState;
+  onStateChange: (patch: Partial<SettingsState>) => void;
+  errors: Record<string, string>;
+  newApiKey: string;
+  onApiKeyChange: (v: string) => void;
+  onSave: () => void;
+  saving: boolean;
+}) {
+  const [expanded, setExpanded] = useState<string | null>('delhivery');
+
+  return (
+    <div>
+      <div style={{ marginBottom: 20 }}>
+        <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', margin: 0, lineHeight: 1.6 }}>
+          One courier active at a time. Expand a provider to configure credentials and pickup address.
+        </p>
+      </div>
+      {Object.keys(PROVIDER_META).map((key) => (
+        <ProviderCard
+          key={key}
+          providerKey={key}
+          state={state}
+          isExpanded={expanded === key}
+          onExpand={() => setExpanded(expanded === key ? null : key)}
+          onStateChange={onStateChange}
+          errors={errors}
+          newApiKey={newApiKey}
+          onApiKeyChange={onApiKeyChange}
+          onSave={onSave}
+          saving={saving}
+        />
+      ))}
+
+      <div style={{ marginTop: 24, padding: '16px 20px', background: 'var(--bg-input)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-color)' }}>
+        <div style={{ fontSize: '0.6875rem', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: 6 }}>Future providers</div>
+        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', lineHeight: 1.7 }}>
+          EKart · Bluedart · DTDC — available in a future release.
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PricingTab({
+  freeThresholdRs, setFreeThresholdRs,
+  shippingChargeRs, setShippingChargeRs,
+  errors, onSave, saving,
+}: {
+  freeThresholdRs: string; setFreeThresholdRs: (v: string) => void;
+  shippingChargeRs: string; setShippingChargeRs: (v: string) => void;
+  errors: Record<string, string>; onSave: () => void; saving: boolean;
+}) {
+  const threshold = rupeesToPaise(freeThresholdRs) / 100;
+  const charge = rupeesToPaise(shippingChargeRs) / 100;
+
+  return (
+    <div>
+      <div style={{ marginBottom: 24 }}>
+        <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', margin: 0, lineHeight: 1.6 }}>
+          Global pricing rules applied to all orders. These are courier-agnostic — they govern NOIR's shipping policy, not the provider.
+        </p>
+      </div>
+
+      {/* Preview */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12, marginBottom: 28 }}>
+        <div style={{ padding: '16px 18px', background: 'var(--bg-input)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-color)' }}>
+          <div style={{ fontSize: '0.5625rem', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: 6 }}>Free threshold</div>
+          <div style={{ fontSize: '1.125rem', fontWeight: 700, color: 'var(--text-primary)' }}>
+            {threshold > 0 ? `₹${threshold}` : 'Disabled'}
+          </div>
+          <div style={{ fontSize: '0.6875rem', color: 'var(--text-muted)', marginTop: 3 }}>
+            {threshold > 0 ? 'Orders above get free shipping' : 'All orders charged'}
+          </div>
+        </div>
+        <div style={{ padding: '16px 18px', background: 'var(--bg-input)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-color)' }}>
+          <div style={{ fontSize: '0.5625rem', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: 6 }}>Shipping charge</div>
+          <div style={{ fontSize: '1.125rem', fontWeight: 700, color: 'var(--text-primary)' }}>
+            {charge > 0 ? `₹${charge}` : '₹0'}
+          </div>
+          <div style={{ fontSize: '0.6875rem', color: 'var(--text-muted)', marginTop: 3 }}>Default per order</div>
+        </div>
+      </div>
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <Field label="Free shipping threshold (₹)" hint="0 = disabled" error={errors.free_shipping_threshold_paise}>
+          <input
+            className={`input-field${errors.free_shipping_threshold_paise ? ' input-error' : ''}`}
+            type="number" min={0} step={1} placeholder="0"
+            value={freeThresholdRs} onChange={(e) => setFreeThresholdRs(e.target.value)}
+          />
+        </Field>
+        <Field label="Default shipping charge (₹)" error={errors.default_shipping_charge_paise}>
+          <input
+            className={`input-field${errors.default_shipping_charge_paise ? ' input-error' : ''}`}
+            type="number" min={0} step={1} placeholder="0"
+            value={shippingChargeRs} onChange={(e) => setShippingChargeRs(e.target.value)}
+          />
+        </Field>
+      </div>
+
+      <div style={{ marginTop: 24, paddingTop: 20, borderTop: '1px solid var(--border-color)' }}>
+        <button className={`btn btn-primary btn-sm${saving ? ' btn-loading' : ''}`} onClick={onSave} disabled={saving} style={{ width: 'auto', minWidth: 130 }}>
+          SAVE PRICING
+        </button>
+      </div>
+
+      <div style={{ marginTop: 24, padding: '16px 18px', background: 'var(--bg-input)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-color)' }}>
+        <div style={{ fontSize: '0.6875rem', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: 6 }}>Coming in future release</div>
+        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', lineHeight: 1.7 }}>
+          Region-based pricing · Weight-tier pricing · Express surcharge · Prepaid discount
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CodTab({
+  state, onStateChange, codFeeRs, setCodFeeRs, errors, onSave, saving,
+}: {
+  state: SettingsState;
+  onStateChange: (patch: Partial<SettingsState>) => void;
+  codFeeRs: string; setCodFeeRs: (v: string) => void;
+  errors: Record<string, string>; onSave: () => void; saving: boolean;
+}) {
+  const fee = rupeesToPaise(codFeeRs) / 100;
+
+  return (
+    <div>
+      <div style={{ marginBottom: 24 }}>
+        <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', margin: 0, lineHeight: 1.6 }}>
+          Cash on Delivery policy. These controls apply globally to all orders and are provider-independent.
+        </p>
+      </div>
+
+      {/* Status preview */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 12, marginBottom: 24 }}>
+        <div style={{ padding: '16px 18px', background: 'var(--bg-input)', borderRadius: 'var(--radius-sm)', border: `1px solid ${state.cod_enabled ? 'rgba(76,175,80,0.3)' : 'var(--border-color)'}` }}>
+          <div style={{ fontSize: '0.5625rem', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: 6 }}>Status</div>
+          <div style={{ fontSize: '0.875rem', fontWeight: 700, color: state.cod_enabled ? 'var(--success)' : 'var(--text-muted)' }}>
+            {state.cod_enabled ? 'Enabled' : 'Disabled'}
+          </div>
+        </div>
+        <div style={{ padding: '16px 18px', background: 'var(--bg-input)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-color)' }}>
+          <div style={{ fontSize: '0.5625rem', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: 6 }}>COD fee</div>
+          <div style={{ fontSize: '0.875rem', fontWeight: 700, color: 'var(--text-primary)' }}>
+            {state.cod_enabled ? (fee > 0 ? `₹${fee}` : 'Free') : '—'}
+          </div>
+        </div>
+      </div>
+
+      <div style={{ marginBottom: 16 }}>
+        <ToggleRow
+          title="Cash on Delivery"
+          subtitle={state.cod_enabled ? 'Customers can pay on delivery' : 'COD disabled — prepaid only'}
+          checked={state.cod_enabled}
+          onChange={(v) => onStateChange({ cod_enabled: v })}
+        />
+      </div>
+
+      {state.cod_enabled && (
+        <Field label="COD fee per order (₹)" hint="0 = no fee" error={errors.cod_fee_paise}>
+          <input
+            className={`input-field${errors.cod_fee_paise ? ' input-error' : ''}`}
+            type="number" min={0} step={1} placeholder="0"
+            value={codFeeRs} onChange={(e) => setCodFeeRs(e.target.value)}
+          />
+        </Field>
+      )}
+
+      <div style={{ marginTop: 24, paddingTop: 20, borderTop: '1px solid var(--border-color)' }}>
+        <button className={`btn btn-primary btn-sm${saving ? ' btn-loading' : ''}`} onClick={onSave} disabled={saving} style={{ width: 'auto', minWidth: 130 }}>
+          SAVE COD POLICY
+        </button>
+      </div>
+
+      <div style={{ marginTop: 24, padding: '16px 18px', background: 'var(--bg-input)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-color)' }}>
+        <div style={{ fontSize: '0.6875rem', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: 6 }}>Coming in future release</div>
+        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', lineHeight: 1.7 }}>
+          COD order value limits · Blocked pincodes · Prepaid-only products · COD retry policy
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DiagnosticsTab({ state }: { state: SettingsState }) {
+  const hasKey = state.api_key_set;
+  const isActive = state.provider_enabled;
+
+  const healthItems = [
+    { label: 'Provider', value: isActive ? (PROVIDER_META[state.provider_name]?.label ?? state.provider_name) : 'None active', ok: isActive },
+    { label: 'API credentials', value: hasKey ? 'Configured' : 'Not set', ok: hasKey },
+    { label: 'Pickup address', value: state.pickup_address_line1 ? state.pickup_city || 'Set' : 'Not configured', ok: !!state.pickup_address_line1 },
+    { label: 'Webhook receiver', value: '/api/webhooks/shipping', ok: null },
+    { label: 'Last API call', value: '—', ok: null },
+    { label: 'Token expiry', value: 'N/A (API key auth)', ok: null },
+    { label: 'Queue health', value: '—', ok: null },
+    { label: 'Webhook failures (24h)', value: '—', ok: null },
+  ];
+
+  return (
+    <div>
+      <div style={{ marginBottom: 24 }}>
+        <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', margin: 0, lineHeight: 1.6 }}>
+          Operational confidence overview. Live metrics from webhook processing and provider API calls.
+        </p>
+      </div>
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+        {healthItems.map((item) => (
+          <div key={item.label} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '13px 16px', background: 'var(--bg-input)', borderRadius: 6, border: '1px solid var(--border-color)' }}>
+            <span style={{ fontSize: '0.8125rem', color: 'var(--text-secondary)', fontWeight: 500 }}>{item.label}</span>
+            <span style={{ fontSize: '0.8125rem', fontWeight: 600, color: item.ok === true ? 'var(--success)' : item.ok === false ? 'var(--error)' : 'var(--text-muted)' }}>
+              {item.value}
+            </span>
+          </div>
+        ))}
+      </div>
+
+      <div style={{ marginTop: 24, padding: '16px 18px', background: 'var(--bg-input)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-color)' }}>
+        <div style={{ fontSize: '0.6875rem', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: 6 }}>Live diagnostics</div>
+        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', lineHeight: 1.7 }}>
+          Real-time webhook event counts, API latency percentiles, and retry queue depth will appear here once webhook processing is active.
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ─────────────────────────────────────────────────────────────────────
+   Main page
+───────────────────────────────────────────────────────────────────── */
 export default function AdminShipping() {
   const [state, setState] = useState<SettingsState>(EMPTY);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [expanded, setExpanded] = useState(true);
+  const [activeTab, setActiveTab] = useState<Tab>('providers');
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [freeThresholdRs, setFreeThresholdRs] = useState('');
   const [shippingChargeRs, setShippingChargeRs] = useState('');
@@ -293,9 +627,7 @@ export default function AdminShipping() {
 
   const { toast, showToast } = useToast();
 
-  useEffect(() => { fetchSettings(); }, []);
-
-  async function fetchSettings() {
+  const fetchSettings = useCallback(async () => {
     try {
       const res = await fetch('/api/admin/shipping');
       const data = await res.json();
@@ -304,15 +636,15 @@ export default function AdminShipping() {
       const s: SettingsState = {
         ...EMPTY,
         ...raw,
-        provider_name: raw.provider_name ?? EMPTY.provider_name,
-        api_url: raw.api_url ?? '',
-        pickup_name: raw.pickup_name ?? '',
-        pickup_phone: raw.pickup_phone ?? '',
+        provider_name:        raw.provider_name        ?? EMPTY.provider_name,
+        api_url:              raw.api_url              ?? '',
+        pickup_name:          raw.pickup_name          ?? '',
+        pickup_phone:         raw.pickup_phone         ?? '',
         pickup_address_line1: raw.pickup_address_line1 ?? '',
         pickup_address_line2: raw.pickup_address_line2 ?? '',
-        pickup_city: raw.pickup_city ?? '',
-        pickup_state: raw.pickup_state ?? '',
-        pickup_pincode: raw.pickup_pincode ?? '',
+        pickup_city:          raw.pickup_city          ?? '',
+        pickup_state:         raw.pickup_state         ?? '',
+        pickup_pincode:       raw.pickup_pincode       ?? '',
       };
       setState(s);
       setFreeThresholdRs(paiseToRupees(s.free_shipping_threshold_paise));
@@ -323,7 +655,9 @@ export default function AdminShipping() {
     } finally {
       setLoading(false);
     }
-  }
+  }, [showToast]);
+
+  useEffect(() => { fetchSettings(); }, [fetchSettings]);
 
   function validate(): boolean {
     const e: Record<string, string> = {};
@@ -372,7 +706,7 @@ export default function AdminShipping() {
         body: JSON.stringify(payload),
       });
       const data = await res.json();
-      if (!data.success) { showToast(data.error || 'Failed to save settings', 'error'); return; }
+      if (!data.success) { showToast(data.error || 'Failed to save', 'error'); return; }
       showToast('Settings saved', 'success');
       if (newApiKey.trim().length > 0) {
         setNewApiKey('');
@@ -387,316 +721,60 @@ export default function AdminShipping() {
 
   if (loading) {
     return (
-      <div style={{ padding: 'var(--space-10)', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.8125rem', letterSpacing: '0.08em' }}>
+      <div style={{ padding: 48, textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.75rem', letterSpacing: '0.1em' }}>
         LOADING
       </div>
     );
   }
 
   return (
-    <div style={{ maxWidth: 560, margin: '0 auto' }}>
+    <div style={{ maxWidth: 1100, margin: '0 auto' }}>
       {toast && <div className={`toast toast-${toast.type}`}>{toast.message}</div>}
 
-      {/* ─── Page header ─────────────────────────────────────── */}
-      <div style={{ marginBottom: 'var(--space-6)' }}>
-        <p style={{ fontSize: '0.6875rem', fontWeight: 700, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: 'var(--space-1)' }}>
-          Shipping Console
+      {/* Page header */}
+      <div style={{ marginBottom: 28 }}>
+        <p style={{ fontSize: '0.625rem', fontWeight: 700, letterSpacing: '0.16em', textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: 4 }}>
+          NOIR · Shipping Console
         </p>
-        <h1 style={{ fontSize: '1.125rem', fontWeight: 600, letterSpacing: '0.02em', color: 'var(--text-primary)', margin: 0 }}>
-          Courier Providers
+        <h1 style={{ fontSize: '1.25rem', fontWeight: 700, letterSpacing: '0.01em', color: 'var(--text-primary)', margin: 0 }}>
+          Shipping
         </h1>
       </div>
 
-      {/* ─── Provider card ───────────────────────────────────── */}
-      <div
-        className="card"
-        style={{
-          marginBottom: 'var(--space-4)',
-          padding: 0,
-          overflow: 'hidden',
-          borderColor: state.provider_enabled ? 'var(--border-light)' : 'var(--border-color)',
-          transition: 'border-color 0.2s',
-        }}
-      >
-        {/* Collapsed header — always visible */}
-        <div style={{ padding: 'var(--space-5) var(--space-6)' }}>
-          <ProviderCardHeader
+      {/* Tab bar */}
+      <TabBar active={activeTab} onChange={setActiveTab} />
+
+      {/* Tab content — constrained to 600px for form readability on desktop */}
+      <div style={{ maxWidth: 620 }}>
+        {activeTab === 'providers' && (
+          <ProvidersTab
             state={state}
-            expanded={expanded}
-            onToggleExpand={() => setExpanded((v) => !v)}
+            onStateChange={(patch) => setState((s) => ({ ...s, ...patch }))}
+            errors={errors}
+            newApiKey={newApiKey}
+            onApiKeyChange={setNewApiKey}
+            onSave={handleSave}
+            saving={saving}
           />
-        </div>
-
-        {/* Expanded body */}
-        {expanded && (
-          <>
-            <div style={{ height: '1px', background: 'var(--border-color)' }} />
-
-            <div style={{ padding: 'var(--space-5) var(--space-6) var(--space-6)' }}>
-
-              {/* Enable toggle */}
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  padding: 'var(--space-4)',
-                  background: 'var(--bg-input)',
-                  borderRadius: 'var(--radius-sm)',
-                  border: '1px solid var(--border-color)',
-                  marginBottom: 'var(--space-5)',
-                }}
-              >
-                <div>
-                  <div style={{ fontSize: '0.8125rem', fontWeight: 600, color: 'var(--text-primary)' }}>
-                    Provider active
-                  </div>
-                  <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 2 }}>
-                    {state.provider_enabled ? 'Shipments routed through this courier' : 'Provider disabled — no shipments created'}
-                  </div>
-                </div>
-                <label className="premium-toggle" title="Enable provider">
-                  <input
-                    type="checkbox"
-                    checked={state.provider_enabled}
-                    onChange={(e) => setState((s) => ({ ...s, provider_enabled: e.target.checked }))}
-                  />
-                  <span className="premium-toggle-slider" />
-                </label>
-              </div>
-
-              {/* Capabilities */}
-              <div style={{ display: 'flex', gap: 'var(--space-2)', flexWrap: 'wrap', marginBottom: 'var(--space-5)' }}>
-                <CapPill label="COD" active={state.cod_enabled} />
-                <CapPill label="Prepaid" active />
-                <CapPill label="Reverse" active={false} />
-                <CapPill label="Insurance" active={false} />
-              </div>
-
-              {/* ─ Credentials ─ */}
-              <SectionHead label="Credentials" />
-
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
-                <Field label="API URL" error={errors.api_url}>
-                  <input
-                    className={`input-field${errors.api_url ? ' input-error' : ''}`}
-                    placeholder={(PROVIDER_META[state.provider_name] ?? PROVIDER_META.delhivery).defaultUrl}
-                    value={state.api_url}
-                    onChange={(e) => setState((s) => ({ ...s, api_url: e.target.value }))}
-                  />
-                </Field>
-
-                <Field
-                  label="API Key"
-                  error={errors.api_key}
-                  hint={state.api_key_set ? '(leave blank to keep existing)' : undefined}
-                >
-                  <div style={{ position: 'relative' }}>
-                    <input
-                      className={`input-field${errors.api_key ? ' input-error' : ''}`}
-                      type="password"
-                      placeholder={state.api_key_set ? '••••••••' : 'Enter provider API key'}
-                      value={newApiKey}
-                      onChange={(e) => setNewApiKey(e.target.value)}
-                      autoComplete="new-password"
-                      style={{ paddingRight: state.api_key_set ? 80 : undefined }}
-                    />
-                    {state.api_key_set && (
-                      <span
-                        style={{
-                          position: 'absolute',
-                          right: 'var(--space-4)',
-                          top: '50%',
-                          transform: 'translateY(-50%)',
-                          fontSize: '0.625rem',
-                          fontWeight: 700,
-                          letterSpacing: '0.1em',
-                          color: 'var(--success)',
-                          pointerEvents: 'none',
-                        }}
-                      >
-                        SET ✓
-                      </span>
-                    )}
-                  </div>
-                </Field>
-              </div>
-
-              {/* ─ Pickup address ─ */}
-              <SectionHead label="Pickup Address" />
-
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
-                <div className="input-row">
-                  <Field label="Contact name" error={errors.pickup_name}>
-                    <input
-                      className={`input-field${errors.pickup_name ? ' input-error' : ''}`}
-                      placeholder="Warehouse manager"
-                      value={state.pickup_name}
-                      onChange={(e) => setState((s) => ({ ...s, pickup_name: e.target.value }))}
-                    />
-                  </Field>
-                  <Field label="Contact phone" error={errors.pickup_phone}>
-                    <input
-                      className={`input-field${errors.pickup_phone ? ' input-error' : ''}`}
-                      placeholder="10-digit mobile"
-                      value={state.pickup_phone}
-                      onChange={(e) => setState((s) => ({ ...s, pickup_phone: e.target.value }))}
-                    />
-                  </Field>
-                </div>
-
-                <Field label="Address line 1" error={errors.pickup_address_line1}>
-                  <input
-                    className={`input-field${errors.pickup_address_line1 ? ' input-error' : ''}`}
-                    placeholder="Street, building, unit"
-                    value={state.pickup_address_line1}
-                    onChange={(e) => setState((s) => ({ ...s, pickup_address_line1: e.target.value }))}
-                  />
-                </Field>
-
-                <Field label="Address line 2">
-                  <input
-                    className="input-field"
-                    placeholder="Landmark, area (optional)"
-                    value={state.pickup_address_line2}
-                    onChange={(e) => setState((s) => ({ ...s, pickup_address_line2: e.target.value }))}
-                  />
-                </Field>
-
-                <div className="input-row">
-                  <Field label="City" error={errors.pickup_city}>
-                    <input
-                      className={`input-field${errors.pickup_city ? ' input-error' : ''}`}
-                      value={state.pickup_city}
-                      onChange={(e) => setState((s) => ({ ...s, pickup_city: e.target.value }))}
-                    />
-                  </Field>
-                  <Field label="State" error={errors.pickup_state}>
-                    <input
-                      className={`input-field${errors.pickup_state ? ' input-error' : ''}`}
-                      value={state.pickup_state}
-                      onChange={(e) => setState((s) => ({ ...s, pickup_state: e.target.value }))}
-                    />
-                  </Field>
-                </div>
-
-                <Field label="Pincode" error={errors.pickup_pincode}>
-                  <input
-                    className={`input-field${errors.pickup_pincode ? ' input-error' : ''}`}
-                    placeholder="6-digit pincode"
-                    value={state.pickup_pincode}
-                    onChange={(e) => setState((s) => ({ ...s, pickup_pincode: e.target.value }))}
-                  />
-                </Field>
-              </div>
-
-              {/* ─ COD ─ */}
-              <SectionHead label="Cash on Delivery" />
-
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  padding: 'var(--space-4)',
-                  background: 'var(--bg-input)',
-                  borderRadius: 'var(--radius-sm)',
-                  border: '1px solid var(--border-color)',
-                  marginBottom: state.cod_enabled ? 'var(--space-4)' : 0,
-                }}
-              >
-                <div>
-                  <div style={{ fontSize: '0.8125rem', fontWeight: 600, color: 'var(--text-primary)' }}>
-                    Enable COD
-                  </div>
-                  <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 2 }}>
-                    {state.cod_enabled ? `Fee ₹${rupeesToPaise(codFeeRs) / 100 || 0} per order` : 'Cash on delivery disabled'}
-                  </div>
-                </div>
-                <label className="premium-toggle" title="Enable COD">
-                  <input
-                    type="checkbox"
-                    checked={state.cod_enabled}
-                    onChange={(e) => setState((s) => ({ ...s, cod_enabled: e.target.checked }))}
-                  />
-                  <span className="premium-toggle-slider" />
-                </label>
-              </div>
-
-              {state.cod_enabled && (
-                <Field label="COD fee (₹)" error={errors.cod_fee_paise}>
-                  <input
-                    className={`input-field${errors.cod_fee_paise ? ' input-error' : ''}`}
-                    type="number"
-                    min={0}
-                    step={1}
-                    placeholder="0"
-                    value={codFeeRs}
-                    onChange={(e) => setCodFeeRs(e.target.value)}
-                  />
-                </Field>
-              )}
-
-              {/* ─ Save ─ */}
-              <div style={{ marginTop: 'var(--space-6)', paddingTop: 'var(--space-5)', borderTop: '1px solid var(--border-color)' }}>
-                <button
-                  className={`btn btn-primary btn-sm${saving ? ' btn-loading' : ''}`}
-                  onClick={handleSave}
-                  disabled={saving}
-                  style={{ width: 'auto', minWidth: 140 }}
-                >
-                  SAVE PROVIDER
-                </button>
-              </div>
-            </div>
-          </>
         )}
-      </div>
-
-      {/* ─── Pricing rules ───────────────────────────────────── */}
-      <div className="card" style={{ marginBottom: 'var(--space-4)', padding: 'var(--space-5) var(--space-6)' }}>
-        <div style={{ marginBottom: 'var(--space-5)' }}>
-          <p style={{ fontSize: '0.6875rem', fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--text-muted)', margin: 0 }}>
-            Pricing Rules
-          </p>
-        </div>
-
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
-          <Field label="Free shipping threshold (₹)" error={errors.free_shipping_threshold_paise} hint="0 disables">
-            <input
-              className={`input-field${errors.free_shipping_threshold_paise ? ' input-error' : ''}`}
-              type="number"
-              min={0}
-              step={1}
-              placeholder="0"
-              value={freeThresholdRs}
-              onChange={(e) => setFreeThresholdRs(e.target.value)}
-            />
-          </Field>
-
-          <Field label="Default shipping charge (₹)" error={errors.default_shipping_charge_paise}>
-            <input
-              className={`input-field${errors.default_shipping_charge_paise ? ' input-error' : ''}`}
-              type="number"
-              min={0}
-              step={1}
-              placeholder="0"
-              value={shippingChargeRs}
-              onChange={(e) => setShippingChargeRs(e.target.value)}
-            />
-          </Field>
-        </div>
-
-        <div style={{ marginTop: 'var(--space-5)', paddingTop: 'var(--space-4)', borderTop: '1px solid var(--border-color)' }}>
-          <button
-            className={`btn btn-primary btn-sm${saving ? ' btn-loading' : ''}`}
-            onClick={handleSave}
-            disabled={saving}
-            style={{ width: 'auto', minWidth: 140 }}
-          >
-            SAVE RULES
-          </button>
-        </div>
+        {activeTab === 'pricing' && (
+          <PricingTab
+            freeThresholdRs={freeThresholdRs} setFreeThresholdRs={setFreeThresholdRs}
+            shippingChargeRs={shippingChargeRs} setShippingChargeRs={setShippingChargeRs}
+            errors={errors} onSave={handleSave} saving={saving}
+          />
+        )}
+        {activeTab === 'cod' && (
+          <CodTab
+            state={state}
+            onStateChange={(patch) => setState((s) => ({ ...s, ...patch }))}
+            codFeeRs={codFeeRs} setCodFeeRs={setCodFeeRs}
+            errors={errors} onSave={handleSave} saving={saving}
+          />
+        )}
+        {activeTab === 'diagnostics' && (
+          <DiagnosticsTab state={state} />
+        )}
       </div>
     </div>
   );
