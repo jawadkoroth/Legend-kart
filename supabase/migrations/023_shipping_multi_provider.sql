@@ -401,7 +401,8 @@ BEGIN
 END;
 $$;
 
-GRANT EXECUTE ON FUNCTION activate_shipping_provider(UUID) TO service_role;
+REVOKE EXECUTE ON FUNCTION activate_shipping_provider(UUID) FROM PUBLIC;
+GRANT  EXECUTE ON FUNCTION activate_shipping_provider(UUID) TO service_role;
 
 -- ---------------------------------------------------------------
 -- 9. upsert_shipment_idempotent(...)
@@ -466,7 +467,10 @@ BEGIN
 END;
 $$;
 
-GRANT EXECUTE ON FUNCTION upsert_shipment_idempotent(
+REVOKE EXECUTE ON FUNCTION upsert_shipment_idempotent(
+  UUID, UUID, UUID, TEXT, INTEGER, TEXT, TEXT, INTEGER, INTEGER, JSONB
+) FROM PUBLIC;
+GRANT  EXECUTE ON FUNCTION upsert_shipment_idempotent(
   UUID, UUID, UUID, TEXT, INTEGER, TEXT, TEXT, INTEGER, INTEGER, JSONB
 ) TO service_role;
 
