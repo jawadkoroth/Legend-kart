@@ -1,15 +1,34 @@
-import { ShippingProvider, ShipmentRequest, ShipmentResponse, TrackingResponse } from './types';
+import crypto from 'crypto';
+import {
+  ShippingProvider,
+  ShipmentRequest,
+  ShipmentResponse,
+  TrackingResponse,
+  ServiceabilityResponse,
+  LabelResponse,
+  NormalisedShipmentEvent,
+  ProviderConfig,
+} from './types';
+import { mapDelhiveryStatus } from './state';
+import { logEvent } from '@/lib/log';
 
 export class DelhiveryProvider implements ShippingProvider {
-  name = 'delhivery';
-  private apiKey: string;
-  private apiUrl: string;
-  private pickupLocation: string;
+  readonly providerName = 'delhivery' as const;
 
-  constructor(config: { api_key: string; api_url?: string; pickup_location: string }) {
-    this.apiKey = config.api_key;
-    this.apiUrl = config.api_url || 'https://track.delhivery.com/api';
-    this.pickupLocation = config.pickup_location;
+  private readonly apiKey: string;
+  private readonly apiUrl: string;
+  private readonly webhookSecret: string | null;
+  private readonly pickupName: string;
+
+  constructor(config: ProviderConfig) {
+    this.apiKey = config.api_key ?? '';
+    this.apiUrl = config.api_url ?? 'https://track.delhivery.com/api';
+    this.webhookSecret = config.webhook_secret ?? null;
+    this.pickupName = config.pickup_name ?? '';
+  }
+
+  private authHeader(): Record<string, string> {
+    return { Authorization: `Token ${this.apiKey}` };
   }
 
   async createShipment(req: ShipmentRequest): Promise<ShipmentResponse> {
@@ -17,7 +36,7 @@ export class DelhiveryProvider implements ShippingProvider {
       shipments: [{
         name: req.customer.name,
         add: req.address.line1,
-        add2: req.address.line2 || '',
+        add2: req.address.line2 ?? '',
         address_type: 'home',
         city: req.address.city,
         state: req.address.state,
@@ -26,7 +45,7 @@ export class DelhiveryProvider implements ShippingProvider {
         order: req.order_number,
         payment_mode: req.payment.method === 'cod' ? 'COD' : 'Prepaid',
         cod_amount: req.payment.method === 'cod'
-          ? (req.payment.cod_amount_paise! / 100).toString()
+          ? ((req.payment.cod_amount_paise ?? 0) / 100).toString()
           : '0',
         weight: req.product.weight_grams,
         shipment_width: 30,
@@ -35,64 +54,165 @@ export class DelhiveryProvider implements ShippingProvider {
         product_desc: req.product.name,
         quantity: req.product.quantity,
       }],
-      pickup_location: { name: this.pickupLocation },
+      pickup_location: { name: this.pickupName },
     };
 
     try {
+      const t0 = Date.now();
       const response = await fetch(`${this.apiUrl}/cmu/create.json`, {
         method: 'POST',
-        headers: {
-          'Authorization': `Token ${this.apiKey}`,
-          'Content-Type': 'application/json',
-        },
+        headers: { ...this.authHeader(), 'Content-Type': 'application/json' },
         body: JSON.stringify({ data: JSON.stringify(payload), format: 'json' }),
       });
+      const latencyMs = Date.now() - t0;
+      const data = await response.json() as Record<string, unknown>;
 
-      const data = await response.json();
+      logEvent('shipping.delhivery.create_shipment', {
+        order_number: req.order_number,
+        status_code: response.status,
+        latency_ms: latencyMs,
+        success: !!data.success,
+      }, { source: 'api' });
 
       if (data.success) {
-        const waybill = data.packages?.[0]?.waybill || data.waybill;
+        const pkgs = data.packages as Array<{ waybill?: string }> | undefined;
+        const waybill = pkgs?.[0]?.waybill ?? (data.waybill as string | undefined);
         return {
           success: true,
           tracking_id: waybill,
-          label_url: `${this.apiUrl}/p/packing_slip?wbns=${waybill}`,
+          label_url: waybill ? `${this.apiUrl}/p/packing_slip?wbns=${waybill}` : undefined,
           raw_response: data,
         };
       }
 
+      logEvent('shipping.delhivery.create_shipment_failed', {
+        order_number: req.order_number,
+        error: data.rmk ?? data.error ?? 'unknown',
+      }, { source: 'api', severity: 'error' });
+
       return {
         success: false,
-        error: data.rmk || data.error || 'Shipment creation failed',
+        error: (data.rmk ?? data.error ?? 'Shipment creation failed') as string,
         raw_response: data,
       };
     } catch (err) {
-      return {
-        success: false,
-        error: err instanceof Error ? err.message : 'Network error',
-        raw_response: err,
-      };
+      const msg = err instanceof Error ? err.message : 'Network error';
+      logEvent('shipping.delhivery.create_shipment_failed', {
+        order_number: req.order_number,
+        error: msg,
+      }, { source: 'api', severity: 'error' });
+      return { success: false, error: msg, raw_response: err };
     }
   }
 
   async trackShipment(tracking_id: string): Promise<TrackingResponse> {
-    const response = await fetch(
-      `${this.apiUrl}/v1/packages/json/?waybill=${tracking_id}`,
-      { headers: { 'Authorization': `Token ${this.apiKey}` } }
-    );
-    const data = await response.json();
-    return { status: 'ok', raw: data };
+    try {
+      const response = await fetch(
+        `${this.apiUrl}/v1/packages/json/?waybill=${tracking_id}`,
+        { headers: this.authHeader() },
+      );
+      const data = await response.json() as Record<string, unknown>;
+      const shipmentData = (data['ShipmentData'] as Array<{ Shipment?: { Status?: { Status?: string; Instructions?: string; StatusDateTime?: string } } }> | undefined)?.[0];
+      const rawStatus = shipmentData?.Shipment?.Status?.Status ?? 'unknown';
+      return {
+        status: rawStatus,
+        location: shipmentData?.Shipment?.Status?.Instructions,
+        timestamp: shipmentData?.Shipment?.Status?.StatusDateTime,
+        raw: data,
+      };
+    } catch (err) {
+      return { status: 'error', raw: err };
+    }
   }
 
   async cancelShipment(tracking_id: string): Promise<{ success: boolean }> {
-    const response = await fetch(`${this.apiUrl}/p/edit`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Token ${this.apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ waybill: tracking_id, cancellation: true }),
-    });
-    const data = await response.json();
-    return { success: !!data.status };
+    try {
+      const response = await fetch(`${this.apiUrl}/p/edit`, {
+        method: 'POST',
+        headers: { ...this.authHeader(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ waybill: tracking_id, cancellation: true }),
+      });
+      const data = await response.json() as Record<string, unknown>;
+      return { success: !!data.status };
+    } catch {
+      return { success: false };
+    }
+  }
+
+  async generateLabel(tracking_id: string): Promise<LabelResponse> {
+    const url = `${this.apiUrl}/p/packing_slip?wbns=${tracking_id}`;
+    return { url };
+  }
+
+  async checkServiceability(pincode: string): Promise<ServiceabilityResponse> {
+    try {
+      const response = await fetch(
+        `${this.apiUrl}/c/api/pin-codes/json/?filter_codes=${pincode}`,
+        { headers: this.authHeader() },
+      );
+      const data = await response.json() as Record<string, unknown>;
+      const deliveryData = data['delivery_codes'] as Array<{ postal_code?: { cod?: string; pre_paid?: string } }> | undefined;
+      const entry = deliveryData?.[0]?.postal_code;
+      return {
+        serviceable: !!entry,
+        cod_available: entry?.cod === 'Y',
+        raw: data,
+      };
+    } catch {
+      return { serviceable: false, cod_available: false };
+    }
+  }
+
+  verifyWebhook(
+    headers: Record<string, string | string[] | undefined>,
+    rawBody: string,
+  ): boolean {
+    if (!this.webhookSecret) {
+      return true;
+    }
+    const signature = headers['x-delhivery-signature'] ?? headers['x-webhook-signature'];
+    const sig = Array.isArray(signature) ? signature[0] : signature;
+    if (!sig) return false;
+    const expected = crypto
+      .createHmac('sha256', this.webhookSecret)
+      .update(rawBody)
+      .digest('hex');
+    return crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected));
+  }
+
+  parseWebhook(body: unknown): NormalisedShipmentEvent | null {
+    try {
+      const payload = body as Record<string, unknown>;
+      const waybill =
+        (payload['waybill'] as string | undefined) ??
+        (payload['tracking_id'] as string | undefined);
+      if (!waybill) return null;
+
+      const rawStatus =
+        (payload['status'] as string | undefined) ??
+        (payload['Status'] as string | undefined) ??
+        '';
+      const canonical = mapDelhiveryStatus(rawStatus);
+      if (!canonical) return null;
+
+      const eventType = (payload['event_type'] as string | undefined) ?? rawStatus;
+      const timestamp = (payload['timestamp'] as string | undefined) ?? new Date().toISOString();
+
+      const externalEventId = crypto
+        .createHash('sha256')
+        .update(`${waybill}:${eventType}:${timestamp}`)
+        .digest('hex');
+
+      return {
+        tracking_id: waybill,
+        canonical_status: canonical,
+        provider_event_type: eventType,
+        provider_event_at: timestamp,
+        external_event_id: externalEventId,
+        raw: body,
+      };
+    } catch {
+      return null;
+    }
   }
 }
