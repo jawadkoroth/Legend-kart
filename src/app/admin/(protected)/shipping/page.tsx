@@ -300,7 +300,20 @@ export default function AdminShipping() {
       const res = await fetch('/api/admin/shipping');
       const data = await res.json();
       if (!data.success) { showToast('Failed to load shipping settings', 'error'); return; }
-      const s = { ...EMPTY, ...(data.settings || {}) } as SettingsState;
+      const raw = data.settings || {};
+      const s: SettingsState = {
+        ...EMPTY,
+        ...raw,
+        provider_name: raw.provider_name ?? EMPTY.provider_name,
+        api_url: raw.api_url ?? '',
+        pickup_name: raw.pickup_name ?? '',
+        pickup_phone: raw.pickup_phone ?? '',
+        pickup_address_line1: raw.pickup_address_line1 ?? '',
+        pickup_address_line2: raw.pickup_address_line2 ?? '',
+        pickup_city: raw.pickup_city ?? '',
+        pickup_state: raw.pickup_state ?? '',
+        pickup_pincode: raw.pickup_pincode ?? '',
+      };
       setState(s);
       setFreeThresholdRs(paiseToRupees(s.free_shipping_threshold_paise));
       setShippingChargeRs(paiseToRupees(s.default_shipping_charge_paise));
