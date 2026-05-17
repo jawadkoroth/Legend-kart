@@ -42,7 +42,7 @@ export default function AdminShell({
           <AdminPushPrompt />
           <button
             onClick={() => setIsFeedbackOpen(true)}
-            style={{ background: 'none', border: 'none', cursor: 'pointer', position: 'relative', display: 'flex', alignItems: 'center' }}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', position: 'relative', display: 'flex', alignItems: 'center' }}>
             <span style={{ fontSize: '1.25rem' }}>💬</span>
             {unreadCount > 0 && (
               <span style={{ position: 'absolute', top: '-4px', right: '-8px', background: 'var(--error)', color: 'white', fontSize: '10px', fontWeight: 'bold', padding: '2px 6px', borderRadius: '10px' }}>
