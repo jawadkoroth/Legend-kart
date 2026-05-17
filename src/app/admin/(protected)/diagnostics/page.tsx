@@ -2,7 +2,7 @@ import { redirect } from 'next/navigation';
 import Link from 'next/link';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { PWADiagnostics } from '@/components/PWADiagnostics';
-import styles from './page.module.css';
+import styles from './diagnostics.module.css';
 
 /**
  * NOIR Admin — System Health.
