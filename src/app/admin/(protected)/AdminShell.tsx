@@ -6,6 +6,7 @@ import Link from 'next/link';
 import AdminFeedbackDrawer from '@/components/AdminFeedbackDrawer';
 import AdminRealtimeProvider from '@/components/admin/AdminRealtimeProvider';
 import AdminPushPrompt from '@/components/admin/AdminPushPrompt';
+import { PWAInstallPrompt } from '@/components/PWAInstallPrompt';
 
 const NAV_ITEMS = [
   { href: '/admin/dashboard', label: 'Home', icon: '📊' },
@@ -77,6 +78,8 @@ export default function AdminShell({
       </nav>
 
       <div style={{ height: '70px' }} />
+
+      <PWAInstallPrompt />
     </div>
   );
 }

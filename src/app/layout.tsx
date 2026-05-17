@@ -6,6 +6,7 @@ import FeedbackButton from '@/components/FeedbackButton';
 import Footer from '@/components/footer/Footer';
 import FooterGate from '@/components/footer/FooterGate';
 import { AuthProvider } from '@/lib/auth/AuthProvider';
+import { PWAProvider } from '@/components/PWAProvider';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { SITE_URL, BRAND } from '@/lib/seo/site';
 import { Analytics } from '@vercel/analytics/next';
@@ -59,6 +60,13 @@ export const metadata: Metadata = {
   },
   icons: {
     icon: '/favicon.ico',
+    apple: '/icons/icon-192x192.png',
+  },
+  manifest: '/manifest.json',
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: 'black-translucent',
+    title: 'NOIR ADMIN',
   },
 };
 
@@ -110,18 +118,20 @@ export default async function RootLayout({
         />
       </head>
       <body>
-        <AuthProvider initialUser={user}>
-          <CartProvider>
-            <Navbar />
-            {children}
-            <FooterGate>
-              <Footer />
-            </FooterGate>
-            <FeedbackButton />
-            <Analytics />
-            <SpeedInsights />
-          </CartProvider>
-        </AuthProvider>
+        <PWAProvider>
+          <AuthProvider initialUser={user}>
+            <CartProvider>
+              <Navbar />
+              {children}
+              <FooterGate>
+                <Footer />
+              </FooterGate>
+              <FeedbackButton />
+              <Analytics />
+              <SpeedInsights />
+            </CartProvider>
+          </AuthProvider>
+        </PWAProvider>
       </body>
     </html>
   );

@@ -1,84 +1,182 @@
 /**
- * NOIR Admin — minimal service worker.
+ * NOIR Admin — Production-grade service worker for operational notifications.
  *
- * This worker exists so the admin client can:
+ * Responsibilities:
+ *   1. Background push notification delivery with category support
+ *   2. Notification deduplication via tags
+ *   3. Click-to-navigate: focus existing tab or open new window
+ *   4. Silent subscription expiry recovery messaging
+ *   5. Clean coordination with main app SW
  *
- *   1. Display Notifications via `Notification` API. (Some mobile
- *      browsers — notably Chrome on Android — only allow
- *      Notifications to be created from a service worker context;
- *      having one registered is a prerequisite even when we trigger
- *      the notification from the page itself.)
- *
- *   2. Receive future Web Push deliveries. We listen for `push`
- *      events and forward them to `showNotification`. Today there
- *      is NO push backend (no VAPID keys / subscription store), so
- *      this branch is dormant; the hook is in place for when an
- *      operator wants to enable true background delivery.
- *
- *   3. Focus or open the admin tab when a notification is clicked.
- *
- * The worker intentionally does NOT cache app assets — Next.js
- * already handles asset versioning, and an unmanaged cache here
- * would cause stale dashboards on deploy.
+ * Categories:
+ *   - new_order: New order received
+ *   - shipment_update: Shipment status changed
+ *   - webhook_failure: Provider webhook issues
+ *   - operational_alert: System warnings
+ *   - diagnostics_warning: Health check failures
  */
 
+// Notification category configuration
+const NOTIFICATION_CONFIG = {
+  new_order: {
+    icon: '/icons/icon-192x192.png',
+    badge: '/icons/icon-96x96.png',
+    tag: 'noir-order',
+    vibrate: [200, 100, 200],
+    requireInteraction: false,
+  },
+  shipment_update: {
+    icon: '/icons/icon-192x192.png',
+    badge: '/icons/icon-96x96.png',
+    tag: 'noir-shipment',
+    vibrate: [150, 50, 150],
+    requireInteraction: false,
+  },
+  webhook_failure: {
+    icon: '/icons/icon-192x192.png',
+    badge: '/icons/icon-96x96.png',
+    tag: 'noir-webhook',
+    vibrate: [300, 100, 300, 100, 300],
+    requireInteraction: true,
+  },
+  operational_alert: {
+    icon: '/icons/icon-192x192.png',
+    badge: '/icons/icon-96x96.png',
+    tag: 'noir-alert',
+    vibrate: [250, 100, 250],
+    requireInteraction: true,
+  },
+  diagnostics_warning: {
+    icon: '/icons/icon-192x192.png',
+    badge: '/icons/icon-96x96.png',
+    tag: 'noir-diag',
+    vibrate: [100, 50, 100],
+    requireInteraction: false,
+  },
+};
+
+// Install: Activate immediately for operational responsiveness
 self.addEventListener('install', (event) => {
-  // Activate immediately so admins don't need a second reload.
   event.waitUntil(self.skipWaiting());
 });
 
+// Activate: Claim all clients
 self.addEventListener('activate', (event) => {
   event.waitUntil(self.clients.claim());
 });
 
+// Push: Handle background notifications with category routing
 self.addEventListener('push', (event) => {
   let payload = {};
   try {
     payload = event.data ? event.data.json() : {};
   } catch (_) {
-    payload = { title: 'New order', body: event.data ? event.data.text() : '' };
+    payload = {
+      title: 'NOIR Alert',
+      body: event.data ? event.data.text() : 'Operational notification',
+      type: 'operational_alert'
+    };
   }
-  const title = payload.title || 'New order received';
-  // `renotify:true` forces a re-buzz even when a notification with
-  // the same tag is still on screen — essential for the "two orders
-  // arrive back-to-back" case. Tag collapses duplicates coming from
-  // different code paths (Realtime-in-tab vs Web Push via SW).
+
+  const type = payload.type || 'new_order';
+  const config = NOTIFICATION_CONFIG[type] || NOTIFICATION_CONFIG.new_order;
+
+  // Deduplication: use orderId or shipmentId as tag suffix
+  const tag = payload.orderId
+    ? `${config.tag}-${payload.orderId}`
+    : payload.shipmentId
+      ? `${config.tag}-${payload.shipmentId}`
+      : config.tag;
+
+  const title = payload.title || 'NOIR Admin';
   const options = {
     body: payload.body || '',
-    tag: payload.tag || 'admin-order',
+    tag: tag,
     renotify: true,
-    requireInteraction: false,
-    silent: false,
-    vibrate: [200, 100, 200],
-    icon: '/favicon.ico',
-    badge: '/favicon.ico',
-    data: { url: payload.url || '/admin/dashboard' },
+    requireInteraction: config.requireInteraction,
+    silent: payload.silent || false,
+    vibrate: config.vibrate,
+    icon: config.icon,
+    badge: config.badge,
+    data: {
+      url: payload.url || '/admin/dashboard',
+      orderId: payload.orderId,
+      shipmentId: payload.shipmentId,
+      type: type,
+      timestamp: Date.now(),
+    },
+    actions: payload.actions || [
+      { action: 'open', title: 'Open' },
+      { action: 'dismiss', title: 'Dismiss' },
+    ],
   };
-  // icon + badge: required on Android Chrome to render a proper
-  // notification. Some builds silently drop notifications with no
-  // icon. We use favicon.ico as a safe universal fallback.
+
   event.waitUntil(self.registration.showNotification(title, options));
 });
 
+// Notification click: Smart navigation
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
-  const targetUrl =
-    (event.notification.data && event.notification.data.url) ||
-    '/admin/dashboard';
+
+  const { action } = event;
+  if (action === 'dismiss') return;
+
+  const data = event.notification.data || {};
+  const type = data.type || 'new_order';
+
+  // Build target URL based on notification type
+  let targetUrl = data.url || '/admin/dashboard';
+  if (data.orderId && targetUrl === '/admin/dashboard') {
+    targetUrl = `/admin/orders/${data.orderId}`;
+  }
+
   event.waitUntil(
     self.clients
       .matchAll({ type: 'window', includeUncontrolled: true })
       .then((clientList) => {
-        // Re-focus an existing admin tab if one is open.
+        // Find existing admin tab
         for (const client of clientList) {
-          if (client.url.includes('/admin') && 'focus' in client) {
-            return client.focus();
+          if (client.url.includes('/admin')) {
+            // Navigate to specific order if available
+            if ('navigate' in client) {
+              client.navigate(targetUrl);
+            }
+            if ('focus' in client) {
+              return client.focus();
+            }
           }
         }
+        // Open new window if no admin tab exists
         if (self.clients.openWindow) {
           return self.clients.openWindow(targetUrl);
         }
         return null;
-      }),
+      })
   );
+});
+
+// Subscription change: Notify app to resubscribe
+self.addEventListener('pushsubscriptionchange', (event) => {
+  event.waitUntil(
+    self.clients.matchAll().then((clients) => {
+      clients.forEach((client) => {
+        client.postMessage({
+          type: 'PUSH_SUBSCRIPTION_EXPIRED',
+          timestamp: Date.now(),
+        });
+      });
+    })
+  );
+});
+
+// Message handling from main app
+self.addEventListener('message', (event) => {
+  if (event.data === 'SKIP_WAITING') {
+    self.skipWaiting();
+  }
+
+  // Acknowledge ping from app for health checks
+  if (event.data === 'PING') {
+    event.source?.postMessage?.({ type: 'PONG', timestamp: Date.now() });
+  }
 });
