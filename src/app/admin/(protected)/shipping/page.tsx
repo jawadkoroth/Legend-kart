@@ -480,13 +480,6 @@ function PricingTab({
           SAVE PRICING
         </button>
       </div>
-
-      <div style={{ marginTop: 24, padding: '16px 18px', background: 'var(--bg-input)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-color)' }}>
-        <div style={{ fontSize: '0.6875rem', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: 6 }}>Coming in future release</div>
-        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', lineHeight: 1.7 }}>
-          Region-based pricing · Weight-tier pricing · Express surcharge · Prepaid discount
-        </div>
-      </div>
     </div>
   );
 }
@@ -549,13 +542,6 @@ function CodTab({
           SAVE COD POLICY
         </button>
       </div>
-
-      <div style={{ marginTop: 24, padding: '16px 18px', background: 'var(--bg-input)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-color)' }}>
-        <div style={{ fontSize: '0.6875rem', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: 6 }}>Coming in future release</div>
-        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', lineHeight: 1.7 }}>
-          COD order value limits · Blocked pincodes · Prepaid-only products · COD retry policy
-        </div>
-      </div>
     </div>
   );
 }
@@ -592,13 +578,6 @@ function DiagnosticsTab({ state }: { state: SettingsState }) {
             </span>
           </div>
         ))}
-      </div>
-
-      <div style={{ marginTop: 24, padding: '16px 18px', background: 'var(--bg-input)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-color)' }}>
-        <div style={{ fontSize: '0.6875rem', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: 6 }}>Live diagnostics</div>
-        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', lineHeight: 1.7 }}>
-          Real-time webhook event counts, API latency percentiles, and retry queue depth will appear here once webhook processing is active.
-        </div>
       </div>
     </div>
   );
