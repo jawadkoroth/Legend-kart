@@ -17,6 +17,108 @@ const STORY_STEPS = [
   { img: '/story-6.png', title: 'The Wear', desc: 'Built for repetition. Softens. Does not fade.' },
 ];
 
+// HeroVideo component with seamless preload - no flicker
+function HeroVideo() {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const [isReady, setIsReady] = useState(false);
+  const [hasError, setHasError] = useState(false);
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+
+    // Preload strategy: load metadata first, then data
+    video.preload = 'metadata';
+
+    const handleCanPlay = () => {
+      // Small delay to ensure smooth transition
+      setTimeout(() => setIsReady(true), 100);
+    };
+
+    const handleError = () => {
+      setHasError(true);
+    };
+
+    video.addEventListener('canplaythrough', handleCanPlay);
+    video.addEventListener('error', handleError);
+
+    // Mobile Chrome: force load on first interaction if needed
+    const tryPlay = () => {
+      if (video.paused) {
+        video.play().catch(() => {
+          // Autoplay blocked, will show poster
+        });
+      }
+    };
+
+    // Try immediate play
+    tryPlay();
+
+    return () => {
+      video.removeEventListener('canplaythrough', handleCanPlay);
+      video.removeEventListener('error', handleError);
+    };
+  }, []);
+
+  return (
+    <>
+      {/* Dark placeholder - matches video background, no poster flash */}
+      <div
+        style={{
+          position: 'absolute',
+          inset: 0,
+          background: '#0a0a0a',
+          zIndex: 0,
+        }}
+      />
+
+      {/* Video with smooth fade-in */}
+      <video
+        ref={videoRef}
+        autoPlay
+        loop
+        muted
+        playsInline
+        preload="metadata"
+        style={{
+          position: 'absolute',
+          inset: 0,
+          width: '100%',
+          height: '100%',
+          objectFit: 'cover',
+          opacity: isReady ? 1 : 0,
+          transition: 'opacity 600ms ease-out',
+          zIndex: 1,
+        }}
+      >
+        <source
+          src="https://ajyubbfheptelvjvpzts.supabase.co/storage/v1/object/public/hero-videos/Man_wearing_linen_202604220055.mp4"
+          type="video/mp4"
+        />
+      </video>
+
+      {/* Fallback for error state */}
+      {hasError && (
+        <div
+          style={{
+            position: 'absolute',
+            inset: 0,
+            background: 'linear-gradient(135deg, #141414 0%, #0a0a0a 100%)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            color: 'var(--text-muted)',
+            fontSize: '0.875rem',
+            zIndex: 2,
+          }}
+        >
+          <span>NOIR</span>
+        </div>
+      )}
+    </>
+  );
+}
+
 export default function LandingClient() {
   const [activeIndex, setActiveIndex] = useState(0);
   const [touchOffset, setTouchOffset] = useState(0);
@@ -187,16 +289,7 @@ export default function LandingClient() {
       {/* Hero Section */}
       <section className={styles.hero}>
         <div className={styles.heroOverlay} />
-        <video
-          autoPlay
-          loop
-          muted
-          playsInline
-          className={styles.heroVideo}
-          poster="/product-1.png"
-        >
-          <source src="https://ajyubbfheptelvjvpzts.supabase.co/storage/v1/object/public/hero-videos/Man_wearing_linen_202604220055.mp4" type="video/mp4" />
-        </video>
+        <HeroVideo />
         <div className={styles.heroContent}>
           <p className={styles.heroTag}>Permanent Black</p>
           <h1 className={styles.heroTitle}>Crafted in&nbsp;Black</h1>

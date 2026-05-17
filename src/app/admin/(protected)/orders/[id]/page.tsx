@@ -6,6 +6,7 @@ import { createClient } from '@/lib/supabase/client';
 import { useToast } from '@/hooks/useToast';
 import { ShipmentDetailPanel } from '@/components/ShipmentDetailPanel';
 import { ShipmentTimeline } from '@/components/ShipmentTimeline';
+import AdminNotes from '@/components/admin/AdminNotes';
 import type { CanonicalShipmentStatus } from '@/lib/shipping/state';
 
 interface OrderLine {
@@ -420,26 +421,8 @@ export default function AdminOrderDetail({ params }: { params: Promise<{ id: str
         </div>
       )}
 
-      {/* Notes */}
-      <div className="card" style={{ marginBottom: 'var(--space-5)' }}>
-        <p className="input-label" style={{ marginBottom: 'var(--space-3)' }}>Admin Notes</p>
-        <textarea
-          className="input-field"
-          placeholder="Add notes..."
-          value={noteText}
-          onChange={e => setNoteText(e.target.value)}
-          rows={3}
-          style={{ resize: 'vertical', minHeight: '80px' }}
-        />
-        <button
-          className={`btn btn-secondary btn-sm ${actionLoading === 'save-notes' ? 'btn-loading' : ''}`}
-          onClick={() => handleAction('save-notes')}
-          disabled={!!actionLoading}
-          style={{ marginTop: 'var(--space-3)', width: '100%' }}
-        >
-          Save Notes
-        </button>
-      </div>
+      {/* Admin Notes — Premium Internal Thread */}
+      <AdminNotes orderId={id} />
 
       {/* Cancel reason display */}
       {isCancelled && order.cancel_reason && (

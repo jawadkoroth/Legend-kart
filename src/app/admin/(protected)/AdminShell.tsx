@@ -6,6 +6,7 @@ import Link from 'next/link';
 import AdminFeedbackDrawer from '@/components/AdminFeedbackDrawer';
 import AdminRealtimeProvider from '@/components/admin/AdminRealtimeProvider';
 import AdminPushPrompt from '@/components/admin/AdminPushPrompt';
+import AdminReturnsBadge from '@/components/admin/AdminReturnsBadge';
 import { PWAInstallPrompt } from '@/components/PWAInstallPrompt';
 
 const NAV_ITEMS = [
@@ -37,6 +38,7 @@ export default function AdminShell({
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
+          <AdminReturnsBadge />
           <AdminPushPrompt />
           <button
             onClick={() => setIsFeedbackOpen(true)}

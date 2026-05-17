@@ -8,6 +8,7 @@ import {
   PaymentSplitBar,
 } from '@/components/admin/DashboardCharts';
 import { ADMIN_ORDER_CREATED_EVENT } from '@/components/admin/AdminRealtimeProvider';
+import AdminWelcome from '@/components/admin/AdminWelcome';
 
 /**
  * NOIR Admin — operations dashboard.
@@ -188,6 +189,9 @@ export default function AdminDashboard() {
 
   return (
     <div>
+      {/* Personalized Admin Welcome */}
+      <AdminWelcome />
+
       <div
         style={{
           display: 'flex',
@@ -344,9 +348,9 @@ export default function AdminDashboard() {
           title="Needs action"
           empty={
             data &&
-            data.needsAction.unconfirmed === 0 &&
-            data.needsAction.failed === 0 &&
-            data.needsAction.stuck === 0
+              data.needsAction.unconfirmed === 0 &&
+              data.needsAction.failed === 0 &&
+              data.needsAction.stuck === 0
               ? 'All clear ✓'
               : null
           }
