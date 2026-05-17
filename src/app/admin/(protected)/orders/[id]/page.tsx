@@ -4,6 +4,9 @@ import { useEffect, useState, use } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { useToast } from '@/hooks/useToast';
+import { ShipmentDetailPanel } from '@/components/ShipmentDetailPanel';
+import { ShipmentTimeline } from '@/components/ShipmentTimeline';
+import type { CanonicalShipmentStatus } from '@/lib/shipping/state';
 
 interface OrderLine {
   id: string;
@@ -39,6 +42,25 @@ interface Order {
   notes: string | null;
   created_at: string;
   updated_at: string;
+  shipment?: {
+    id: string;
+    tracking_id: string | null;
+    provider_name: string | null;
+    status: CanonicalShipmentStatus;
+    label_url: string | null;
+    created_at: string;
+    last_provider_event_at: string | null;
+    environment: string | null;
+    failure_reason: string | null;
+  } | null;
+  shipment_history?: Array<{
+    id: string;
+    previous_status: CanonicalShipmentStatus | null;
+    next_status: CanonicalShipmentStatus;
+    created_at: string;
+    source: 'webhook' | 'api' | 'admin' | 'system';
+    provider_payload: Record<string, unknown> | null;
+  }>;
 }
 
 export default function AdminOrderDetail({ params }: { params: Promise<{ id: string }> }) {
@@ -52,9 +74,14 @@ export default function AdminOrderDetail({ params }: { params: Promise<{ id: str
   const [showCancelForm, setShowCancelForm] = useState(false);
   const [noteText, setNoteText] = useState('');
   const { toast, showToast } = useToast();
+  const [shipmentData, setShipmentData] = useState<{
+    shipment: Order['shipment'];
+    history: Order['shipment_history'];
+  }>({ shipment: null, history: [] });
 
   useEffect(() => {
     fetchOrder();
+    fetchShipmentData();
   }, [id]);
 
   async function fetchOrder() {
@@ -74,6 +101,28 @@ export default function AdminOrderDetail({ params }: { params: Promise<{ id: str
       setLines((itemRows ?? []) as OrderLine[]);
     }
     setLoading(false);
+  }
+
+  async function fetchShipmentData() {
+    const supabase = createClient();
+    // Fetch shipment from new shipments table
+    const { data: shipment } = await supabase
+      .from('shipments')
+      .select('id, tracking_id, provider_name, status, label_url, created_at, last_provider_event_at, environment, failure_reason')
+      .eq('order_id', id)
+      .order('created_at', { ascending: false })
+      .maybeSingle();
+
+    if (shipment) {
+      const { data: history } = await supabase
+        .from('shipment_status_history')
+        .select('id, previous_status, next_status, created_at, source, provider_payload')
+        .eq('shipment_id', shipment.id)
+        .order('created_at', { ascending: true });
+      setShipmentData({ shipment, history: history ?? [] });
+    } else {
+      setShipmentData({ shipment: null, history: [] });
+    }
   }
 
   const formatPrice = (paise: number) => '₹' + (paise / 100).toLocaleString('en-IN');
@@ -260,17 +309,40 @@ export default function AdminOrderDetail({ params }: { params: Promise<{ id: str
         </div>
       </div>
 
-      {/* Shipping */}
-      {order.tracking_id && (
-        <div className="card" style={{ marginBottom: 'var(--space-4)' }}>
-          <p className="input-label" style={{ marginBottom: 'var(--space-3)' }}>Shipping</p>
-          <p style={{ fontWeight: 500 }}>Tracking: {order.tracking_id}</p>
-          <p className="text-sm text-muted">Provider: {order.shipping_provider}</p>
-          {order.label_url && (
-            <a href={order.label_url} target="_blank" rel="noopener noreferrer" className="btn btn-secondary btn-sm" style={{ marginTop: 'var(--space-3)', width: '100%' }}>
-              Download Label PDF
-            </a>
+      {/* Shipment Detail Panel */}
+      <div className="card" style={{ marginBottom: 'var(--space-4)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 'var(--space-4)' }}>
+          <p className="input-label" style={{ margin: 0 }}>Shipment</p>
+          {shipmentData.shipment && (
+            <span style={{
+              fontSize: '0.5625rem',
+              fontWeight: 700,
+              letterSpacing: '0.1em',
+              textTransform: 'uppercase',
+              color: 'var(--text-muted)',
+              padding: '2px 8px',
+              background: 'var(--bg-tertiary)',
+              borderRadius: 3,
+              border: '1px solid var(--border-color)',
+            }}>
+              {shipmentData.shipment.provider_name?.toUpperCase() ?? 'NOIR'}
+            </span>
           )}
+        </div>
+        <ShipmentDetailPanel
+          shipment={shipmentData.shipment ?? null}
+          orderNumber={order.order_number}
+        />
+      </div>
+
+      {/* Shipment Timeline */}
+      {shipmentData.history && shipmentData.history.length > 0 && (
+        <div className="card" style={{ marginBottom: 'var(--space-4)' }}>
+          <p className="input-label" style={{ marginBottom: 'var(--space-4)' }}>Shipment History</p>
+          <ShipmentTimeline
+            events={shipmentData.history}
+            providerName={shipmentData.shipment?.provider_name}
+          />
         </div>
       )}
 
