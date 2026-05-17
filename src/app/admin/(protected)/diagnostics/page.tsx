@@ -578,6 +578,57 @@ function StatusChip({ status }: { status: string }) {
 }
 
 /* ------------------------------------------------------------------ */
+/* Job actions                                                         */
+/* ------------------------------------------------------------------ */
+
+function JobActions({ id, status }: { id: string; status: string }) {
+  const retry = async () => {
+    await fetch(`/api/admin/jobs/${id}/retry`, { method: 'POST' });
+    window.location.reload();
+  };
+
+  const archive = async () => {
+    await fetch(`/api/admin/jobs/${id}/archive`, { method: 'POST' });
+    window.location.reload();
+  };
+
+  return (
+    <div style={{ display: 'flex', gap: 8 }}>
+      {status === 'failed' && (
+        <button
+          onClick={retry}
+          style={{
+            fontSize: '0.6875rem',
+            padding: '4px 8px',
+            background: 'var(--warning)',
+            color: 'var(--bg-primary)',
+            border: 'none',
+            borderRadius: 'var(--radius-sm)',
+            cursor: 'pointer',
+          }}
+        >
+          Retry
+        </button>
+      )}
+      <button
+        onClick={archive}
+        style={{
+          fontSize: '0.6875rem',
+          padding: '4px 8px',
+          background: 'var(--bg-input)',
+          color: 'var(--text-muted)',
+          border: '1px solid var(--border-color)',
+          borderRadius: 'var(--radius-sm)',
+          cursor: 'pointer',
+        }}
+      >
+        Archive
+      </button>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
 /* Meta preview                                                        */
 /* ------------------------------------------------------------------ */
 
