@@ -138,10 +138,10 @@ function StatusDot({ active }: { active: boolean }) {
 
 function Pill({ label, tone = 'neutral' }: { label: string; tone?: 'active' | 'muted' | 'neutral' | 'error' }) {
   const styles: Record<string, React.CSSProperties> = {
-    active:  { background: 'rgba(76,175,80,0.12)',  color: 'var(--success)',      border: '1px solid rgba(76,175,80,0.25)' },
-    error:   { background: 'rgba(229,57,53,0.1)',   color: 'var(--error)',        border: '1px solid rgba(229,57,53,0.2)' },
-    muted:   { background: 'var(--bg-input)',       color: 'var(--text-muted)',   border: '1px solid var(--border-color)' },
-    neutral: { background: 'var(--bg-tertiary)',    color: 'var(--text-muted)',   border: '1px solid var(--border-color)' },
+    active: { background: 'rgba(76,175,80,0.12)', color: 'var(--success)', border: '1px solid rgba(76,175,80,0.25)' },
+    error: { background: 'rgba(229,57,53,0.1)', color: 'var(--error)', border: '1px solid rgba(229,57,53,0.2)' },
+    muted: { background: 'var(--bg-input)', color: 'var(--text-muted)', border: '1px solid var(--border-color)' },
+    neutral: { background: 'var(--bg-tertiary)', color: 'var(--text-muted)', border: '1px solid var(--border-color)' },
   };
   return (
     <span style={{ fontSize: '0.5625rem', fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', padding: '2px 8px', borderRadius: 3, ...styles[tone] }}>
@@ -168,9 +168,9 @@ function CapPill({ label, active }: { label: string; active: boolean }) {
    Tab bar
 ───────────────────────────────────────────────────────────────────── */
 const TABS: { id: Tab; label: string }[] = [
-  { id: 'providers',   label: 'Providers' },
-  { id: 'pricing',     label: 'Pricing' },
-  { id: 'cod',         label: 'COD' },
+  { id: 'providers', label: 'Providers' },
+  { id: 'pricing', label: 'Pricing' },
+  { id: 'cod', label: 'COD' },
   { id: 'diagnostics', label: 'Diagnostics' },
 ];
 
@@ -390,7 +390,7 @@ function ProvidersTab({
   onSave: () => void;
   saving: boolean;
 }) {
-  const [expanded, setExpanded] = useState<string | null>('delhivery');
+  const [expanded, setExpanded] = useState<string | null>(null);
 
   return (
     <div>
@@ -414,13 +414,6 @@ function ProvidersTab({
           saving={saving}
         />
       ))}
-
-      <div style={{ marginTop: 24, padding: '16px 20px', background: 'var(--bg-input)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-color)' }}>
-        <div style={{ fontSize: '0.6875rem', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: 6 }}>Future providers</div>
-        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', lineHeight: 1.7 }}>
-          EKart · Bluedart · DTDC — available in a future release.
-        </div>
-      </div>
     </div>
   );
 }
@@ -636,15 +629,15 @@ export default function AdminShipping() {
       const s: SettingsState = {
         ...EMPTY,
         ...raw,
-        provider_name:        raw.provider_name        ?? EMPTY.provider_name,
-        api_url:              raw.api_url              ?? '',
-        pickup_name:          raw.pickup_name          ?? '',
-        pickup_phone:         raw.pickup_phone         ?? '',
+        provider_name: raw.provider_name ?? EMPTY.provider_name,
+        api_url: raw.api_url ?? '',
+        pickup_name: raw.pickup_name ?? '',
+        pickup_phone: raw.pickup_phone ?? '',
         pickup_address_line1: raw.pickup_address_line1 ?? '',
         pickup_address_line2: raw.pickup_address_line2 ?? '',
-        pickup_city:          raw.pickup_city          ?? '',
-        pickup_state:         raw.pickup_state         ?? '',
-        pickup_pincode:       raw.pickup_pincode       ?? '',
+        pickup_city: raw.pickup_city ?? '',
+        pickup_state: raw.pickup_state ?? '',
+        pickup_pincode: raw.pickup_pincode ?? '',
       };
       setState(s);
       setFreeThresholdRs(paiseToRupees(s.free_shipping_threshold_paise));
