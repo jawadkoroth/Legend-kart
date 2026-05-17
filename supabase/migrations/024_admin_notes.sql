@@ -26,16 +26,14 @@ CREATE POLICY admin_notes_admin_all ON admin_notes
     TO authenticated
     USING (
         EXISTS (
-            SELECT 1 FROM profiles
-            WHERE profiles.id = auth.uid()
-            AND profiles.role = 'admin'
+            SELECT 1 FROM admin_users
+            WHERE admin_users.id = auth.uid()
         )
     )
     WITH CHECK (
         EXISTS (
-            SELECT 1 FROM profiles
-            WHERE profiles.id = auth.uid()
-            AND profiles.role = 'admin'
+            SELECT 1 FROM admin_users
+            WHERE admin_users.id = auth.uid()
         )
     );
 

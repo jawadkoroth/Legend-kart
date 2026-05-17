@@ -98,16 +98,14 @@ CREATE POLICY return_requests_admin_all ON return_requests
     TO authenticated
     USING (
         EXISTS (
-            SELECT 1 FROM profiles
-            WHERE profiles.id = auth.uid()
-            AND profiles.role = 'admin'
+            SELECT 1 FROM admin_users
+            WHERE admin_users.id = auth.uid()
         )
     )
     WITH CHECK (
         EXISTS (
-            SELECT 1 FROM profiles
-            WHERE profiles.id = auth.uid()
-            AND profiles.role = 'admin'
+            SELECT 1 FROM admin_users
+            WHERE admin_users.id = auth.uid()
         )
     );
 
@@ -143,9 +141,8 @@ CREATE POLICY return_history_user_view ON return_request_history
         )
         OR
         EXISTS (
-            SELECT 1 FROM profiles
-            WHERE profiles.id = auth.uid()
-            AND profiles.role = 'admin'
+            SELECT 1 FROM admin_users
+            WHERE admin_users.id = auth.uid()
         )
     );
 
