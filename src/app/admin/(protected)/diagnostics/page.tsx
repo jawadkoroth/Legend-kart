@@ -1,7 +1,8 @@
+import { redirect } from 'next/navigation';
 import Link from 'next/link';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
-import { JobActions } from './JobActions';
-import styles from './diagnostics.module.css';
+import { PWADiagnostics } from '@/components/PWADiagnostics';
+import styles from './page.module.css';
 
 /**
  * NOIR Admin — System Health.
@@ -114,6 +115,11 @@ export default async function DiagnosticsPage({
         <TabNav active={tab} sp={sp} />
       </header>
 
+      {/* PWA Status Section */}
+      <section style={{ marginBottom: 24 }}>
+        <PWADiagnostics />
+      </section>
+
       {tab === 'events' ? (
         <EventsView sp={sp} />
       ) : (
@@ -133,20 +139,19 @@ function JobSummary({ counts }: { counts: CountsByStatus }) {
     value: number;
     cls?: string;
   }> = [
-    { label: 'Queued',    value: counts.queued },
-    { label: 'Running',   value: counts.running,  cls: counts.running  > 0 ? styles.statRunning : undefined },
-    { label: 'Failed',    value: counts.failed,   cls: counts.failed   > 0 ? styles.statWarn    : undefined },
-    { label: 'Dead',      value: counts.dead,     cls: counts.dead     > 0 ? styles.statAlert   : undefined },
-  ];
+      { label: 'Queued', value: counts.queued },
+      { label: 'Running', value: counts.running, cls: counts.running > 0 ? styles.statRunning : undefined },
+      { label: 'Failed', value: counts.failed, cls: counts.failed > 0 ? styles.statWarn : undefined },
+      { label: 'Dead', value: counts.dead, cls: counts.dead > 0 ? styles.statAlert : undefined },
+    ];
 
   return (
     <div className={styles.statBar}>
       {cards.map((c) => (
         <div
           key={c.label}
-          className={`${styles.statCard} ${
-            c.value === 0 ? styles.statCardDim : ''
-          }`}
+          className={`${styles.statCard} ${c.value === 0 ? styles.statCardDim : ''
+            }`}
         >
           <span className={styles.statLabel}>{c.label}</span>
           <span className={`${styles.statValue} ${c.cls ?? ''}`}>
@@ -175,7 +180,7 @@ function TabNav({
 
   const tabs: Array<{ id: Tab; label: string }> = [
     { id: 'events', label: 'Events' },
-    { id: 'jobs',   label: 'Jobs' },
+    { id: 'jobs', label: 'Jobs' },
   ];
 
   return (
@@ -187,9 +192,8 @@ function TabNav({
           <Link
             key={t.id}
             href={`/admin/diagnostics?${params.toString()}`}
-            className={`${styles.tabLink} ${
-              active === t.id ? styles.tabActive : ''
-            }`}
+            className={`${styles.tabLink} ${active === t.id ? styles.tabActive : ''
+              }`}
           >
             {t.label}
           </Link>
@@ -231,8 +235,8 @@ async function EventsView({
     query = query.eq('source', sp.source);
   }
   if (sp.request_id) query = query.eq('request_id', sp.request_id);
-  if (sp.entity_id)  query = query.eq('entity_id', sp.entity_id);
-  if (sp.q)          query = query.ilike('event', `%${sp.q}%`);
+  if (sp.entity_id) query = query.eq('entity_id', sp.entity_id);
+  if (sp.q) query = query.ilike('event', `%${sp.q}%`);
 
   const { data, error } = await query;
   const rows = (data ?? []) as AppEventRow[];
@@ -425,7 +429,7 @@ async function JobsView({
     query = query.eq('status', sp.status);
   }
   if (sp.kind) query = query.eq('kind', sp.kind);
-  if (sp.q)    query = query.ilike('kind', `%${sp.q}%`);
+  if (sp.q) query = query.ilike('kind', `%${sp.q}%`);
 
   const { data, error } = await query;
   const rows = (data ?? []) as JobRow[];
@@ -556,20 +560,20 @@ function JobsTable({ rows }: { rows: JobRow[] }) {
 function SeverityChip({ severity }: { severity: string }) {
   const cls =
     severity === 'fatal' ? styles.sevFatal
-    : severity === 'error' ? styles.sevError
-    : severity === 'warn'  ? styles.sevWarn
-    : severity === 'debug' ? styles.sevDebug
-    : styles.sevInfo;
+      : severity === 'error' ? styles.sevError
+        : severity === 'warn' ? styles.sevWarn
+          : severity === 'debug' ? styles.sevDebug
+            : styles.sevInfo;
   return <span className={`${styles.chip} ${cls}`}>{severity}</span>;
 }
 
 function StatusChip({ status }: { status: string }) {
   const cls =
-    status === 'dead'      ? styles.statusDead
-    : status === 'failed'  ? styles.statusFailed
-    : status === 'running' ? styles.statusRunning
-    : status === 'succeeded' ? styles.statusSucceeded
-    : styles.statusQueued;
+    status === 'dead' ? styles.statusDead
+      : status === 'failed' ? styles.statusFailed
+        : status === 'running' ? styles.statusRunning
+          : status === 'succeeded' ? styles.statusSucceeded
+            : styles.statusQueued;
   return <span className={`${styles.chip} ${cls}`}>{status}</span>;
 }
 

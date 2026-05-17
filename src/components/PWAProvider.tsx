@@ -43,27 +43,39 @@ export function PWAProvider({ children }: PWAProviderProps) {
   // Detect standalone mode and platform
   const isStandalone = typeof window !== 'undefined' &&
     (window.matchMedia('(display-mode: standalone)').matches ||
-     (window.navigator as { standalone?: boolean }).standalone === true);
-  
+      (window.navigator as { standalone?: boolean }).standalone === true);
+
   const isIOS = typeof navigator !== 'undefined' &&
     /iPad|iPhone|iPod/.test(navigator.userAgent) &&
     !(window as { MSStream?: unknown }).MSStream;
 
   const canInstall = !!deferredPrompt || (isIOS && !isStandalone);
 
-  // Handle beforeinstallprompt
+  // Handle beforeinstallprompt - capture install availability
   useEffect(() => {
     if (typeof window === 'undefined') return;
 
     const handler = (e: Event) => {
       e.preventDefault();
+      console.log('[PWA] beforeinstallprompt captured');
       setDeferredPrompt(e as BeforeInstallPromptEvent);
     };
 
+    // Chrome sometimes fires before JS loads, so check if stored
+    const checkExisting = () => {
+      // @ts-expect-error - Chrome specific property
+      if (window.deferredPrompt) {
+        // @ts-expect-error - Chrome specific property
+        setDeferredPrompt(window.deferredPrompt);
+      }
+    };
+
     window.addEventListener('beforeinstallprompt', handler);
+    checkExisting();
 
     // Check if already installed
-    if (window.matchMedia('(display-mode: standalone)').matches) {
+    if (window.matchMedia('(display-mode: standalone)').matches ||
+      (window.navigator as { standalone?: boolean }).standalone) {
       setIsInstalled(true);
     }
 
@@ -113,7 +125,7 @@ export function PWAProvider({ children }: PWAProviderProps) {
 
         // Check for updates periodically
         setInterval(() => {
-          reg.update().catch(() => {});
+          reg.update().catch(() => { });
         }, 60000); // Check every minute
       })
       .catch(() => {
@@ -158,7 +170,7 @@ export function PWAProvider({ children }: PWAProviderProps) {
 
     deferredPrompt.prompt();
     const { outcome } = await deferredPrompt.userChoice;
-    
+
     if (outcome === 'accepted') {
       setDeferredPrompt(null);
     }

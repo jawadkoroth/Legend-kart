@@ -14,21 +14,14 @@
  *   - API routes explicitly excluded from cache
  */
 
-const CACHE_SHELL = 'noir-shell-v1';
+const CACHE_CORE = 'noir-core-v1';
 const CACHE_IMAGES = 'noir-images-v1';
 const CACHE_ASSETS = 'noir-assets-v1';
 
-const SHELL_ASSETS = [
-  '/',
-  '/admin/dashboard',
-  '/admin/orders',
-  '/admin/products',
-  '/admin/coupons',
-  '/admin/shipping',
-  '/admin/diagnostics',
+// Core static assets only (no SSR routes)
+const CORE_ASSETS = [
   '/manifest.json',
-  '/icons/icon-192x192.png',
-  '/icons/icon-512x512.png',
+  '/icons/icon.svg',
 ];
 
 // API routes that must never be cached
@@ -38,12 +31,23 @@ const API_BLACKLIST = [
   '/api/webhooks',
 ];
 
-// Install: Cache shell assets
+// SSR routes that should not be cached
+const SSR_ROUTES = [
+  '/admin',
+  '/admin/dashboard',
+  '/admin/orders',
+  '/admin/products',
+  '/admin/coupons',
+  '/admin/shipping',
+  '/admin/diagnostics',
+];
+
+// Install: Cache core assets only
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches
-      .open(CACHE_SHELL)
-      .then((cache) => cache.addAll(SHELL_ASSETS))
+      .open(CACHE_CORE)
+      .then((cache) => cache.addAll(CORE_ASSETS))
       .then(() => self.skipWaiting())
   );
 });
@@ -56,7 +60,7 @@ self.addEventListener('activate', (event) => {
       .then((cacheNames) =>
         Promise.all(
           cacheNames
-            .filter((name) => !name.startsWith('noir-'))
+            .filter((name) => name.startsWith('noir-') && name !== CACHE_CORE && name !== CACHE_IMAGES && name !== CACHE_ASSETS)
             .map((name) => caches.delete(name))
         )
       )
@@ -80,6 +84,11 @@ self.addEventListener('fetch', (event) => {
   // Skip external resources
   if (url.origin !== self.location.origin) return;
 
+  // Skip SSR routes - never cache dynamic HTML
+  if (SSR_ROUTES.some((route) => url.pathname.startsWith(route))) {
+    return;
+  }
+
   // Images: Stale-while-revalidate
   if (request.destination === 'image') {
     event.respondWith(
@@ -97,15 +106,15 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Shell assets: Cache-first with network fallback
-  if (SHELL_ASSETS.includes(url.pathname)) {
+  // Core assets: Cache-first with network fallback
+  if (CORE_ASSETS.includes(url.pathname)) {
     event.respondWith(
       caches.match(request).then((cached) => {
         if (cached) return cached;
         return fetch(request).then((response) => {
           if (!response || response.status !== 200) return response;
           const clone = response.clone();
-          caches.open(CACHE_SHELL).then((cache) => cache.put(request, clone));
+          caches.open(CACHE_CORE).then((cache) => cache.put(request, clone));
           return response;
         });
       })
@@ -135,10 +144,8 @@ self.addEventListener('fetch', (event) => {
       fetch(request)
         .then((response) => response)
         .catch(() =>
-          caches.match('/admin/dashboard').then((cached) => {
-            if (cached) return cached;
-            return new Response(
-              `<!DOCTYPE html>
+          new Response(
+            `<!DOCTYPE html>
 <html>
 <head><title>NOIR — Offline</title><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>
 body{background:#0B0B0B;color:#fff;font-family:system-ui,sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;text-align:center;padding:20px}
@@ -155,9 +162,8 @@ p{font-size:14px;color:#888;margin:0}
 </div>
 </body>
 </html>`,
-              { headers: { 'Content-Type': 'text/html' } }
-            );
-          })
+            { headers: { 'Content-Type': 'text/html' } }
+          )
         )
     );
   }
