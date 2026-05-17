@@ -7,6 +7,7 @@ import AdminFeedbackDrawer from '@/components/AdminFeedbackDrawer';
 import AdminRealtimeProvider from '@/components/admin/AdminRealtimeProvider';
 import AdminPushPrompt from '@/components/admin/AdminPushPrompt';
 import { PWAInstallPrompt } from '@/components/PWAInstallPrompt';
+import { PWAInstallButton } from '@/components/PWAInstallButton';
 
 const NAV_ITEMS = [
   { href: '/admin/dashboard', label: 'Home', icon: '📊' },
@@ -36,7 +37,8 @@ export default function AdminShell({
           <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)', letterSpacing: '0.15em' }}>ADMIN</span>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
+          <PWAInstallButton />
           <AdminPushPrompt />
           <button
             onClick={() => setIsFeedbackOpen(true)}
