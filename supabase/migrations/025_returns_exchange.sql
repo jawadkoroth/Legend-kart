@@ -44,8 +44,9 @@ CREATE TABLE IF NOT EXISTS return_requests (
     pickup_scheduled_at TIMESTAMPTZ,
     pickup_tracking_id TEXT,
     
-    -- For exchanges
-    exchange_variant_id UUID REFERENCES product_variants(id),
+    -- For exchanges (store desired product/size as text; no FK due to size being JSONB)
+    exchange_product_id UUID REFERENCES products(id),
+    exchange_size TEXT,
     exchange_order_id UUID REFERENCES orders(id),
     
     -- Financial tracking

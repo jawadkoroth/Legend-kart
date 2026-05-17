@@ -9,7 +9,7 @@
  */
 
 export type ReturnRequestType = 'return' | 'exchange';
-export type ReturnRequestStatus = 
+export type ReturnRequestStatus =
   | 'requested'      // User submitted request
   | 'under_review'   // Admin reviewing
   | 'approved'       // Admin approved, pending pickup
@@ -29,22 +29,22 @@ export interface ReturnRequest {
   order_id: string;
   order_item_id: string; // Specific item being returned
   user_id: string;
-  
+
   // Request details
   type: ReturnRequestType;
   status: ReturnRequestStatus;
-  
+
   // Reasoning
   reason: string;
   reason_details?: string;
   images?: string[]; // URLs to uploaded images
-  
+
   // Admin review
   admin_notes?: string;
   reviewed_by?: string;
   reviewed_at?: string;
   rejection_reason?: string;
-  
+
   // Pickup/shipping info
   pickup_address?: {
     line1: string;
@@ -55,20 +55,21 @@ export interface ReturnRequest {
   };
   pickup_scheduled_at?: string;
   pickup_tracking_id?: string;
-  
+
   // For exchanges
-  exchange_variant_id?: string; // New size/color selection
+  exchange_product_id?: string; // Reference to desired product
+  exchange_size?: string; // Desired size (stored as text, no FK)
   exchange_order_id?: string; // Reference to new order for exchange
-  
+
   // Financial
   refund_amount_paise: number;
   refund_method: 'original' | 'store_credit' | 'bank_transfer';
   refund_processed_at?: string;
-  
+
   // Item condition on receipt
   received_condition?: 'excellent' | 'good' | 'damaged' | 'missing_parts';
   restocking_fee_paise?: number;
-  
+
   // Timestamps
   created_at: string;
   updated_at: string;
