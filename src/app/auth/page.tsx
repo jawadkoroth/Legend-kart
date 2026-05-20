@@ -1,7 +1,7 @@
 'use client';
 
-import { Suspense, useState } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { Suspense, useState, useEffect, useRef, useCallback } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import styles from './page.module.css';
 
@@ -16,13 +16,59 @@ import styles from './page.module.css';
  *   3. Clicking the email link hits /auth/callback which exchanges the
  *      code for a session server-side, then redirects to ?next or /profile.
  *
- * No OTP entry screen. No fake 6-digit code UI.
+ * UX hardening:
+ *   - Centralized error mapper — no raw Supabase/provider messages reach users.
+ *   - 60-second cooldown after send: prevents spam, reduces rate-limit hits.
+ *   - Duplicate-send guard: inflight ref prevents concurrent submissions.
+ *   - Cooldown persists across React re-renders via refs + interval.
  */
+
+const COOLDOWN_SECONDS = 60;
+
+/**
+ * Maps raw Supabase/provider error messages to curated NOIR copy.
+ * Technical messages are logged to console; only premium UX copy
+ * is shown to users.
+ */
+function mapAuthError(raw: string): string {
+  const msg = raw.toLowerCase();
+
+  if (msg.includes('rate limit') || msg.includes('too many') || msg.includes('429')) {
+    return 'Too many secure link requests. Please wait a moment before trying again.';
+  }
+  if (msg.includes('invalid email') || msg.includes('unable to validate email')) {
+    return 'Please enter a valid email address.';
+  }
+  if (msg.includes('signups not allowed') || msg.includes('signup disabled')) {
+    return 'New sign-ups are temporarily unavailable. Please try again later.';
+  }
+  if (msg.includes('email not confirmed')) {
+    return 'Please verify your email first. Check your inbox for a previous sign-in link.';
+  }
+  if (msg.includes('expired') || msg.includes('token has expired')) {
+    return 'This sign-in link has expired. Please request a new one.';
+  }
+  if (msg.includes('invalid token') || msg.includes('otp') || msg.includes('token not found')) {
+    return 'This sign-in link is invalid or has already been used. Please request a new one.';
+  }
+  if (msg.includes('network') || msg.includes('fetch') || msg.includes('failed to fetch')) {
+    return 'Connection issue. Please check your internet and try again.';
+  }
+  if (msg.includes('popup') || msg.includes('closed by')) {
+    return 'Sign-in was cancelled. Please try again.';
+  }
+  if (msg.includes('access_denied')) {
+    return 'Access was denied. Please try again or use a different sign-in method.';
+  }
+
+  // Log technical details internally; return generic premium message.
+  console.error('[AUTH_ERROR]', raw);
+  return 'Something went wrong. Please try again.';
+}
 
 type Step = 'enter' | 'sent';
 
 function AuthInner() {
-  const router = useRouter();
   const searchParams = useSearchParams();
   const errorParam = searchParams.get('error');
   const rawNext = searchParams.get('next') || '/profile';
@@ -31,16 +77,42 @@ function AuthInner() {
   const [step, setStep] = useState<Step>('enter');
   const [email, setEmail] = useState('');
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(errorParam ?? '');
+  const [error, setError] = useState(errorParam ? mapAuthError(errorParam) : '');
+  const [cooldown, setCooldown] = useState(0);
+
+  const inflightRef = useRef(false);
+  const cooldownRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Clear interval on unmount
+  useEffect(() => {
+    return () => {
+      if (cooldownRef.current) clearInterval(cooldownRef.current);
+    };
+  }, []);
+
+  const startCooldown = useCallback(() => {
+    setCooldown(COOLDOWN_SECONDS);
+    if (cooldownRef.current) clearInterval(cooldownRef.current);
+    cooldownRef.current = setInterval(() => {
+      setCooldown((prev) => {
+        if (prev <= 1) {
+          if (cooldownRef.current) clearInterval(cooldownRef.current);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+  }, []);
 
   async function handleSendMagicLink(e: React.FormEvent) {
     e.preventDefault();
-    if (!email.trim()) return;
+    if (!email.trim() || inflightRef.current || cooldown > 0) return;
+
+    inflightRef.current = true;
     setLoading(true);
     setError('');
 
     const supabase = createClient();
-    // Build the callback URL so the link lands on our handler, not Supabase's default.
     const callbackUrl = new URL('/auth/callback', window.location.origin);
     callbackUrl.searchParams.set('next', next);
 
@@ -52,15 +124,21 @@ function AuthInner() {
       },
     });
 
+    inflightRef.current = false;
+
     if (authError) {
-      setError(authError.message);
+      setError(mapAuthError(authError.message));
+      setLoading(false);
     } else {
+      setLoading(false);
+      startCooldown();
       setStep('sent');
     }
-    setLoading(false);
   }
 
   async function handleGoogleLogin() {
+    if (inflightRef.current) return;
+    inflightRef.current = true;
     setLoading(true);
     setError('');
     const supabase = createClient();
@@ -72,9 +150,17 @@ function AuthInner() {
       options: { redirectTo: callbackUrl.toString() },
     });
     if (oauthError) {
-      setError(oauthError.message);
+      setError(mapAuthError(oauthError.message));
       setLoading(false);
+      inflightRef.current = false;
     }
+    // On success: browser redirects away — inflight ref doesn't matter
+  }
+
+  function handleBackToEnter() {
+    setStep('enter');
+    setError('');
+    // Keep cooldown running — prevents re-sending immediately after going back
   }
 
   return (
@@ -137,11 +223,15 @@ function AuthInner() {
                 </div>
                 <button
                   className={styles.primaryBtn}
-                  disabled={loading || !email.trim()}
+                  disabled={loading || !email.trim() || cooldown > 0}
                   type="submit"
                 >
                   {loading ? (
                     <span className={styles.spinner} />
+                  ) : cooldown > 0 ? (
+                    <span className={styles.cooldownText}>
+                      Available again in {cooldown}s
+                    </span>
                   ) : (
                     'Send Secure Link'
                   )}
@@ -171,13 +261,27 @@ function AuthInner() {
               Click the link in the email to sign in instantly.
               The link expires in 60 minutes.
             </p>
-            <button
-              className={styles.resendBtn}
-              onClick={() => setStep('enter')}
-              type="button"
-            >
-              ← Use a different email
-            </button>
+            {cooldown > 0 ? (
+              <div className={styles.cooldownBar}>
+                <div className={styles.cooldownTrack}>
+                  <div
+                    className={styles.cooldownProgress}
+                    style={{ width: `${((COOLDOWN_SECONDS - cooldown) / COOLDOWN_SECONDS) * 100}%` }}
+                  />
+                </div>
+                <p className={styles.cooldownLabel}>
+                  Next link available in {cooldown}s
+                </p>
+              </div>
+            ) : (
+              <button
+                className={styles.resendBtn}
+                onClick={handleBackToEnter}
+                type="button"
+              >
+                ← Use a different email
+              </button>
+            )}
           </div>
         )}
       </div>
