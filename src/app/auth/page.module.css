@@ -223,6 +223,16 @@
   opacity: 0.5;
 }
 
+.emailInput:-webkit-autofill,
+.emailInput:-webkit-autofill:hover,
+.emailInput:-webkit-autofill:focus {
+  -webkit-text-fill-color: #F0F0F0;
+  -webkit-box-shadow: 0 0 0 1000px #1A1A1A inset;
+  box-shadow: 0 0 0 1000px #1A1A1A inset;
+  caret-color: #F0F0F0;
+  transition: background-color 5000s ease-in-out 0s;
+}
+
 /* ── Primary CTA ───────────────────────────── */
 .primaryBtn {
   width: 100%;
