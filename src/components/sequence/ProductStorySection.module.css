@@ -1,0 +1,323 @@
+/* ──────────────────────────────────────────────────────────────────────
+   NOIR — Product Story Section
+   Scroll-driven image sequence with cinematic annotation overlays.
+   ────────────────────────────────────────────────────────────────────── */
+
+/* ── Sticky scroll container ─────────────────────────────────────────── */
+.sectionOuter {
+  /* Height determines scroll travel. 4× viewport = ample rotation range.
+     Adjust multiplier to make rotation faster/slower. */
+  position: relative;
+  background: #080808;
+}
+
+.sticky {
+  position: sticky;
+  top: 0;
+  height: 100dvh;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #080808;
+}
+
+/* ── Vignette layer ──────────────────────────────────────────────────── */
+.vignette {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(ellipse at center, transparent 35%, rgba(8,8,8,0.65) 75%, rgba(8,8,8,0.92) 100%);
+  pointer-events: none;
+  z-index: 2;
+}
+
+/* ── Canvas ──────────────────────────────────────────────────────────── */
+.canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 1;
+}
+
+/* ── Section header (appears above canvas on scroll in) ─────────────── */
+.sectionHeader {
+  position: absolute;
+  top: max(5dvh, 40px);
+  left: 50%;
+  transform: translateX(-50%);
+  text-align: center;
+  z-index: 10;
+  pointer-events: none;
+  transition: opacity 600ms ease, transform 600ms ease;
+}
+
+.sectionHeader.hidden {
+  opacity: 0;
+  transform: translateX(-50%) translateY(-10px);
+}
+
+.eyebrow {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: rgba(212, 175, 55, 0.6);
+  margin-bottom: 10px;
+}
+
+.sectionTitle {
+  font-family: Georgia, 'Playfair Display', 'Times New Roman', serif;
+  font-size: clamp(1.5rem, 4vw, 2.625rem);
+  font-weight: 400;
+  color: rgba(245, 245, 245, 0.92);
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+}
+
+/* ── Progress bar ───────────────────────────────────────────────────── */
+.progressBar {
+  position: absolute;
+  bottom: max(5dvh, 32px);
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(140px, 30vw);
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.progressTrack {
+  width: 100%;
+  height: 1px;
+  background: rgba(255,255,255,0.08);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.progressFill {
+  height: 100%;
+  background: linear-gradient(90deg, rgba(212,175,55,0.7), rgba(212,175,55,0.3));
+  border-radius: 999px;
+  transition: width 80ms linear;
+}
+
+.progressLabel {
+  font-size: 0.6rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: rgba(255,255,255,0.2);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Scroll hint ────────────────────────────────────────────────────── */
+.scrollHint {
+  position: absolute;
+  bottom: max(5dvh, 32px);
+  right: max(24px, 3vw);
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  pointer-events: none;
+  transition: opacity 600ms ease;
+}
+
+.scrollHint.hidden {
+  opacity: 0;
+}
+
+.scrollHintLine {
+  width: 1px;
+  height: 36px;
+  background: linear-gradient(to bottom, rgba(212,175,55,0.5), transparent);
+  animation: scrollPulse 2s ease-in-out infinite;
+}
+
+@keyframes scrollPulse {
+  0%, 100% { opacity: 0.4; transform: scaleY(1); }
+  50% { opacity: 1; transform: scaleY(0.7); }
+}
+
+.scrollHintText {
+  font-size: 0.55rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: rgba(255,255,255,0.2);
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+}
+
+/* ── Loading overlay ────────────────────────────────────────────────── */
+.loadingOverlay {
+  position: absolute;
+  inset: 0;
+  background: #080808;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  z-index: 20;
+  gap: 20px;
+  transition: opacity 800ms ease;
+}
+
+.loadingOverlay.fadeOut {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.loadingWordmark {
+  font-family: Georgia, 'Playfair Display', serif;
+  font-size: 1.25rem;
+  letter-spacing: 0.28em;
+  color: rgba(245,245,245,0.5);
+}
+
+.loadingTrack {
+  width: 80px;
+  height: 1px;
+  background: rgba(255,255,255,0.06);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.loadingFill {
+  height: 100%;
+  background: rgba(212,175,55,0.6);
+  border-radius: 999px;
+  transition: width 200ms ease;
+}
+
+/* ── Annotations ────────────────────────────────────────────────────── */
+.annotationsLayer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 8;
+}
+
+.annotation {
+  position: absolute;
+  opacity: 0;
+  transform: translateY(6px);
+  transition: opacity 500ms cubic-bezier(0.16, 1, 0.3, 1),
+              transform 500ms cubic-bezier(0.16, 1, 0.3, 1);
+  pointer-events: none;
+}
+
+.annotation.visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* Dot marker at the annotation anchor point */
+.annotationDot {
+  position: absolute;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: rgba(212, 175, 55, 0.85);
+  box-shadow: 0 0 0 4px rgba(212, 175, 55, 0.15), 0 0 12px rgba(212, 175, 55, 0.25);
+  animation: dotPulse 2.5s ease-in-out infinite;
+}
+
+@keyframes dotPulse {
+  0%, 100% { box-shadow: 0 0 0 4px rgba(212,175,55,0.15), 0 0 12px rgba(212,175,55,0.2); }
+  50% { box-shadow: 0 0 0 7px rgba(212,175,55,0.08), 0 0 20px rgba(212,175,55,0.35); }
+}
+
+/* Dotted connector line */
+.annotationLine {
+  position: absolute;
+  background: none;
+  border: none;
+  /* Rendered as an SVG inline — see component */
+}
+
+/* Label card — positioned relative to the dot */
+.annotationCard {
+  position: absolute;
+  min-width: 140px;
+  max-width: 180px;
+}
+
+.annotationPrimary {
+  font-family: Georgia, 'Playfair Display', serif;
+  font-size: clamp(0.8125rem, 1.8vw, 1rem);
+  font-weight: 400;
+  color: rgba(245, 245, 245, 0.92);
+  letter-spacing: 0.01em;
+  line-height: 1.3;
+  margin-bottom: 4px;
+}
+
+.annotationSecondary {
+  font-size: clamp(0.6rem, 1.2vw, 0.72rem);
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(255,255,255,0.3);
+  line-height: 1.5;
+}
+
+/* Left-side annotations: text right-aligned */
+.annotationCard.left {
+  text-align: right;
+}
+
+/* Right-side annotations: text left-aligned */
+.annotationCard.right {
+  text-align: left;
+}
+
+/* ── Placeholder state (no real frames loaded yet) ──────────────────── */
+.placeholderShirt {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 3;
+}
+
+.placeholderShirt svg {
+  opacity: 0.12;
+  width: min(320px, 55vw);
+  height: auto;
+}
+
+/* ── Mobile overrides ────────────────────────────────────────────────── */
+@media (max-width: 640px) {
+  .annotationCard {
+    min-width: 110px;
+    max-width: 145px;
+  }
+  .annotationPrimary {
+    font-size: 0.8125rem;
+  }
+  .annotationSecondary {
+    font-size: 0.6rem;
+  }
+  .scrollHint {
+    display: none;
+  }
+}
+
+/* ── Reduced motion ──────────────────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  .annotation {
+    transition: opacity 200ms ease;
+    transform: none !important;
+  }
+  .scrollHintLine {
+    animation: none;
+  }
+  .annotationDot {
+    animation: none;
+  }
+}

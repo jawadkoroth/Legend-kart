@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import Link from 'next/link';
 import HomepageCouponBanner from '@/components/HomepageCouponBanner';
+import ProductStorySection from '@/components/sequence/ProductStorySection';
 import styles from './page.module.css';
 
 // Editorial pacing for the process section. Six fragments, each
@@ -298,6 +299,9 @@ export default function LandingClient() {
           </p>
         </div>
       </section>
+
+      {/* Product Story — scroll-driven image sequence, inserted below hero */}
+      <ProductStorySection />
 
       {/* Brand Story Slider */}
       <section
