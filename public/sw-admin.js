@@ -120,6 +120,7 @@ self.addEventListener('notificationclick', (event) => {
 
   const { action } = event;
   if (action === 'dismiss') return;
+  // 'view' or default click both navigate to the order
 
   const data = event.notification.data || {};
   const type = data.type || 'new_order';
@@ -173,10 +174,43 @@ self.addEventListener('pushsubscriptionchange', (event) => {
 self.addEventListener('message', (event) => {
   if (event.data === 'SKIP_WAITING') {
     self.skipWaiting();
+    return;
   }
 
-  // Acknowledge ping from app for health checks
   if (event.data === 'PING') {
     event.source?.postMessage?.({ type: 'PONG', timestamp: Date.now() });
+    return;
+  }
+
+  // ── Realtime order alert routed from AdminRealtimeProvider when app is backgrounded ──
+  if (event.data?.type === 'SHOW_ORDER_NOTIFICATION') {
+    const p = event.data.payload || {};
+    const tag = p.orderId ? `noir-order-${p.orderId}` : 'noir-order';
+
+    const notifOptions = {
+      body: p.body || 'A new order has been placed.',
+      tag,
+      renotify: true,
+      requireInteraction: false,
+      silent: false,
+      vibrate: [120, 60, 200, 60, 120],
+      icon: '/icons/icon-192x192.png',
+      badge: '/icons/icon-96x96.png',
+      data: {
+        url: p.url || '/admin/orders',
+        orderId: p.orderId,
+        type: 'new_order',
+        timestamp: Date.now(),
+      },
+      actions: [
+        { action: 'view', title: '👁 View Order' },
+        { action: 'dismiss', title: 'Dismiss' },
+      ],
+    };
+
+    event.waitUntil(
+      self.registration.showNotification(p.title || '💰 New Order — NOIR', notifOptions)
+    );
+    return;
   }
 });

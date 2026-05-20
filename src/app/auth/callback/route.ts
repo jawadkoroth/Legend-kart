@@ -2,27 +2,29 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 
 /**
- * OAuth callback (server route handler).
+ * Auth callback handler — supports two Supabase auth flows:
  *
- * Exchanges the PKCE `?code` for a session entirely server-side, which
- * writes session cookies via the @supabase/ssr cookie adapter. Then
- * decides where to send the user:
+ *   1. OAuth (Google): `?code=...`  — PKCE exchange server-side.
+ *   2. Magic link email: `?token_hash=...&type=email` — verifyOtp server-side.
  *
- *   - missing/incomplete profile (no phone) -> /profile/complete?next=...
- *   - complete profile                       -> ?next=  (default /profile)
+ * Both paths write session cookies via @supabase/ssr, then redirect:
+ *   - no phone on profile → /profile/complete?next=...
+ *   - profile complete    → ?next= (default /profile)
  *
- * The `profiles` row is auto-created by a Postgres trigger on
- * `auth.users` (see migration 003), so no client-side bootstrap is
- * required.
+ * This eliminates the "duplicate tab" confusion: the magic link lands here,
+ * exchanges the token for a session in the SAME request, then sends the user
+ * directly to their destination — no OTP input screen involved.
  */
 export async function GET(request: NextRequest) {
   const url = new URL(request.url);
+
   const code = url.searchParams.get('code');
+  const tokenHash = url.searchParams.get('token_hash');
+  const type = url.searchParams.get('type') as 'email' | 'recovery' | null;
   const errorParam = url.searchParams.get('error');
   const errorDescription = url.searchParams.get('error_description');
 
   const rawNext = url.searchParams.get('next') || '/profile';
-  // Only allow internal redirects.
   const next = rawNext.startsWith('/') && !rawNext.startsWith('//') ? rawNext : '/profile';
 
   if (errorParam) {
@@ -31,17 +33,30 @@ export async function GET(request: NextRequest) {
     return NextResponse.redirect(target);
   }
 
-  if (!code) {
-    const target = new URL('/auth', url.origin);
-    target.searchParams.set('error', 'Missing authorization code');
-    return NextResponse.redirect(target);
-  }
-
   const supabase = await createServerSupabaseClient();
-  const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
-  if (exchangeError) {
+
+  if (tokenHash && type) {
+    // ── Magic link / email OTP flow ──
+    const { error: verifyError } = await supabase.auth.verifyOtp({
+      token_hash: tokenHash,
+      type,
+    });
+    if (verifyError) {
+      const target = new URL('/auth', url.origin);
+      target.searchParams.set('error', verifyError.message);
+      return NextResponse.redirect(target);
+    }
+  } else if (code) {
+    // ── OAuth PKCE flow (Google, etc.) ──
+    const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
+    if (exchangeError) {
+      const target = new URL('/auth', url.origin);
+      target.searchParams.set('error', exchangeError.message);
+      return NextResponse.redirect(target);
+    }
+  } else {
     const target = new URL('/auth', url.origin);
-    target.searchParams.set('error', exchangeError.message);
+    target.searchParams.set('error', 'Missing authorization parameters');
     return NextResponse.redirect(target);
   }
 
@@ -51,12 +66,12 @@ export async function GET(request: NextRequest) {
 
   if (!user) {
     const target = new URL('/auth', url.origin);
-    target.searchParams.set('error', 'Session not established');
+    target.searchParams.set('error', 'Session could not be established');
     return NextResponse.redirect(target);
   }
 
-  // Profile row is auto-created by trigger; we only inspect `phone` to
-  // decide whether onboarding is needed.
+  // Profile row is auto-created by trigger (migration 003).
+  // Only check phone to decide whether onboarding is required.
   const { data: profile } = await supabase
     .from('profiles')
     .select('phone')

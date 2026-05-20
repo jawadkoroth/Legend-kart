@@ -1,55 +1,368 @@
+/* ── Page wrapper ─────────────────────────── */
 .page {
-  min-height: calc(100dvh - 52px);
+  min-height: 100dvh;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: var(--space-5);
+  background: #0B0B0B;
+  padding: 24px 16px;
+  position: relative;
+  overflow: hidden;
 }
 
-.content {
-  max-width: 380px;
+/* Ambient background glow — very subtle */
+.glow {
+  position: absolute;
+  top: -20%;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 600px;
+  height: 600px;
+  background: radial-gradient(ellipse at center, rgba(212, 175, 55, 0.045) 0%, transparent 68%);
+  pointer-events: none;
+  animation: glow-breathe 6s ease-in-out infinite alternate;
+}
+
+@keyframes glow-breathe {
+  0% {
+    opacity: 0.6;
+    transform: translateX(-50%) scale(1);
+  }
+
+  100% {
+    opacity: 1;
+    transform: translateX(-50%) scale(1.08);
+  }
+}
+
+/* ── Card ──────────────────────────────────── */
+.card {
   width: 100%;
+  max-width: 400px;
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 20px;
+  padding: 40px 32px 36px;
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  box-shadow:
+    0 32px 80px rgba(0, 0, 0, 0.6),
+    0 0 0 1px rgba(255, 255, 255, 0.04) inset;
+  position: relative;
+  animation: card-rise 500ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
+@keyframes card-rise {
+  0% {
+    opacity: 0;
+    transform: translateY(16px) scale(0.98);
+  }
+
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* ── Brand mark ────────────────────────────── */
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 32px;
+}
+
+.brandName {
+  font-family: var(--font-serif, 'Playfair Display', Georgia, serif);
+  font-size: 1.25rem;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  color: #F5F5F5;
+}
+
+.brandDot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: rgba(212, 175, 55, 0.7);
+  box-shadow: 0 0 8px rgba(212, 175, 55, 0.5);
+}
+
+/* ── Headings ──────────────────────────────── */
 .title {
-  font-family: var(--font-serif);
-  font-size: 1.5rem;
-  font-weight: 500;
-  text-align: center;
-  margin-bottom: var(--space-2);
+  font-family: var(--font-serif, 'Playfair Display', Georgia, serif);
+  font-size: clamp(1.6rem, 5vw, 2rem);
+  font-weight: 400;
+  letter-spacing: -0.02em;
+  color: #F5F5F5;
+  margin-bottom: 10px;
+  line-height: 1.2;
 }
 
 .subtitle {
   font-size: 0.875rem;
-  color: var(--text-muted);
-  text-align: center;
-  margin-bottom: var(--space-8);
+  color: #7A7A7A;
+  margin-bottom: 32px;
+  line-height: 1.5;
+  letter-spacing: 0.01em;
 }
 
+/* ── Error ─────────────────────────────────── */
 .errorBanner {
-  padding: var(--space-3) var(--space-4);
-  background: rgba(229, 57, 53, 0.1);
-  border: 1px solid rgba(229, 57, 53, 0.3);
-  border-radius: var(--radius-md);
+  padding: 12px 16px;
+  background: rgba(229, 57, 53, 0.08);
+  border: 1px solid rgba(229, 57, 53, 0.25);
+  border-radius: 10px;
   font-size: 0.8125rem;
-  color: var(--error);
-  margin-bottom: var(--space-5);
+  color: #E57373;
+  margin-bottom: 24px;
   text-align: center;
+  line-height: 1.4;
 }
 
-.resend {
+/* ── Action stack ──────────────────────────── */
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin-bottom: 28px;
+}
+
+/* ── Google button ─────────────────────────── */
+.googleBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  width: 100%;
+  padding: 13px 20px;
+  background: #FFFFFF;
+  color: #1A1A1A;
+  border: none;
+  border-radius: 10px;
+  font-size: 0.875rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  cursor: pointer;
+  transition: background 150ms ease, transform 120ms ease, box-shadow 150ms ease;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+}
+
+.googleBtn:hover:not(:disabled) {
+  background: #F0F0F0;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+}
+
+.googleBtn:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.googleBtn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+/* ── Divider ───────────────────────────────── */
+.divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.dividerLine {
+  flex: 1;
+  height: 1px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.dividerText {
+  font-size: 0.7rem;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #555;
+  white-space: nowrap;
+}
+
+/* ── Email form ────────────────────────────── */
+.emailForm {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.inputWrap {
+  position: relative;
+}
+
+.emailInput {
+  width: 100%;
+  padding: 13px 16px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  color: #F0F0F0;
+  font-size: 0.9375rem;
+  outline: none;
+  transition: border-color 180ms ease, box-shadow 180ms ease;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.emailInput::placeholder {
+  color: #4A4A4A;
+}
+
+.emailInput:focus {
+  border-color: rgba(212, 175, 55, 0.45);
+  box-shadow: 0 0 0 3px rgba(212, 175, 55, 0.07);
+}
+
+.emailInput:disabled {
+  opacity: 0.5;
+}
+
+/* ── Primary CTA ───────────────────────────── */
+.primaryBtn {
+  width: 100%;
+  padding: 13px 20px;
+  background: rgba(212, 175, 55, 0.12);
+  border: 1px solid rgba(212, 175, 55, 0.35);
+  border-radius: 10px;
+  color: rgba(212, 175, 55, 0.92);
   font-size: 0.8125rem;
-  color: var(--text-muted);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: background 150ms ease, border-color 150ms ease, transform 120ms ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 46px;
+}
+
+.primaryBtn:hover:not(:disabled) {
+  background: rgba(212, 175, 55, 0.2);
+  border-color: rgba(212, 175, 55, 0.5);
+  transform: translateY(-1px);
+}
+
+.primaryBtn:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.primaryBtn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* ── Spinner ───────────────────────────────── */
+.spinner {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  border: 2px solid rgba(212, 175, 55, 0.25);
+  border-top-color: rgba(212, 175, 55, 0.8);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ── Legal note ────────────────────────────── */
+.legalNote {
+  font-size: 0.72rem;
+  color: #444;
   text-align: center;
-  margin-bottom: var(--space-5);
+  line-height: 1.5;
+  letter-spacing: 0.01em;
+}
+
+.legalLink {
+  color: #666;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  text-decoration-color: #444;
+}
+
+.legalLink:hover {
+  color: #999;
+}
+
+/* ── Sent screen ───────────────────────────── */
+.sentScreen {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 8px 0 4px;
+  animation: card-rise 400ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.sentIcon {
+  font-size: 2.75rem;
+  margin-bottom: 20px;
+  filter: drop-shadow(0 0 16px rgba(212, 175, 55, 0.3));
+}
+
+.sentTitle {
+  font-family: var(--font-serif, 'Playfair Display', Georgia, serif);
+  font-size: 1.5rem;
+  font-weight: 400;
+  color: #F0F0F0;
+  margin-bottom: 14px;
+  letter-spacing: -0.01em;
+}
+
+.sentBody {
+  font-size: 0.9rem;
+  color: #7A7A7A;
+  line-height: 1.65;
+  margin-bottom: 6px;
+}
+
+.sentEmail {
+  color: #D0D0D0;
+  font-weight: 600;
+  word-break: break-all;
+}
+
+.sentHint {
+  font-size: 0.8rem;
+  color: #555;
+  line-height: 1.55;
+  margin-top: 14px;
+  margin-bottom: 28px;
+  max-width: 280px;
 }
 
 .resendBtn {
-  color: var(--text-primary);
-  text-decoration: underline;
-  text-underline-offset: 2px;
   background: none;
   border: none;
+  color: #666;
+  font-size: 0.8125rem;
+  letter-spacing: 0.02em;
   cursor: pointer;
-  font-size: inherit;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  text-decoration-color: #444;
+  transition: color 150ms ease;
+}
+
+.resendBtn:hover {
+  color: #999;
+}
+
+/* ── Desktop: wider card ───────────────────── */
+@media (min-width: 640px) {
+  .card {
+    max-width: 440px;
+    padding: 48px 44px 44px;
+  }
 }

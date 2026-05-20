@@ -1,19 +1,28 @@
 'use client';
 
 import { useEffect, useRef, useState, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 
 /**
- * NOIR Admin — Premium Realtime Alert System
+ * NOIR Admin — Premium Realtime Alert System v2
  *
- * Luxury trading-terminal aesthetic with glassmorphism toasts,
- * cinematic animations, and professional sound design.
+ * Visibility-aware notification routing:
+ *   - App foreground/visible  → in-app glassmorphism toast (top-center mobile, top-right desktop)
+ *   - App background/hidden   → enhanced push via SW postMessage
  *
- * Features:
- *   - Glassmorphism toasts: top-right desktop, top floating mobile
- *   - Premium sound design with mute/unmute toggle
- *   - Smart deduplication and graceful stacking
- *   - Respects reduced motion and mute preferences
+ * Toast features:
+ *   - Top-center on mobile (slide-down)
+ *   - Top-right on desktop
+ *   - "View Order" CTA with direct routing
+ *   - Large amount, money emoji, customer name, payment badge
+ *   - Auto-dismiss 6s, stacks safely up to 5
+ *
+ * Sound design:
+ *   - order   → premium cash register (two bell tones)
+ *   - return  → soft neutral
+ *   - cancel  → warning tone
+ *   - exchange → premium ping
  */
 
 export const ADMIN_ORDER_CREATED_EVENT = 'admin:order-created';
@@ -28,6 +37,7 @@ interface OrderInsertPayload {
 
 interface ToastEntry {
   id: number;
+  orderId: string;
   orderNumber: string;
   totalPaise: number;
   paymentMethod: string;
@@ -35,131 +45,108 @@ interface ToastEntry {
   createdAt: number;
 }
 
-const TOAST_TTL_MS = 8000;
+const TOAST_TTL_MS = 6000;
 const MAX_TOASTS = 5;
-
-// Audio mute state management
 const MUTE_STORAGE_KEY = 'noir_admin_sound_muted';
 
 function getMuteState(): boolean {
   if (typeof window === 'undefined') return false;
-  try {
-    return localStorage.getItem(MUTE_STORAGE_KEY) === 'true';
-  } catch {
-    return false;
-  }
+  try { return localStorage.getItem(MUTE_STORAGE_KEY) === 'true'; } catch { return false; }
 }
 
 function setMuteState(muted: boolean): void {
   if (typeof window === 'undefined') return;
-  try {
-    localStorage.setItem(MUTE_STORAGE_KEY, muted ? 'true' : 'false');
-  } catch {
-    /* ignore */
-  }
+  try { localStorage.setItem(MUTE_STORAGE_KEY, muted ? 'true' : 'false'); } catch { /* ignore */ }
 }
 
 function formatPrice(paise: number): string {
   return '₹' + (paise / 100).toLocaleString('en-IN');
 }
 
+function isAppVisible(): boolean {
+  if (typeof document === 'undefined') return true;
+  return document.visibilityState === 'visible';
+}
+
 /**
- * Premium sound synthesiser for NOIR admin alerts.
- * Uses Web Audio API for zero-dependency, bandwidth-free SFX.
- * Respects mute state and autoplay policies.
+ * Premium synthesised SFX — zero deps, bandwidth-free.
+ * order    → cash register double bell
+ * return   → soft neutral descend
+ * cancel   → low warning double pulse
+ * exchange → bright single ping
  */
-type SoundType = 'order' | 'shipment' | 'delivered' | 'warning';
+type SoundType = 'order' | 'return' | 'cancel' | 'exchange';
 
 function playAlertSound(type: SoundType = 'order'): void {
-  if (typeof window === 'undefined') return;
-  if (getMuteState()) return;
-
+  if (typeof window === 'undefined' || getMuteState()) return;
   try {
     const Ctx =
       (window as unknown as { AudioContext?: typeof AudioContext }).AudioContext ||
       (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
     if (!Ctx) return;
-
     const ctx = new Ctx();
     const now = ctx.currentTime;
-    const masterGain = ctx.createGain();
-    masterGain.gain.value = 0.15; // Low volume - subtle and tasteful
-    masterGain.connect(ctx.destination);
+    const master = ctx.createGain();
+    master.gain.value = 0.14;
+    master.connect(ctx.destination);
 
-    const tone = (freq: number, start: number, duration: number, type: OscillatorType = 'sine') => {
+    const tone = (freq: number, start: number, dur: number, shape: OscillatorType = 'sine') => {
       const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.type = type;
+      const g = ctx.createGain();
+      osc.type = shape;
       osc.frequency.setValueAtTime(freq, now + start);
-      gain.gain.setValueAtTime(0, now + start);
-      gain.gain.linearRampToValueAtTime(1, now + start + 0.02);
-      gain.gain.exponentialRampToValueAtTime(0.001, now + start + duration);
-      osc.connect(gain).connect(masterGain);
+      g.gain.setValueAtTime(0, now + start);
+      g.gain.linearRampToValueAtTime(1, now + start + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.001, now + start + dur);
+      osc.connect(g).connect(master);
       osc.start(now + start);
-      osc.stop(now + start + duration + 0.1);
+      osc.stop(now + start + dur + 0.05);
     };
 
-    switch (type) {
-      case 'order':
-        // Elegant cash register: two bell tones
-        tone(880, 0, 0.25);      // A5
-        tone(1108.73, 0.08, 0.3); // C#6 - sweet third
-        break;
-      case 'shipment':
-        // Dispatch: ascending whoosh feeling
-        tone(440, 0, 0.15);
-        tone(659.25, 0.05, 0.2);
-        tone(880, 0.12, 0.25);
-        break;
-      case 'delivered':
-        // Success: harmonic completion
-        tone(523.25, 0, 0.3);    // C5
-        tone(659.25, 0.06, 0.3); // E5
-        tone(783.99, 0.12, 0.35); // G5
-        break;
-      case 'warning':
-        // Muted caution: lower, brief
-        tone(293.66, 0, 0.2);    // D4
-        tone(293.66, 0.15, 0.15);
-        break;
+    if (type === 'order') {
+      tone(880, 0, 0.25);         // A5
+      tone(1108.73, 0.09, 0.3);   // C#6 — sweet third
+      tone(1318.51, 0.18, 0.25);  // E6 — fifth completes triad
+    } else if (type === 'return') {
+      tone(659.25, 0, 0.2);       // E5 — soft
+      tone(523.25, 0.12, 0.25);   // C5 — descend
+    } else if (type === 'cancel') {
+      tone(293.66, 0, 0.18, 'triangle'); // D4
+      tone(261.63, 0.14, 0.2, 'triangle'); // C4 — minor resolve
+    } else if (type === 'exchange') {
+      tone(1174.66, 0, 0.18);     // D6 — bright ping
     }
 
-    setTimeout(() => {
-      ctx.close().catch(() => { });
-    }, 800);
-  } catch {
-    /* ignore - audio not critical */
+    setTimeout(() => { ctx.close().catch(() => { }); }, 900);
+  } catch { /* ignore */ }
+}
+
+function vibrate(pattern: number[] = [60, 40, 80]): void {
+  if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') {
+    try { navigator.vibrate(pattern); } catch { /* ignore */ }
   }
 }
 
-function vibrate(): void {
-  if (typeof navigator === 'undefined') return;
-  // Pattern: short + pause + short. Spec says "subtle".
-  if (typeof navigator.vibrate === 'function') {
-    try {
-      navigator.vibrate([60, 40, 80]);
-    } catch {
-      /* ignore */
-    }
-  }
-}
-
-function showSystemNotification(payload: OrderInsertPayload): void {
-  if (typeof window === 'undefined') return;
-  if (!('Notification' in window)) return;
-  if (Notification.permission !== 'granted') return;
-  try {
-    // No `icon`: browsers fall back to the site favicon, and a
-    // missing asset at /icon-192.png made some Android Chrome
-    // builds drop the notification silently.
-    new Notification('💰 New order received', {
-      body: `${payload.order_number} • ${formatPrice(payload.total_paise)}`,
-      tag: `order-${payload.id}`,
-      silent: false,
+/**
+ * Route order notification to SW when app is backgrounded.
+ * The service worker will show a rich Android-compatible notification.
+ */
+function notifyViaServiceWorker(payload: OrderInsertPayload): void {
+  if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) return;
+  navigator.serviceWorker.ready.then((reg) => {
+    reg.active?.postMessage({
+      type: 'SHOW_ORDER_NOTIFICATION',
+      payload: {
+        title: '💰 New order — NOIR',
+        body: `${payload.customer?.name?.split(' ')[0] || 'Guest'} · ${formatPrice(payload.total_paise)}`,
+        orderId: payload.id,
+        orderNumber: payload.order_number,
+        amount: formatPrice(payload.total_paise),
+        paymentMethod: payload.payment_method ?? 'online',
+        url: `/admin/orders/${payload.id}`,
+      },
     });
-  } catch {
-    /* ignore */
-  }
+  }).catch(() => { });
 }
 
 export default function AdminRealtimeProvider() {
@@ -170,72 +157,67 @@ export default function AdminRealtimeProvider() {
   const seenIds = useRef<Set<string>>(new Set());
   const toastIdRef = useRef(0);
 
-  // Initialize mute state
-  useEffect(() => {
-    setIsMuted(getMuteState());
+  useEffect(() => { setIsMuted(getMuteState()); }, []);
+
+  const dismissToast = useCallback((id: number) => {
+    setToasts((prev) => prev.filter((t) => t.id !== id));
   }, []);
 
   const handleMuteToggle = useCallback(() => {
-    const newMuted = !isMuted;
-    setIsMuted(newMuted);
-    setMuteState(newMuted);
+    const next = !isMuted;
+    setIsMuted(next);
+    setMuteState(next);
     setShowMuteIndicator(true);
-    setTimeout(() => setShowMuteIndicator(false), 1500);
+    setTimeout(() => setShowMuteIndicator(false), 1600);
   }, [isMuted]);
 
   const handleNewOrder = useCallback((payload: OrderInsertPayload) => {
-    // De-dupe: Realtime occasionally redelivers on reconnect
     if (seenIds.current.has(payload.id)) return;
     seenIds.current.add(payload.id);
     if (seenIds.current.size > 200) {
       const first = seenIds.current.values().next().value;
       if (first) seenIds.current.delete(first);
     }
-
     if (!mountedRef.current) return;
 
-    const entry: ToastEntry = {
-      id: ++toastIdRef.current,
-      orderNumber: payload.order_number,
-      totalPaise: payload.total_paise,
-      paymentMethod: payload.payment_method ?? 'online',
-      customerName: payload.customer?.name ?? '',
-      createdAt: Date.now(),
-    };
+    if (isAppVisible()) {
+      // ── Foreground: show in-app toast ──
+      const entry: ToastEntry = {
+        id: ++toastIdRef.current,
+        orderId: payload.id,
+        orderNumber: payload.order_number,
+        totalPaise: payload.total_paise,
+        paymentMethod: payload.payment_method ?? 'online',
+        customerName: payload.customer?.name ?? '',
+        createdAt: Date.now(),
+      };
 
-    // Limit max toasts and add new one at the end (appears at top due to flex-col-reverse in CSS)
-    setToasts((prev) => {
-      const newToasts = [...prev, entry];
-      if (newToasts.length > MAX_TOASTS) {
-        return newToasts.slice(newToasts.length - MAX_TOASTS);
-      }
-      return newToasts;
-    });
+      setToasts((prev) => {
+        const next = [...prev, entry];
+        return next.length > MAX_TOASTS ? next.slice(next.length - MAX_TOASTS) : next;
+      });
 
-    setTimeout(() => {
-      if (!mountedRef.current) return;
-      setToasts((prev) => prev.filter((t) => t.id !== entry.id));
-    }, TOAST_TTL_MS);
+      setTimeout(() => {
+        if (mountedRef.current) setToasts((prev) => prev.filter((t) => t.id !== entry.id));
+      }, TOAST_TTL_MS);
 
-    playAlertSound('order');
-    vibrate();
-    showSystemNotification(payload);
-
-    // Let the dashboard refresh its analytics widgets
-    try {
-      window.dispatchEvent(
-        new CustomEvent(ADMIN_ORDER_CREATED_EVENT, { detail: payload }),
-      );
-    } catch {
-      /* ignore */
+      playAlertSound('order');
+      vibrate();
+    } else {
+      // ── Background: route to service worker for rich push ──
+      notifyViaServiceWorker(payload);
     }
+
+    // Always dispatch dashboard refresh event
+    try {
+      window.dispatchEvent(new CustomEvent(ADMIN_ORDER_CREATED_EVENT, { detail: payload }));
+    } catch { /* ignore */ }
   }, []);
 
   useEffect(() => {
     mountedRef.current = true;
     const supabase = createClient();
 
-    // Channel name is unique per tab; Supabase de-dupes server-side.
     const channel = supabase
       .channel('admin-orders-realtime')
       .on(
@@ -243,9 +225,7 @@ export default function AdminRealtimeProvider() {
         { event: 'INSERT', schema: 'public', table: 'orders' },
         (msg) => {
           const row = msg.new as Partial<OrderInsertPayload> | undefined;
-          if (!row?.id || !row.order_number || typeof row.total_paise !== 'number') {
-            return;
-          }
+          if (!row?.id || !row.order_number || typeof row.total_paise !== 'number') return;
           handleNewOrder({
             id: row.id,
             order_number: row.order_number,
@@ -265,104 +245,110 @@ export default function AdminRealtimeProvider() {
 
   return (
     <>
-      {/* Toast Container - Premium Glassmorphism */}
+      {/* ── Toast Container ── */}
       <div
         aria-live="polite"
-        aria-atomic="true"
-        className="admin-toast-container"
+        aria-atomic="false"
         style={{
           position: 'fixed',
-          top: 'calc(60px + env(safe-area-inset-top, 0px))',
-          right: 'max(var(--space-4), env(safe-area-inset-right, 0px))',
-          left: 'auto',
+          // Mobile: top-center (below header). Desktop: top-right.
+          top: 'calc(60px + env(safe-area-inset-top, 0px) + 8px)',
+          left: '50%',
+          transform: 'translateX(-50%)',
           display: 'flex',
-          flexDirection: 'column-reverse',
-          gap: '12px',
-          zIndex: 1000,
+          flexDirection: 'column',
+          gap: '10px',
+          zIndex: 9999,
           pointerEvents: 'none',
-          width: 'min(420px, calc(100vw - var(--space-4) * 2))',
-          paddingLeft: 'var(--space-4)',
+          width: 'min(400px, calc(100vw - 32px))',
+          // Desktop: right-align, not centered
         }}
+        className="noir-toast-container"
       >
-        {toasts.map((t) => (
-          <AdminOrderToast key={t.id} toast={t} />
+        {[...toasts].reverse().map((t) => (
+          <AdminOrderToast key={t.id} toast={t} onDismiss={dismissToast} />
         ))}
       </div>
 
-      {/* Mute Toggle - Compact corner pill */}
+      {/* ── Mute toggle pill ── */}
       <button
         onClick={handleMuteToggle}
-        className="admin-sound-toggle"
         style={{
           position: 'fixed',
           bottom: 'calc(80px + env(safe-area-inset-bottom, 0px))',
-          right: 'max(var(--space-4), env(safe-area-inset-right, 0px))',
+          right: 'max(16px, env(safe-area-inset-right, 0px))',
           zIndex: 999,
-          background: 'rgba(20,20,20,0.85)',
-          backdropFilter: 'blur(12px)',
-          WebkitBackdropFilter: 'blur(12px)',
-          border: '1px solid rgba(212,175,55,0.25)',
+          background: 'rgba(18,18,18,0.88)',
+          backdropFilter: 'blur(14px)',
+          WebkitBackdropFilter: 'blur(14px)',
+          border: '1px solid rgba(212,175,55,0.22)',
           borderRadius: '999px',
-          padding: '8px 14px',
-          fontSize: '0.75rem',
-          fontWeight: 500,
-          letterSpacing: '0.05em',
-          color: 'var(--text-muted)',
+          padding: '7px 14px',
+          fontSize: '0.7rem',
+          fontWeight: 600,
+          letterSpacing: '0.07em',
+          color: isMuted ? 'var(--text-muted, #8A8A8A)' : 'rgba(212,175,55,0.8)',
           cursor: 'pointer',
           display: 'flex',
           alignItems: 'center',
           gap: '6px',
           transition: 'all 200ms ease',
-          boxShadow: '0 4px 20px rgba(0,0,0,0.3)',
+          boxShadow: '0 4px 20px rgba(0,0,0,0.35)',
         }}
         title={isMuted ? 'Unmute alerts' : 'Mute alerts'}
       >
-        <span>{isMuted ? '🔇' : '🔔'}</span>
+        <span style={{ fontSize: '0.85rem' }}>{isMuted ? '🔇' : '🔔'}</span>
         <span>{isMuted ? 'MUTED' : 'SOUND ON'}</span>
       </button>
 
-      {/* Mute Indicator Flash */}
+      {/* ── Mute flash indicator ── */}
       {showMuteIndicator && (
         <div
           style={{
             position: 'fixed',
-            bottom: 'calc(130px + env(safe-area-inset-bottom, 0px))',
-            right: '50%',
-            transform: 'translateX(50%)',
-            zIndex: 1001,
-            background: 'rgba(20,20,20,0.9)',
-            backdropFilter: 'blur(8px)',
-            border: '1px solid rgba(212,175,55,0.3)',
+            bottom: 'calc(136px + env(safe-area-inset-bottom, 0px))',
+            left: '50%',
+            transform: 'translateX(-50%)',
+            zIndex: 10000,
+            background: 'rgba(18,18,18,0.92)',
+            backdropFilter: 'blur(10px)',
+            border: '1px solid rgba(212,175,55,0.25)',
             borderRadius: '8px',
-            padding: '10px 16px',
-            fontSize: '0.8125rem',
-            fontWeight: 500,
-            letterSpacing: '0.05em',
-            color: 'var(--gold)',
-            animation: 'fade-in-out 1.5s ease',
+            padding: '9px 16px',
+            fontSize: '0.75rem',
+            fontWeight: 600,
+            letterSpacing: '0.06em',
+            color: 'var(--gold, #D4AF37)',
             pointerEvents: 'none',
+            animation: 'noir-fade-inout 1.6s ease forwards',
+            whiteSpace: 'nowrap',
           }}
         >
-          {isMuted ? '🔇 Alerts muted' : '🔔 Sound enabled'}
+          {isMuted ? '🔇  Alerts muted' : '🔔  Sound enabled'}
         </div>
       )}
 
-      <style jsx>{`
-        @keyframes fade-in-out {
-          0% { opacity: 0; transform: translateX(50%) translateY(10px); }
-          15% { opacity: 1; transform: translateX(50%) translateY(0); }
-          85% { opacity: 1; transform: translateX(50%) translateY(0); }
-          100% { opacity: 0; transform: translateX(50%) translateY(-10px); }
+      <style jsx global>{`
+        @keyframes noir-fade-inout {
+          0%   { opacity: 0; transform: translateX(-50%) translateY(6px); }
+          12%  { opacity: 1; transform: translateX(-50%) translateY(0); }
+          80%  { opacity: 1; transform: translateX(-50%) translateY(0); }
+          100% { opacity: 0; transform: translateX(-50%) translateY(-6px); }
         }
-        @media (max-width: 768px) {
-          .admin-toast-container {
-            left: var(--space-3) !important;
-            right: var(--space-3) !important;
-            width: auto !important;
-            top: 'calc(52px + env(safe-area-inset-top, 0px))' !important;
-          }
-          .admin-sound-toggle {
-            bottom: calc(70px + env(safe-area-inset-bottom, 0px)) !important;
+        @keyframes noir-toast-slide-down {
+          0%   { opacity: 0; transform: translateY(-18px) scale(0.97); }
+          45%  { opacity: 1; transform: translateY(3px) scale(1.005); }
+          100% { opacity: 1; transform: translateY(0) scale(1); }
+        }
+        @keyframes noir-toast-glow {
+          0%   { box-shadow: 0 20px 50px rgba(0,0,0,0.55), 0 0 30px rgba(212,175,55,0.04); }
+          100% { box-shadow: 0 20px 50px rgba(0,0,0,0.55), 0 0 50px rgba(212,175,55,0.09); }
+        }
+        @media (min-width: 640px) {
+          .noir-toast-container {
+            left: auto !important;
+            right: 20px !important;
+            transform: none !important;
           }
         }
       `}</style>
@@ -370,180 +356,132 @@ export default function AdminRealtimeProvider() {
   );
 }
 
-function AdminOrderToast({ toast }: { toast: ToastEntry }) {
+function AdminOrderToast({
+  toast,
+  onDismiss,
+}: {
+  toast: ToastEntry;
+  onDismiss: (id: number) => void;
+}) {
+  const router = useRouter();
   const prefersReduced =
     typeof window !== 'undefined' &&
-    window.matchMedia &&
-    window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
 
-  // Extract first name only for cleaner display
   const firstName = toast.customerName?.split(' ')[0] || 'Guest';
-  // Short order ID: last 6 characters
-  const shortOrderId = toast.orderNumber.slice(-6);
+  const shortId = toast.orderNumber?.slice(-6) || '------';
+  const isCod = toast.paymentMethod === 'cod';
 
   return (
     <div
       role="status"
-      className="admin-toast"
       style={{
         pointerEvents: 'auto',
-        background: 'rgba(16,16,16,0.78)',
-        border: '1px solid rgba(212, 175, 55, 0.22)',
-        borderLeft: '2px solid var(--gold, #D4AF37)',
-        color: 'var(--text, #ECECEC)',
-        padding: '16px 18px',
-        borderRadius: '14px',
-        boxShadow: `
-          0 20px 60px rgba(0,0,0,0.55),
-          0 0 0 1px rgba(255,255,255,0.03) inset,
-          0 0 40px rgba(212,175,55,0.06)
-        `,
-        backdropFilter: 'blur(20px) saturate(180%)',
-        WebkitBackdropFilter: 'blur(20px) saturate(180%)',
-        animation: prefersReduced ? undefined : 'toast-slide-in 400ms cubic-bezier(0.16, 1, 0.3, 1), toast-glow-pulse 2s ease-in-out infinite alternate',
-        transformOrigin: 'top right',
+        background: 'rgba(14,14,14,0.82)',
+        border: '1px solid rgba(212,175,55,0.2)',
+        borderTop: '2px solid rgba(212,175,55,0.6)',
+        color: '#ECECEC',
+        borderRadius: '16px',
+        boxShadow: '0 20px 50px rgba(0,0,0,0.55), 0 0 30px rgba(212,175,55,0.04)',
+        backdropFilter: 'blur(24px) saturate(180%)',
+        WebkitBackdropFilter: 'blur(24px) saturate(180%)',
+        animation: prefersReduced
+          ? undefined
+          : 'noir-toast-slide-down 420ms cubic-bezier(0.16,1,0.3,1), noir-toast-glow 2s ease-in-out infinite alternate',
         position: 'relative',
         overflow: 'hidden',
       }}
     >
-      {/* Subtle gradient overlay for depth */}
+      {/* Depth sheen */}
       <div
         style={{
-          position: 'absolute',
-          inset: 0,
-          background: 'linear-gradient(135deg, rgba(255,255,255,0.03) 0%, transparent 50%, rgba(0,0,0,0.1) 100%)',
+          position: 'absolute', inset: 0, borderRadius: 'inherit',
+          background: 'linear-gradient(135deg, rgba(255,255,255,0.025) 0%, transparent 55%, rgba(0,0,0,0.08) 100%)',
           pointerEvents: 'none',
-          borderRadius: 'inherit',
         }}
       />
 
-      {/* Content */}
-      <div style={{ position: 'relative', zIndex: 1 }}>
-        {/* Header: Icon + Label */}
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 10,
-            marginBottom: 10,
-          }}
-        >
-          <span
-            style={{
-              fontSize: '1rem',
-              filter: 'drop-shadow(0 0 8px rgba(212,175,55,0.4))',
-            }}
-          >
-            💸
+      <div style={{ position: 'relative', zIndex: 1, padding: '14px 16px' }}>
+        {/* Row 1: emoji label + order id + dismiss */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+          <span style={{ fontSize: '1.3rem', lineHeight: 1, filter: 'drop-shadow(0 0 8px rgba(212,175,55,0.5))' }}>
+            🤑
           </span>
-          <span
-            style={{
-              fontSize: '0.6875rem',
-              fontWeight: 600,
-              letterSpacing: '0.14em',
-              color: 'var(--gold, #D4AF37)',
-              textTransform: 'uppercase',
-            }}
-          >
+          <span style={{ fontSize: '0.65rem', fontWeight: 700, letterSpacing: '0.16em', color: 'rgba(212,175,55,0.9)', textTransform: 'uppercase' }}>
             New Order
           </span>
-          <span
-            style={{
-              marginLeft: 'auto',
-              fontSize: '0.625rem',
-              color: 'var(--text-muted, #9A9A9A)',
-              fontFamily: 'var(--font-mono, ui-monospace), monospace',
-              letterSpacing: '0.05em',
-            }}
-          >
-            #{shortOrderId}
+          <span style={{ fontSize: '0.6rem', color: '#666', fontFamily: 'ui-monospace, monospace', letterSpacing: '0.04em', marginLeft: 2 }}>
+            #{shortId}
           </span>
+          <button
+            onClick={() => onDismiss(toast.id)}
+            style={{ marginLeft: 'auto', background: 'none', border: 'none', color: '#555', cursor: 'pointer', fontSize: '1rem', lineHeight: 1, padding: '0 2px' }}
+            aria-label="Dismiss"
+          >
+            ×
+          </button>
         </div>
 
-        {/* Main content: Customer + Amount */}
-        <div
-          style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'baseline',
-            gap: 16,
-          }}
-        >
-          <div
-            style={{
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 2,
-            }}
-          >
-            <span
-              style={{
-                fontSize: '1rem',
-                fontWeight: 500,
-                color: 'var(--text, #ECECEC)',
-                letterSpacing: '-0.01em',
-              }}
-            >
+        {/* Row 2: customer name + big amount */}
+        <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 12, marginBottom: 12 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+            <span style={{ fontSize: '1.05rem', fontWeight: 600, letterSpacing: '-0.01em', color: '#F0F0F0' }}>
               {firstName}
             </span>
             <span
               style={{
-                fontSize: '0.6875rem',
-                color: 'var(--text-muted, #9A9A9A)',
-                letterSpacing: '0.08em',
+                display: 'inline-flex', alignItems: 'center', gap: 4,
+                fontSize: '0.6rem', fontWeight: 700, letterSpacing: '0.1em',
                 textTransform: 'uppercase',
+                padding: '2px 7px', borderRadius: '999px',
+                background: isCod ? 'rgba(255,152,0,0.12)' : 'rgba(76,175,80,0.12)',
+                border: `1px solid ${isCod ? 'rgba(255,152,0,0.3)' : 'rgba(76,175,80,0.3)'}`,
+                color: isCod ? '#FF9800' : '#4CAF50',
               }}
             >
-              {toast.paymentMethod === 'cod' ? 'Cash on Delivery' : 'Online Payment'}
+              {isCod ? '💵 COD' : '💳 Paid'}
             </span>
           </div>
 
-          <span
-            style={{
-              fontSize: '1.25rem',
-              fontWeight: 600,
-              color: 'var(--gold, #D4AF37)',
-              fontFamily: 'var(--font-mono, ui-monospace), monospace',
-              letterSpacing: '-0.02em',
-              textShadow: '0 0 20px rgba(212,175,55,0.25)',
-            }}
-          >
+          <span style={{
+            fontSize: '1.45rem', fontWeight: 700,
+            fontFamily: 'ui-monospace, monospace',
+            letterSpacing: '-0.03em',
+            color: 'rgba(212,175,55,0.95)',
+            textShadow: '0 0 24px rgba(212,175,55,0.3)',
+            lineHeight: 1,
+          }}>
             {formatPrice(toast.totalPaise)}
           </span>
         </div>
-      </div>
 
-      {/* Premium animation keyframes */}
-      <style jsx>{`
-        @keyframes toast-slide-in {
-          0% {
-            opacity: 0;
-            transform: translateY(-20px) scale(0.96);
-          }
-          40% {
-            opacity: 1;
-            transform: translateY(4px) scale(1.01);
-          }
-          100% {
-            opacity: 1;
-            transform: translateY(0) scale(1);
-          }
-        }
-        @keyframes toast-glow-pulse {
-          0% {
-            box-shadow: 
-              0 20px 60px rgba(0,0,0,0.55),
-              0 0 0 1px rgba(255,255,255,0.03) inset,
-              0 0 40px rgba(212,175,55,0.04);
-          }
-          100% {
-            box-shadow: 
-              0 20px 60px rgba(0,0,0,0.55),
-              0 0 0 1px rgba(255,255,255,0.03) inset,
-              0 0 60px rgba(212,175,55,0.08);
-          }
-        }
-      `}</style>
+        {/* Row 3: View Order CTA */}
+        <button
+          onClick={() => router.push(`/admin/orders/${toast.orderId}`)}
+          style={{
+            width: '100%',
+            padding: '8px 0',
+            background: 'rgba(212,175,55,0.1)',
+            border: '1px solid rgba(212,175,55,0.25)',
+            borderRadius: '8px',
+            color: 'rgba(212,175,55,0.9)',
+            fontSize: '0.7rem',
+            fontWeight: 700,
+            letterSpacing: '0.1em',
+            textTransform: 'uppercase',
+            cursor: 'pointer',
+            transition: 'background 150ms ease, border-color 150ms ease',
+          }}
+          onMouseEnter={(e) => {
+            (e.currentTarget as HTMLButtonElement).style.background = 'rgba(212,175,55,0.18)';
+          }}
+          onMouseLeave={(e) => {
+            (e.currentTarget as HTMLButtonElement).style.background = 'rgba(212,175,55,0.1)';
+          }}
+        >
+          VIEW ORDER →
+        </button>
+      </div>
     </div>
   );
 }
