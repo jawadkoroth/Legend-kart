@@ -73,6 +73,7 @@ const ImageSequenceEngine = forwardRef<SequenceEngineHandle, Props>(
     const targetFrameRef = useRef(0);
     const rafRef = useRef<number | null>(null);
     const firstFrameShownRef = useRef(false);
+    const cssSizeRef = useRef({ width: 0, height: 0 }); // Track CSS dimensions, not intrinsic pixels
     const reducedMotion = prefersReducedMotion();
 
     // Build frame URL
@@ -91,15 +92,19 @@ const ImageSequenceEngine = forwardRef<SequenceEngineHandle, Props>(
       const ctx = canvas.getContext('2d');
       if (!ctx) return;
 
-      // Match canvas intrinsic size to display size once
-      if (canvas.width !== canvas.offsetWidth || canvas.height !== canvas.offsetHeight) {
-        canvas.width = canvas.offsetWidth * window.devicePixelRatio;
-        canvas.height = canvas.offsetHeight * window.devicePixelRatio;
-        ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
+      const cssW = canvas.offsetWidth;
+      const cssH = canvas.offsetHeight;
+
+      // Resize only when CSS dimensions change (not intrinsic vs CSS pixel mismatch)
+      if (cssW !== cssSizeRef.current.width || cssH !== cssSizeRef.current.height) {
+        cssSizeRef.current = { width: cssW, height: cssH };
+        canvas.width = Math.floor(cssW * window.devicePixelRatio);
+        canvas.height = Math.floor(cssH * window.devicePixelRatio);
+        ctx.setTransform(window.devicePixelRatio, 0, 0, window.devicePixelRatio, 0, 0);
       }
 
-      const w = canvas.offsetWidth;
-      const h = canvas.offsetHeight;
+      const w = cssW;
+      const h = cssH;
 
       // Cover-fit: maintain aspect ratio, crop to fill
       const imgAspect = img.naturalWidth / img.naturalHeight;
@@ -250,8 +255,8 @@ const ImageSequenceEngine = forwardRef<SequenceEngineHandle, Props>(
       const handleResize = () => {
         const canvas = canvasRef.current;
         if (!canvas) return;
-        // Force redraw on resize
-        canvas.width = 0;
+        // Force resize + redraw on next frame by resetting stored dimensions
+        cssSizeRef.current = { width: 0, height: 0 };
         drawFrame(Math.round(currentFrameRef.current));
       };
       window.addEventListener('resize', handleResize, { passive: true });
@@ -263,7 +268,7 @@ const ImageSequenceEngine = forwardRef<SequenceEngineHandle, Props>(
         framesRef.current = [];
         loadedRef.current = [];
       };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+      // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     return (
