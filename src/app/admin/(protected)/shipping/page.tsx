@@ -649,39 +649,325 @@ function CodTab({
   );
 }
 
-function DiagnosticsTab({ state }: { state: SettingsState }) {
-  const hasKey = state.api_key_set;
-  const isActive = state.provider_enabled;
+interface DiagnosticsData {
+  timestamp: string;
+  provider: {
+    name: string | null;
+    is_active: boolean;
+    auth_configured: boolean;
+    pickup_configured: boolean;
+  } | null;
+  webhooks: {
+    last_24h: { received: number; processed: number; failed: number; duplicate: number };
+    last_received_at: string | null;
+    last_failed_at: string | null;
+  };
+  shipments: {
+    total: number;
+    pending: number;
+    in_transit: number;
+    delivered: number;
+    failed: number;
+    stuck_over_48h: number;
+    without_tracking: number;
+    last_created_at: string | null;
+    last_failed_at: string | null;
+    success_rate_7d: number;
+  };
+  database: {
+    orphaned_shipments: number;
+    shipments_without_history: number;
+    duplicate_webhook_attempts: number;
+    invalid_state_transitions_24h: number;
+  };
+  events: Array<{
+    id: string;
+    type: string;
+    message: string;
+    severity: string;
+    created_at: string;
+  }>;
+}
 
-  const healthItems = [
-    { label: 'Provider', value: isActive ? (PROVIDER_META[state.provider_name]?.label ?? state.provider_name) : 'None active', ok: isActive },
-    { label: 'API credentials', value: hasKey ? 'Configured' : 'Not set', ok: hasKey },
-    { label: 'Pickup address', value: state.pickup_address_line1 ? state.pickup_city || 'Set' : 'Not configured', ok: !!state.pickup_address_line1 },
-    { label: 'Webhook receiver', value: '/api/webhooks/shipping', ok: null },
-    { label: 'Last API call', value: '—', ok: null },
-    { label: 'Token expiry', value: 'N/A (API key auth)', ok: null },
-    { label: 'Queue health', value: '—', ok: null },
-    { label: 'Webhook failures (24h)', value: '—', ok: null },
-  ];
+function DiagnosticsTab() {
+  const [data, setData] = useState<DiagnosticsData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const { showToast } = useToast();
+
+  const fetchDiagnostics = async () => {
+    try {
+      const res = await fetch('/api/admin/shipping/diagnostics');
+      if (res.ok) {
+        const diagnostics = await res.json() as DiagnosticsData;
+        setData(diagnostics);
+      } else {
+        showToast('Failed to load diagnostics', 'error');
+      }
+    } catch (err) {
+      showToast('Network error loading diagnostics', 'error');
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchDiagnostics();
+    // Auto-refresh every 30 seconds
+    const interval = setInterval(fetchDiagnostics, 30000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const handleRefresh = () => {
+    setRefreshing(true);
+    fetchDiagnostics();
+  };
+
+  if (loading) {
+    return (
+      <div style={{ padding: 40, textAlign: 'center' }}>
+        <div className="spinner" style={{ width: 24, height: 24, margin: '0 auto 16px' }} />
+        <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Loading operational metrics…</p>
+      </div>
+    );
+  }
+
+  if (!data) {
+    return (
+      <div style={{ padding: 40, textAlign: 'center' }}>
+        <p style={{ fontSize: '0.75rem', color: 'var(--error)' }}>Failed to load diagnostics</p>
+        <button className="btn btn-secondary btn-sm" onClick={handleRefresh} style={{ marginTop: 16 }}>
+          RETRY
+        </button>
+      </div>
+    );
+  }
+
+  const providerHealth = data.provider?.is_active && data.provider?.auth_configured;
+  const webhookHealth = data.webhooks.last_24h.failed === 0;
+  const shipmentHealth = data.shipments.failed === 0 && data.shipments.stuck_over_48h === 0;
+  const dbHealth = data.database.orphaned_shipments === 0 && data.database.shipments_without_history === 0;
 
   return (
     <div>
-      <div style={{ marginBottom: 24 }}>
-        <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', margin: 0, lineHeight: 1.6 }}>
-          Operational confidence overview. Live metrics from webhook processing and provider API calls.
+      {/* Header with refresh */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
+        <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', margin: 0, lineHeight: 1.6, maxWidth: '70%' }}>
+          Live operational metrics. Auto-refreshes every 30 seconds.
         </p>
+        <button
+          className={`btn btn-secondary btn-sm${refreshing ? ' btn-loading' : ''}`}
+          onClick={handleRefresh}
+          disabled={refreshing}
+          style={{ width: 'auto' }}
+        >
+          {refreshing ? 'REFRESHING…' : 'REFRESH'}
+        </button>
       </div>
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-        {healthItems.map((item) => (
-          <div key={item.label} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '13px 16px', background: 'var(--bg-input)', borderRadius: 6, border: '1px solid var(--border-color)' }}>
-            <span style={{ fontSize: '0.8125rem', color: 'var(--text-secondary)', fontWeight: 500 }}>{item.label}</span>
-            <span style={{ fontSize: '0.8125rem', fontWeight: 600, color: item.ok === true ? 'var(--success)' : item.ok === false ? 'var(--error)' : 'var(--text-muted)' }}>
-              {item.value}
-            </span>
-          </div>
-        ))}
+      {/* Health Summary Cards */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 12, marginBottom: 28 }}>
+        <HealthCard
+          title="Provider"
+          status={providerHealth ? 'healthy' : data.provider?.is_active ? 'warning' : 'critical'}
+          value={data.provider?.name?.toUpperCase() ?? 'NONE'}
+          subtitle={data.provider?.auth_configured ? 'Authenticated' : 'Not configured'}
+        />
+        <HealthCard
+          title="Webhooks (24h)"
+          status={webhookHealth ? 'healthy' : 'warning'}
+          value={`${data.webhooks.last_24h.received}`}
+          subtitle={`${data.webhooks.last_24h.failed} failed`}
+        />
+        <HealthCard
+          title="Shipments"
+          status={shipmentHealth ? 'healthy' : 'warning'}
+          value={`${data.shipments.pending}`}
+          subtitle={`${data.shipments.stuck_over_48h} stuck >48h`}
+        />
+        <HealthCard
+          title="Success Rate"
+          status={data.shipments.success_rate_7d >= 95 ? 'healthy' : data.shipments.success_rate_7d >= 80 ? 'warning' : 'critical'}
+          value={`${data.shipments.success_rate_7d}%`}
+          subtitle="7 day delivery rate"
+        />
       </div>
+
+      {/* Provider Section */}
+      <SectionRule label="Provider Health" />
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 24 }}>
+        <MetricRow label="Active provider" value={data.provider?.name ?? 'None'} status={data.provider?.is_active ? 'ok' : 'neutral'} />
+        <MetricRow label="Authentication" value={data.provider?.auth_configured ? 'Configured' : 'Not set'} status={data.provider?.auth_configured ? 'ok' : 'error'} />
+        <MetricRow label="Pickup location" value={data.provider?.pickup_configured ? 'Configured' : 'Incomplete'} status={data.provider?.pickup_configured ? 'ok' : 'warning'} />
+        <MetricRow label="API endpoint" value={data.provider?.name === 'delhivery' ? 'Delhivery One' : data.provider?.name === 'shiprocket' ? 'Shiprocket v2' : '—'} status="neutral" />
+      </div>
+
+      {/* Webhook Section */}
+      <SectionRule label="Webhook Health (24h)" />
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 24 }}>
+        <MetricRow label="Received" value={data.webhooks.last_24h.received.toString()} status="neutral" />
+        <MetricRow label="Processed" value={data.webhooks.last_24h.processed.toString()} status={data.webhooks.last_24h.processed > 0 ? 'ok' : 'neutral'} />
+        <MetricRow label="Failed" value={data.webhooks.last_24h.failed.toString()} status={data.webhooks.last_24h.failed === 0 ? 'ok' : 'error'} />
+        <MetricRow label="Duplicates" value={data.webhooks.last_24h.duplicate.toString()} status={data.webhooks.last_24h.duplicate === 0 ? 'ok' : 'warning'} />
+        {data.webhooks.last_received_at && (
+          <MetricRow label="Last received" value={new Date(data.webhooks.last_received_at).toLocaleTimeString()} status="neutral" />
+        )}
+      </div>
+
+      {/* Shipment Pipeline */}
+      <SectionRule label="Shipment Pipeline" />
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(100px, 1fr))', gap: 10, marginBottom: 16 }}>
+        <StatPill label="Total" value={data.shipments.total} />
+        <StatPill label="Pending" value={data.shipments.pending} color={data.shipments.pending > 10 ? 'warning' : 'neutral'} />
+        <StatPill label="In Transit" value={data.shipments.in_transit} />
+        <StatPill label="Delivered" value={data.shipments.delivered} color="success" />
+        <StatPill label="Failed" value={data.shipments.failed} color={data.shipments.failed > 0 ? 'error' : 'neutral'} />
+      </div>
+      {data.shipments.without_tracking > 0 && (
+        <div style={{ padding: 10, background: 'rgba(229,57,53,0.1)', borderRadius: 6, marginBottom: 16 }}>
+          <span style={{ fontSize: '0.75rem', color: 'var(--error)' }}>
+            ⚠ {data.shipments.without_tracking} shipments missing tracking IDs
+          </span>
+        </div>
+      )}
+      {data.shipments.stuck_over_48h > 0 && (
+        <div style={{ padding: 10, background: 'rgba(240,173,78,0.1)', borderRadius: 6, marginBottom: 24 }}>
+          <span style={{ fontSize: '0.75rem', color: 'var(--warning, #f0ad4e)' }}>
+            ⚠ {data.shipments.stuck_over_48h} shipments stuck pending over 48h
+          </span>
+        </div>
+      )}
+
+      {/* Database Health */}
+      <SectionRule label="Database Integrity" />
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 24 }}>
+        <MetricRow
+          label="Orphaned shipments"
+          value={data.database.orphaned_shipments.toString()}
+          status={data.database.orphaned_shipments === 0 ? 'ok' : 'error'}
+        />
+        <MetricRow
+          label="Missing history"
+          value={data.database.shipments_without_history.toString()}
+          status={data.database.shipments_without_history === 0 ? 'ok' : 'warning'}
+        />
+        <MetricRow
+          label="Invalid state transitions (24h)"
+          value={data.database.invalid_state_transitions_24h.toString()}
+          status={data.database.invalid_state_transitions_24h === 0 ? 'ok' : 'warning'}
+        />
+      </div>
+
+      {/* Live Events */}
+      <SectionRule label="Live Event Stream" />
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 320, overflow: 'auto' }}>
+        {data.events.length === 0 ? (
+          <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', padding: 16, textAlign: 'center' }}>
+            No recent events
+          </p>
+        ) : (
+          data.events.map((event) => (
+            <EventRow key={event.id} event={event} />
+          ))
+        )}
+      </div>
+
+      <div style={{ marginTop: 16, paddingTop: 16, borderTop: '1px solid var(--border-color)', fontSize: '0.625rem', color: 'var(--text-muted)', textAlign: 'right' }}>
+        Updated: {new Date(data.timestamp).toLocaleTimeString()}
+      </div>
+    </div>
+  );
+}
+
+function HealthCard({ title, status, value, subtitle }: {
+  title: string;
+  status: 'healthy' | 'warning' | 'critical' | 'neutral';
+  value: string;
+  subtitle: string;
+}) {
+  const colors = {
+    healthy: { border: 'rgba(76,175,80,0.3)', bg: 'rgba(76,175,80,0.08)', text: 'var(--success)' },
+    warning: { border: 'rgba(240,173,78,0.3)', bg: 'rgba(240,173,78,0.08)', text: 'var(--warning, #f0ad4e)' },
+    critical: { border: 'rgba(229,57,53,0.3)', bg: 'rgba(229,57,53,0.08)', text: 'var(--error)' },
+    neutral: { border: 'var(--border-color)', bg: 'var(--bg-input)', text: 'var(--text-muted)' },
+  };
+  const c = colors[status];
+
+  return (
+    <div style={{ padding: 14, background: c.bg, borderRadius: 8, border: `1px solid ${c.border}` }}>
+      <div style={{ fontSize: '0.5625rem', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: 6 }}>
+        {title}
+      </div>
+      <div style={{ fontSize: '1.125rem', fontWeight: 700, color: c.text, marginBottom: 3 }}>
+        {value}
+      </div>
+      <div style={{ fontSize: '0.6875rem', color: 'var(--text-muted)' }}>
+        {subtitle}
+      </div>
+    </div>
+  );
+}
+
+function MetricRow({ label, value, status }: { label: string; value: string; status: 'ok' | 'error' | 'warning' | 'neutral' }) {
+  const colors = {
+    ok: 'var(--success)',
+    error: 'var(--error)',
+    warning: 'var(--warning, #f0ad4e)',
+    neutral: 'var(--text-muted)',
+  };
+
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', background: 'var(--bg-input)', borderRadius: 6 }}>
+      <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>{label}</span>
+      <span style={{ fontSize: '0.8125rem', fontWeight: 600, color: colors[status] }}>{value}</span>
+    </div>
+  );
+}
+
+function StatPill({ label, value, color = 'neutral' }: { label: string; value: number; color?: 'neutral' | 'success' | 'warning' | 'error' }) {
+  const colors = {
+    neutral: { bg: 'var(--bg-input)', text: 'var(--text-primary)' },
+    success: { bg: 'rgba(76,175,80,0.12)', text: 'var(--success)' },
+    warning: { bg: 'rgba(240,173,78,0.12)', text: 'var(--warning, #f0ad4e)' },
+    error: { bg: 'rgba(229,57,53,0.12)', text: 'var(--error)' },
+  };
+  const c = colors[color];
+
+  return (
+    <div style={{ padding: '12px 16px', background: c.bg, borderRadius: 6, textAlign: 'center' }}>
+      <div style={{ fontSize: '1.25rem', fontWeight: 700, color: c.text }}>{value}</div>
+      <div style={{ fontSize: '0.625rem', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--text-muted)', marginTop: 2 }}>
+        {label}
+      </div>
+    </div>
+  );
+}
+
+function EventRow({ event }: { event: DiagnosticsData['events'][0] }) {
+  const colors: Record<string, string> = {
+    error: 'var(--error)',
+    warning: 'var(--warning, #f0ad4e)',
+    info: 'var(--text-muted)',
+    success: 'var(--success)',
+  };
+
+  const icon = event.severity === 'error' ? '✕' : event.severity === 'warning' ? '⚠' : '•';
+
+  return (
+    <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '10px 12px', background: 'var(--bg-input)', borderRadius: 6, borderLeft: `2px solid ${colors[event.severity] || colors.info}` }}>
+      <span style={{ fontSize: '0.75rem', color: colors[event.severity] || colors.info, flexShrink: 0 }}>{icon}</span>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: '0.75rem', color: 'var(--text-primary)', fontWeight: 500, marginBottom: 2 }}>
+          {event.type}
+        </div>
+        <div style={{ fontSize: '0.6875rem', color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {event.message}
+        </div>
+      </div>
+      <span style={{ fontSize: '0.625rem', color: 'var(--text-muted)', flexShrink: 0, fontVariantNumeric: 'tabular-nums' }}>
+        {new Date(event.created_at).toLocaleTimeString()}
+      </span>
     </div>
   );
 }
@@ -847,9 +1133,7 @@ export default function AdminShipping() {
             errors={errors} onSave={handleSave} saving={saving}
           />
         )}
-        {activeTab === 'diagnostics' && (
-          <DiagnosticsTab state={state} />
-        )}
+        {activeTab === 'diagnostics' && <DiagnosticsTab />}
       </div>
     </div>
   );
