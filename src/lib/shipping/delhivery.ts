@@ -8,6 +8,7 @@ import {
   LabelResponse,
   NormalisedShipmentEvent,
   ProviderConfig,
+  ConnectionTestResult,
 } from './types';
 import { mapDelhiveryStatus } from './state';
 import { logEvent } from '@/lib/log';
@@ -214,5 +215,76 @@ export class DelhiveryProvider implements ShippingProvider {
     } catch {
       return null;
     }
+  }
+
+  async testConnection(): Promise<ConnectionTestResult> {
+    const t0 = Date.now();
+    const errors: string[] = [];
+    const warnings: string[] = [];
+    let authOk = false;
+    let apiOk = false;
+    let pickupOk = false;
+    let authLatency = 0;
+
+    // 1. Auth check — lightweight pincode serviceability call
+    try {
+      const testPin = '110001'; // Delhi HQ pincode — always serviceable
+      const res = await fetch(
+        `${this.apiUrl}/c/api/pin-codes/json/?filter_codes=${testPin}`,
+        { headers: this.authHeader() },
+      );
+      authLatency = Date.now() - t0;
+
+      if (res.status === 401 || res.status === 403) {
+        errors.push('API key invalid or expired — check Delhivery dashboard');
+      } else if (res.ok) {
+        authOk = true;
+        apiOk = true;
+        const data = await res.json() as Record<string, unknown>;
+        if (!data?.delivery_codes || !Array.isArray(data.delivery_codes)) {
+          warnings.push('Unexpected API response format — verify API endpoint URL');
+        }
+      } else {
+        errors.push(`API returned ${res.status} — verify endpoint URL`);
+      }
+    } catch (err) {
+      authLatency = Date.now() - t0;
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes('fetch') || msg.includes('network') || msg.includes('ENOTFOUND')) {
+        errors.push('Cannot reach Delhivery API — check network/firewall');
+      } else {
+        errors.push(`Auth check failed: ${msg}`);
+      }
+    }
+
+    // 2. Pickup location check — verify pickup name is set
+    if (!this.pickupName || this.pickupName.trim().length === 0) {
+      errors.push('Pickup location name not configured');
+      pickupOk = false;
+    } else {
+      pickupOk = true; // We can't validate via API without creating a shipment, but name is present
+    }
+
+    logEvent('shipping.delhivery.connection_test', {
+      success: authOk && apiOk && pickupOk,
+      auth_ok: authOk,
+      api_ok: apiOk,
+      pickup_ok: pickupOk,
+      latency_ms: authLatency,
+      error_count: errors.length,
+    }, { source: 'system', severity: errors.length > 0 ? 'warn' : 'info' });
+
+    return {
+      success: authOk && apiOk && pickupOk,
+      provider: 'delhivery',
+      checks: {
+        auth: { ok: authOk, latency_ms: authLatency, message: authOk ? 'API key valid' : errors.find(e => e.includes('API key')) },
+        api: { ok: apiOk, message: apiOk ? 'Endpoint reachable' : errors.find(e => e.includes('reach') || e.includes('endpoint')) },
+        pickup: { ok: pickupOk, message: pickupOk ? `Pickup name: ${this.pickupName}` : 'Pickup name not configured' },
+      },
+      errors,
+      warnings,
+      timestamp: new Date().toISOString(),
+    };
   }
 }

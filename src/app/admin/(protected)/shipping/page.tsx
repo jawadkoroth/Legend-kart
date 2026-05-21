@@ -203,6 +203,19 @@ function TabBar({ active, onChange }: { active: Tab; onChange: (t: Tab) => void 
 /* ─────────────────────────────────────────────────────────────────────
    Provider card
 ───────────────────────────────────────────────────────────────────── */
+interface TestResult {
+  success: boolean;
+  provider: string;
+  checks: {
+    auth: { ok: boolean; latency_ms: number; message?: string };
+    api: { ok: boolean; message?: string };
+    pickup: { ok: boolean; message?: string };
+  };
+  errors: string[];
+  warnings: string[];
+  timestamp: string;
+}
+
 function ProviderCard({
   providerKey, state, isExpanded, onExpand, onStateChange, errors, newApiKey, onApiKeyChange, onSave, saving,
 }: {
@@ -217,10 +230,35 @@ function ProviderCard({
   onSave: () => void;
   saving: boolean;
 }) {
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<TestResult | null>(null);
+  const { showToast } = useToast();
+
   const meta = PROVIDER_META[providerKey] ?? PROVIDER_META.delhivery;
   const isActive = state.provider_name === providerKey && state.provider_enabled;
   const hasKey = state.api_key_set;
   const pickup = pickupOneliner(state);
+
+  const handleTestConnection = async () => {
+    setTesting(true);
+    setTestResult(null);
+    try {
+      const res = await fetch('/api/admin/shipping/test', { method: 'POST' });
+      const data = await res.json() as TestResult;
+      setTestResult(data);
+
+      if (data.success) {
+        showToast(`${meta.label} connection verified`, 'success');
+      } else {
+        showToast(data.errors[0] || 'Connection test failed', 'error');
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Network error';
+      showToast(`Test failed: ${msg}`, 'error');
+    } finally {
+      setTesting(false);
+    }
+  };
 
   return (
     <div style={{
@@ -365,10 +403,75 @@ function ProviderCard({
               <button className={`btn btn-primary btn-sm${saving ? ' btn-loading' : ''}`} onClick={onSave} disabled={saving} style={{ width: 'auto', minWidth: 130 }}>
                 SAVE PROVIDER
               </button>
-              <button className="btn btn-secondary btn-sm" style={{ width: 'auto' }} disabled>
-                TEST CONNECTION
+              <button
+                className={`btn btn-secondary btn-sm${testing ? ' btn-loading' : ''}`}
+                style={{ width: 'auto' }}
+                onClick={handleTestConnection}
+                disabled={testing || saving}
+              >
+                {testing ? 'TESTING…' : 'TEST CONNECTION'}
               </button>
             </div>
+
+            {/* Test Results Panel */}
+            {testResult && (
+              <div style={{ marginTop: 20, padding: 16, background: 'var(--bg-input)', borderRadius: 8, border: `1px solid ${testResult.success ? 'rgba(76,175,80,0.3)' : 'rgba(229,57,53,0.3)'}` }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+                  <StatusDot active={testResult.success} />
+                  <span style={{ fontSize: '0.8125rem', fontWeight: 700, color: testResult.success ? 'var(--success)' : 'var(--error)' }}>
+                    {testResult.success ? 'CONNECTION VERIFIED' : 'CONNECTION FAILED'}
+                  </span>
+                  <span style={{ fontSize: '0.625rem', color: 'var(--text-muted)', marginLeft: 'auto' }}>
+                    {new Date(testResult.timestamp).toLocaleTimeString()}
+                  </span>
+                </div>
+
+                {/* Check results */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 12 }}>
+                  {[
+                    { label: 'Authentication', check: testResult.checks.auth },
+                    { label: 'API Endpoint', check: testResult.checks.api },
+                    { label: 'Pickup Location', check: testResult.checks.pickup },
+                  ].map(({ label, check }) => (
+                    <div key={label} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 12px', background: 'var(--bg-secondary)', borderRadius: 4 }}>
+                      <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>{label}</span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        {'latency_ms' in check && typeof check.latency_ms === 'number' && check.latency_ms > 0 && (
+                          <span style={{ fontSize: '0.625rem', color: 'var(--text-muted)', fontVariantNumeric: 'tabular-nums' }}>
+                            {check.latency_ms}ms
+                          </span>
+                        )}
+                        <span style={{ fontSize: '0.6875rem', fontWeight: 600, color: check.ok ? 'var(--success)' : 'var(--error)' }}>
+                          {check.ok ? 'PASS' : 'FAIL'}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Errors */}
+                {testResult.errors.length > 0 && (
+                  <div style={{ marginBottom: 10 }}>
+                    {testResult.errors.map((err, i) => (
+                      <div key={i} style={{ fontSize: '0.75rem', color: 'var(--error)', padding: '6px 0', borderBottom: i < testResult.errors.length - 1 ? '1px solid var(--border-color)' : undefined }}>
+                        • {err}
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Warnings */}
+                {testResult.warnings.length > 0 && (
+                  <div>
+                    {testResult.warnings.map((warn, i) => (
+                      <div key={i} style={{ fontSize: '0.75rem', color: 'var(--warning, #f0ad4e)', padding: '6px 0', borderBottom: i < testResult.warnings.length - 1 ? '1px solid var(--border-color)' : undefined }}>
+                        ⚠ {warn}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </>
       )}

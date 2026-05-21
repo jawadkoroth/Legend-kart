@@ -82,6 +82,22 @@ export interface TokenRefreshResult {
   expires_at: string;
 }
 
+/**
+ * Result from testConnection() — structured diagnostics for operational visibility.
+ */
+export interface ConnectionTestResult {
+  success: boolean;
+  provider: 'delhivery' | 'shiprocket';
+  checks: {
+    auth: { ok: boolean; latency_ms: number; message?: string };
+    api: { ok: boolean; message?: string };
+    pickup: { ok: boolean; message?: string };
+  };
+  errors: string[];
+  warnings: string[];
+  timestamp: string;
+}
+
 export interface ShippingProvider {
   readonly providerName: 'delhivery' | 'shiprocket';
 
@@ -115,4 +131,10 @@ export interface ShippingProvider {
    * Shiprocket (PR 4) and future session-token providers implement it.
    */
   refreshAuth?(): Promise<TokenRefreshResult>;
+
+  /**
+   * Test connection to provider API and validate configuration.
+   * Returns structured diagnostics for the admin diagnostics panel.
+   */
+  testConnection(): Promise<ConnectionTestResult>;
 }
