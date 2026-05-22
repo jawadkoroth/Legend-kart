@@ -64,112 +64,186 @@ export async function createShipmentForOrder(
   const { data: shipmentRow, error: upsertErr } = await supabase.rpc(
     'upsert_shipment_idempotent',
     {
-      p_client_request_id:   input.clientRequestId,
-      p_order_id:            input.orderId,
-      p_provider_id:         config.id,
-      p_provider_name:       config.name,
-      p_attempt_number:      attemptNumber,
-      p_created_via:         'auto',
-      p_payment_method:      paymentMethod,
-      p_cod_amount_paise:    input.req.payment.cod_amount_paise ?? null,
-      p_weight_grams:        input.req.product.weight_grams ?? null,
+      p_client_request_id: input.clientRequestId,
+      p_order_id: input.orderId,
+      p_provider_id: config.id,
+      p_provider_name: config.name,
+      p_attempt_number: attemptNumber,
+      p_created_via: 'auto',
+      p_payment_method: paymentMethod,
+      p_cod_amount_paise: input.req.payment.cod_amount_paise ?? null,
+      p_weight_grams: input.req.product.weight_grams ?? null,
       p_raw_create_response: null,
     },
   );
 
   if (upsertErr || !shipmentRow) {
     logEvent('shipping.create_shipment.upsert_failed', {
-      order_id:          input.orderId,
-      order_number:      input.orderNumber,
+      order_id: input.orderId,
+      order_number: input.orderNumber,
       client_request_id: input.clientRequestId,
-      error:             upsertErr?.message ?? 'no row returned',
+      error: upsertErr?.message ?? 'no row returned',
     }, { source: 'api', severity: 'error', entityType: 'order', entityId: input.orderId });
     throw new Error(`Shipment row upsert failed: ${upsertErr?.message ?? 'no row returned'}`);
   }
 
   const shipmentId: string = (shipmentRow as { id: string }).id;
 
-  const t0 = Date.now();
-  const providerResponse = await provider.createShipment(input.req);
-  const latencyMs = Date.now() - t0;
-
-  if (!providerResponse.success) {
-    logEvent('shipping.create_shipment.provider_failed', {
-      order_id:     input.orderId,
+  // NOIR: Pre-flight validation before calling provider API
+  const preflightError = provider.validateShipmentRequest(input.req);
+  if (preflightError) {
+    logEvent('shipping.create_shipment.preflight_failed', {
+      order_id: input.orderId,
       order_number: input.orderNumber,
-      shipment_id:  shipmentId,
-      provider:     provider.providerName,
-      error:        providerResponse.error,
-      latency_ms:   latencyMs,
-    }, { source: 'api', severity: 'error', entityType: 'order', entityId: input.orderId });
+      shipment_id: shipmentId,
+      provider: provider.providerName,
+      error: preflightError.message,
+      operational_category: preflightError.operational_category,
+      severity: preflightError.severity,
+    }, { source: 'api', severity: preflightError.severity === 'critical' ? 'error' : 'warn', entityType: 'order', entityId: input.orderId });
 
+    // Update shipment with preflight error details
     await supabase
       .from('shipments')
       .update({
-        status:              'failed',
-        status_detail:       providerResponse.error,
-        raw_create_response: providerResponse.raw_response as object,
-        updated_at:          new Date().toISOString(),
+        status: 'failed',
+        status_detail: preflightError.message,
+        parsed_error: preflightError as object,
+        retry_safe: preflightError.retry_safe,
+        operational_category: preflightError.operational_category,
+        error_severity: preflightError.severity,
+        last_error_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
       })
       .eq('id', shipmentId);
 
     await supabase.from('shipment_status_history').insert({
-      shipment_id:      shipmentId,
-      previous_status:  'pending',
-      next_status:      'failed',
-      source:           'system',
-      notes:            providerResponse.error,
+      shipment_id: shipmentId,
+      previous_status: 'pending',
+      next_status: 'failed',
+      source: 'system',
+      notes: `[Preflight] ${preflightError.message} — ${preflightError.suggested_fix}`,
+      provider_payload: { preflight_error: preflightError } as object,
+    });
+
+    return {
+      shipmentId,
+      trackingId: undefined,
+      labelUrl: undefined,
+      providerResponse: {
+        success: false,
+        error: preflightError.message,
+        parsed_error: preflightError,
+        retry_safe: preflightError.retry_safe,
+      },
+    };
+  }
+
+  const t0 = Date.now();
+  const providerResponse = await provider.createShipment(input.req);
+  const latencyMs = Date.now() - t0;
+
+  // Add latency to response for storage
+  const providerResponseWithLatency = { ...providerResponse, latency_ms: latencyMs };
+
+  if (!providerResponse.success) {
+    const parsedError = providerResponse.parsed_error;
+    const logSeverity: import('@/lib/log').Severity =
+      parsedError?.severity === 'critical' ? 'fatal' :
+        parsedError?.severity === 'high' ? 'error' :
+          parsedError?.severity === 'medium' ? 'warn' : 'info';
+
+    logEvent('shipping.create_shipment.provider_failed', {
+      order_id: input.orderId,
+      order_number: input.orderNumber,
+      shipment_id: shipmentId,
+      provider: provider.providerName,
+      error: providerResponse.error,
+      operational_category: parsedError?.operational_category ?? 'unknown',
+      severity: parsedError?.severity ?? 'high',
+      retry_safe: parsedError?.retry_safe ?? false,
+      latency_ms: latencyMs,
+    }, { source: 'api', severity: logSeverity, entityType: 'order', entityId: input.orderId });
+
+    // NOIR: Store forensic error details
+    await supabase
+      .from('shipments')
+      .update({
+        status: 'failed',
+        status_detail: providerResponse.error,
+        raw_create_response: providerResponse.raw_response as object,
+        parsed_error: parsedError as object,
+        retry_safe: parsedError?.retry_safe ?? false,
+        latency_ms: latencyMs,
+        operational_category: parsedError?.operational_category ?? 'unknown',
+        error_severity: parsedError?.severity ?? 'high',
+        last_error_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', shipmentId);
+
+    const historyNotes = parsedError
+      ? `${parsedError.message} — ${parsedError.suggested_fix}`
+      : providerResponse.error;
+
+    await supabase.from('shipment_status_history').insert({
+      shipment_id: shipmentId,
+      previous_status: 'pending',
+      next_status: 'failed',
+      source: 'system',
+      notes: historyNotes,
       provider_payload: providerResponse.raw_response as object,
     });
 
     return {
       shipmentId,
-      trackingId:       undefined,
-      labelUrl:         undefined,
-      providerResponse,
+      trackingId: undefined,
+      labelUrl: undefined,
+      providerResponse: providerResponseWithLatency,
     };
   }
 
   const trackingId = providerResponse.tracking_id;
-  const labelUrl   = providerResponse.label_url;
+  const labelUrl = providerResponse.label_url;
 
   await supabase
     .from('shipments')
     .update({
-      status:                  'shipment_created',
-      tracking_id:             trackingId,
-      label_url:               labelUrl,
-      raw_create_response:     providerResponse.raw_response as object,
-      last_provider_event_at:  new Date().toISOString(),
-      updated_at:              new Date().toISOString(),
+      status: 'shipment_created',
+      tracking_id: trackingId,
+      label_url: labelUrl,
+      raw_create_response: providerResponse.raw_response as object,
+      latency_ms: latencyMs,
+      last_provider_event_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
     })
     .eq('id', shipmentId);
 
   await supabase.from('shipment_status_history').insert({
-    shipment_id:      shipmentId,
-    previous_status:  'pending',
-    next_status:      'shipment_created',
-    source:           'system',
+    shipment_id: shipmentId,
+    previous_status: 'pending',
+    next_status: 'shipment_created',
+    source: 'system',
     provider_payload: providerResponse.raw_response as object,
   });
 
   await supabase
     .from('orders')
     .update({
-      tracking_id:       trackingId ?? null,
-      label_url:         labelUrl ?? null,
+      tracking_id: trackingId ?? null,
+      label_url: labelUrl ?? null,
       shipping_provider: provider.providerName,
-      updated_at:        new Date().toISOString(),
+      updated_at: new Date().toISOString(),
     })
     .eq('id', input.orderId);
 
   logEvent('shipping.create_shipment.success', {
-    order_id:     input.orderId,
+    order_id: input.orderId,
     order_number: input.orderNumber,
-    shipment_id:  shipmentId,
-    tracking_id:  trackingId,
-    provider:     provider.providerName,
-    latency_ms:   latencyMs,
+    shipment_id: shipmentId,
+    tracking_id: trackingId,
+    provider: provider.providerName,
+    latency_ms: latencyMs,
   }, { source: 'api', entityType: 'order', entityId: input.orderId });
 
   return { shipmentId, trackingId, labelUrl, providerResponse };
