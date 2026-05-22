@@ -20,6 +20,7 @@ import {
   ProviderConfig,
   TokenRefreshResult,
   ConnectionTestResult,
+  ParsedProviderError,
 } from './types';
 import { logEvent } from '@/lib/log';
 
@@ -59,6 +60,268 @@ export class ShiprocketProvider implements ShippingProvider {
   private authHeader(): Record<string, string> {
     if (!this.token) throw new Error('Shiprocket: no token — call refreshAuth() first');
     return { Authorization: `Bearer ${this.token}` };
+  }
+
+  /**
+   * NOIR — Shiprocket Error Forensics
+   * Parses Shiprocket API errors into actionable diagnostics.
+   */
+  private parseShiprocketError(status: number, data: Record<string, unknown>): ParsedProviderError {
+    const base: Omit<ParsedProviderError, 'message'> = {
+      provider: 'shiprocket',
+      status_code: status,
+      raw: data,
+      retry_safe: false,
+      operational_category: 'unknown',
+      severity: 'high',
+    };
+
+    const message = (data.message ?? data.error ?? JSON.stringify(data)) as string;
+    const errorStr = message.toLowerCase();
+
+    // 401 Unauthorized — JWT token issues
+    if (status === 401) {
+      return {
+        ...base,
+        message: 'JWT token invalid or expired',
+        meaning: 'The Shiprocket JWT token has expired or is invalid.',
+        suggested_fix: 'Token will auto-refresh on next API call. If persists, re-authenticate in settings.',
+        severity: 'critical',
+        operational_category: 'auth_failure',
+        retry_safe: true,
+      };
+    }
+
+    // 403 Forbidden
+    if (status === 403) {
+      return {
+        ...base,
+        message: 'API access denied',
+        meaning: 'Your account does not have permission for this operation.',
+        suggested_fix: 'Check Shiprocket account permissions. Upgrade plan if needed.',
+        severity: 'critical',
+        operational_category: 'auth_failure',
+      };
+    }
+
+    // 422 — Validation errors
+    if (status === 422) {
+      // Pickup location issues
+      if (errorStr.includes('pickup') || errorStr.includes('warehouse')) {
+        return {
+          ...base,
+          message: 'Pickup location not found',
+          meaning: 'The configured pickup location does not exist in Shiprocket.',
+          suggested_fix: 'Shiprocket Dashboard → Settings → Pickup Locations → Add warehouse with matching name.',
+          severity: 'high',
+          operational_category: 'pickup_not_registered',
+        };
+      }
+
+      // Phone issues
+      if (errorStr.includes('phone') || errorStr.includes('mobile')) {
+        return {
+          ...base,
+          message: 'Customer phone invalid',
+          meaning: 'Customer phone number is missing or invalid format.',
+          suggested_fix: 'Update customer information with valid 10-digit phone number.',
+          severity: 'medium',
+          operational_category: 'phone_missing',
+        };
+      }
+
+      // Address/pincode issues
+      if (errorStr.includes('pincode') || errorStr.includes('address')) {
+        return {
+          ...base,
+          message: 'Delivery address invalid',
+          meaning: 'Pincode is invalid or not serviceable.',
+          suggested_fix: 'Verify pincode is valid 6-digit code. Check serviceability in Shiprocket.',
+          severity: 'medium',
+          operational_category: 'address_invalid',
+        };
+      }
+
+      // Weight issues
+      if (errorStr.includes('weight')) {
+        return {
+          ...base,
+          message: 'Product weight invalid',
+          meaning: 'Weight is missing or exceeds limits.',
+          suggested_fix: 'Add valid weight_grams to product (max 50000g for most couriers).',
+          severity: 'medium',
+          operational_category: 'weight_missing',
+        };
+      }
+
+      // COD issues
+      if (errorStr.includes('cod')) {
+        return {
+          ...base,
+          message: 'COD not available',
+          meaning: 'Cash on Delivery is not available for this destination.',
+          suggested_fix: 'Check serviceability for COD. May need to switch to prepaid.',
+          severity: 'medium',
+          operational_category: 'cod_not_available',
+        };
+      }
+
+      // Generic validation error
+      return {
+        ...base,
+        message: message || 'Invalid order data',
+        meaning: 'The order payload failed Shiprocket validation.',
+        suggested_fix: 'Check all required fields: customer name, phone, complete address, product details.',
+        severity: 'medium',
+        operational_category: 'invalid_payload',
+      };
+    }
+
+    // 429 — Rate limiting
+    if (status === 429) {
+      return {
+        ...base,
+        message: 'Rate limit exceeded',
+        meaning: 'Too many API requests to Shiprocket.',
+        suggested_fix: 'Wait 60 seconds before retrying.',
+        severity: 'medium',
+        operational_category: 'rate_limit',
+        retry_safe: true,
+      };
+    }
+
+    // 500+ Server errors
+    if (status >= 500) {
+      return {
+        ...base,
+        message: 'Shiprocket server error',
+        meaning: 'Shiprocket API is experiencing issues.',
+        suggested_fix: 'Retry in 2-3 minutes. Check Shiprocket status if persists.',
+        severity: 'high',
+        operational_category: 'service_unavailable',
+        retry_safe: true,
+      };
+    }
+
+    // Network/timeout errors
+    if (status === 0 || status === -1) {
+      return {
+        ...base,
+        message: 'Network timeout',
+        meaning: 'Request to Shiprocket API timed out.',
+        suggested_fix: 'Retry shipment creation. Check network connectivity.',
+        severity: 'medium',
+        operational_category: 'timeout',
+        retry_safe: true,
+      };
+    }
+
+    // Fallback
+    return {
+      ...base,
+      message: message || `HTTP ${status}`,
+      meaning: 'An unexpected error occurred.',
+      suggested_fix: 'Check error details and contact support if issue persists.',
+      severity: 'high',
+      operational_category: 'unknown',
+    };
+  }
+
+  /**
+   * NOIR: Pre-flight validation for shipment creation.
+   */
+  validateShipmentRequest(req: ShipmentRequest): ParsedProviderError | null {
+    // Customer phone required
+    if (!req.customer.phone || req.customer.phone.length < 10) {
+      return {
+        provider: 'shiprocket',
+        status_code: 0,
+        message: 'Customer phone missing or invalid',
+        meaning: 'Customer phone number is required for shipment creation.',
+        suggested_fix: 'Update customer information with valid 10-digit phone number.',
+        retry_safe: false,
+        operational_category: 'phone_missing',
+        severity: 'medium',
+        raw: { field: 'customer.phone', value: req.customer.phone },
+      };
+    }
+
+    // Address validation
+    if (!req.address.line1 || !req.address.city || !req.address.state || !req.address.pincode) {
+      return {
+        provider: 'shiprocket',
+        status_code: 0,
+        message: 'Delivery address incomplete',
+        meaning: 'Delivery address is missing required fields.',
+        suggested_fix: 'Verify address has: line1, city, state, and 6-digit pincode.',
+        retry_safe: false,
+        operational_category: 'address_invalid',
+        severity: 'medium',
+        raw: { address: req.address },
+      };
+    }
+
+    // Pincode format
+    if (!/^\d{6}$/.test(req.address.pincode)) {
+      return {
+        provider: 'shiprocket',
+        status_code: 0,
+        message: 'Invalid pincode format',
+        meaning: 'Pincode must be exactly 6 digits.',
+        suggested_fix: 'Verify pincode is valid 6-digit Indian postal code.',
+        retry_safe: false,
+        operational_category: 'address_invalid',
+        severity: 'medium',
+        raw: { pincode: req.address.pincode },
+      };
+    }
+
+    // Product weight required
+    if (!req.product.weight_grams || req.product.weight_grams <= 0) {
+      return {
+        provider: 'shiprocket',
+        status_code: 0,
+        message: 'Product weight missing',
+        meaning: 'Product weight is required for shipping cost calculation.',
+        suggested_fix: 'Add weight_grams to product before creating shipment.',
+        retry_safe: false,
+        operational_category: 'weight_missing',
+        severity: 'medium',
+        raw: { weight_grams: req.product.weight_grams },
+      };
+    }
+
+    // Pickup location configured
+    if (!this.pickupName) {
+      return {
+        provider: 'shiprocket',
+        status_code: 0,
+        message: 'Pickup location not configured',
+        meaning: 'No pickup warehouse name is configured in settings.',
+        suggested_fix: 'Configure pickup location in Admin → Shipping → Provider settings.',
+        retry_safe: false,
+        operational_category: 'pickup_not_registered',
+        severity: 'high',
+        raw: null,
+      };
+    }
+
+    // Auth token available
+    if (!this.token) {
+      return {
+        provider: 'shiprocket',
+        status_code: 0,
+        message: 'Authentication token missing',
+        meaning: 'Shiprocket JWT token is not available.',
+        suggested_fix: 'Run TEST CONNECTION to authenticate with Shiprocket.',
+        retry_safe: true,
+        operational_category: 'auth_failure',
+        severity: 'critical',
+        raw: null,
+      };
+    }
+
+    return null; // All validations passed
   }
 
   async refreshAuth(): Promise<TokenRefreshResult> {

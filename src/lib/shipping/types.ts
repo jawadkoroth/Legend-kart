@@ -12,6 +12,12 @@ export interface ShipmentResponse {
   label_url?: string;
   error?: string;
   raw_response?: unknown;
+  /** NOIR: Parsed forensic error with actionable diagnostics */
+  parsed_error?: ParsedProviderError;
+  /** NOIR: Whether this failure is safe to retry */
+  retry_safe?: boolean;
+  /** NOIR: Request latency in milliseconds */
+  latency_ms?: number;
 }
 
 export interface TrackingResponse {
@@ -98,6 +104,35 @@ export interface ConnectionTestResult {
   timestamp: string;
 }
 
+/**
+ * NOIR — Normalized provider error with forensic diagnostics.
+ * Every shipping failure produces actionable intelligence.
+ */
+export interface ParsedProviderError {
+  provider: 'delhivery' | 'shiprocket';
+  status_code: number;
+  message: string;
+  meaning?: string;
+  suggested_fix?: string;
+  retry_safe: boolean;
+  operational_category:
+  | 'auth_failure'
+  | 'invalid_pickup'
+  | 'invalid_payload'
+  | 'network_error'
+  | 'rate_limit'
+  | 'service_unavailable'
+  | 'pickup_not_registered'
+  | 'address_invalid'
+  | 'phone_missing'
+  | 'weight_missing'
+  | 'cod_not_available'
+  | 'timeout'
+  | 'unknown';
+  severity: 'critical' | 'high' | 'medium' | 'low' | 'info';
+  raw: unknown;
+}
+
 export interface ShippingProvider {
   readonly providerName: 'delhivery' | 'shiprocket';
 
@@ -137,4 +172,11 @@ export interface ShippingProvider {
    * Returns structured diagnostics for the admin diagnostics panel.
    */
   testConnection(): Promise<ConnectionTestResult>;
+
+  /**
+   * NOIR: Pre-flight validation for shipment creation.
+   * Validates all prerequisites before calling provider API.
+   * Returns null if valid, or ParsedProviderError with actionable diagnostics.
+   */
+  validateShipmentRequest(req: ShipmentRequest): ParsedProviderError | null;
 }
