@@ -6,8 +6,10 @@ import { createClient } from '@/lib/supabase/client';
 import { useToast } from '@/hooks/useToast';
 import { ShipmentDetailPanel } from '@/components/ShipmentDetailPanel';
 import { ShipmentTimeline } from '@/components/ShipmentTimeline';
+import { ProviderResponsePanel } from '@/components/ProviderResponsePanel';
 import AdminNotes from '@/components/admin/AdminNotes';
 import type { CanonicalShipmentStatus } from '@/lib/shipping/state';
+import type { ParsedProviderError } from '@/lib/shipping/types';
 
 interface OrderLine {
   id: string;
@@ -53,6 +55,14 @@ interface Order {
     last_provider_event_at: string | null;
     environment: string | null;
     failure_reason: string | null;
+    /** NOIR: Parsed forensic error with actionable diagnostics */
+    parsed_error: ParsedProviderError | null;
+    retry_safe: boolean | null;
+    latency_ms: number | null;
+    last_error_at: string | null;
+    operational_category: string | null;
+    error_severity: string | null;
+    raw_create_response: Record<string, unknown> | null;
   } | null;
   shipment_history?: Array<{
     id: string;
@@ -106,10 +116,15 @@ export default function AdminOrderDetail({ params }: { params: Promise<{ id: str
 
   async function fetchShipmentData() {
     const supabase = createClient();
-    // Fetch shipment from new shipments table
+    // Fetch shipment from new shipments table with NOIR forensic fields
     const { data: shipment } = await supabase
       .from('shipments')
-      .select('id, tracking_id, provider_name, status, label_url, created_at, last_provider_event_at, environment, failure_reason')
+      .select(`
+        id, tracking_id, provider_name, status, label_url, created_at,
+        last_provider_event_at, environment, failure_reason,
+        parsed_error, retry_safe, latency_ms, last_error_at,
+        operational_category, error_severity, raw_create_response
+      `)
       .eq('order_id', id)
       .order('created_at', { ascending: false })
       .maybeSingle();
@@ -334,6 +349,18 @@ export default function AdminOrderDetail({ params }: { params: Promise<{ id: str
           shipment={shipmentData.shipment ?? null}
           orderNumber={order.order_number}
         />
+
+        {/* NOIR: Provider Response Panel — shows forensic error details for failed shipments */}
+        {shipmentData.shipment && (
+          <ProviderResponsePanel
+            provider={shipmentData.shipment.provider_name}
+            status={shipmentData.shipment.status}
+            parsedError={shipmentData.shipment.parsed_error}
+            latencyMs={shipmentData.shipment.latency_ms}
+            lastErrorAt={shipmentData.shipment.last_error_at}
+            rawResponse={shipmentData.shipment.raw_create_response}
+          />
+        )}
       </div>
 
       {/* Shipment Timeline */}
