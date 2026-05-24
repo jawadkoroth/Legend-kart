@@ -50,7 +50,7 @@ const EMPTY: SettingsState = {
 const PROVIDER_META: Record<string, { label: string; defaultUrl: string; description: string }> = {
   delhivery: {
     label: 'DELHIVERY',
-    defaultUrl: 'https://track.delhivery.com/api',
+    defaultUrl: 'https://track.delhivery.com',
     description: 'Surface network · 18,500+ pin codes',
   },
   shiprocket: {
@@ -281,7 +281,7 @@ function ProviderCard({
                 {meta.label}
               </span>
               {isActive && <Pill label="ACTIVE" tone="active" />}
-              <Pill label="SANDBOX" tone="muted" />
+              <Pill label={hasKey && state.provider_name === providerKey ? 'LIVE' : 'SANDBOX'} tone={hasKey && state.provider_name === providerKey ? 'active' : 'muted'} />
             </div>
             <div style={{ marginTop: 4, fontSize: '0.75rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
               <span style={{ color: hasKey && state.provider_name === providerKey ? 'var(--success)' : 'var(--text-muted)' }}>
@@ -310,7 +310,7 @@ function ProviderCard({
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 10, marginBottom: 22 }}>
               {[
                 { label: 'API', value: hasKey && state.provider_name === providerKey ? 'Connected' : 'Not set', ok: hasKey && state.provider_name === providerKey },
-                { label: 'Environment', value: 'Sandbox', ok: true },
+                { label: 'Environment', value: hasKey && state.provider_name === providerKey ? 'Live' : 'Sandbox', ok: hasKey && state.provider_name === providerKey },
                 { label: 'Webhooks', value: 'Pending setup', ok: false },
                 { label: 'Last shipment', value: '—', ok: null },
               ].map((item) => (

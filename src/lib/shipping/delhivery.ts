@@ -64,6 +64,31 @@ function parseDelhiveryError(status: number, data: Record<string, unknown>, cont
     };
   }
 
+  // 400 / Generic payload errors — includes "format key missing"
+  if (status === 400) {
+    const errStr = JSON.stringify(data).toLowerCase();
+    const rmk400 = (data.rmk ?? data.error ?? data.message ?? '') as string;
+    if (errStr.includes('format') || errStr.includes('key missing') || errStr.includes('post')) {
+      return {
+        ...base,
+        message: 'Malformed request — format/data fields missing',
+        meaning: 'Delhivery requires multipart/form-data with format=json and data=<JSON string>, not raw JSON body.',
+        suggested_fix: 'Ensure the request sends Content-Type: multipart/form-data with fields: format=json and data=<JSON payload string>.',
+        severity: 'high',
+        operational_category: 'invalid_payload',
+        retry_safe: false,
+      };
+    }
+    return {
+      ...base,
+      message: rmk400 || 'Bad request',
+      meaning: 'Delhivery rejected the request payload.',
+      suggested_fix: 'Check all required fields and request format.',
+      severity: 'high',
+      operational_category: 'invalid_payload',
+    };
+  }
+
   // 422 — Validation errors
   if (status === 422) {
     const rmk = (data.rmk ?? data.error ?? data.message ?? '') as string;
@@ -295,7 +320,8 @@ export class DelhiveryProvider implements ShippingProvider {
   }
 
   async createShipment(req: ShipmentRequest): Promise<ShipmentResponse> {
-    const payload = {
+    // NOIR: Delhivery shipment payload — field names are Delhivery One API spec
+    const shipmentPayload = {
       shipments: [{
         name: req.customer.name,
         add: req.address.line1,
@@ -310,51 +336,107 @@ export class DelhiveryProvider implements ShippingProvider {
         cod_amount: req.payment.method === 'cod'
           ? ((req.payment.cod_amount_paise ?? 0) / 100).toString()
           : '0',
-        weight: req.product.weight_grams,
-        shipment_width: 30,
-        shipment_height: 5,
-        shipment_length: 35,
+        // Weight must be in KG for Delhivery One
+        weight: ((req.product.weight_grams ?? 500) / 1000).toFixed(3),
+        shipment_width: 10,
+        shipment_height: 10,
+        shipment_length: 15,
         product_desc: req.product.name,
-        quantity: req.product.quantity,
+        quantity: req.product.quantity ?? 1,
       }],
       pickup_location: { name: this.pickupName },
     };
 
+    const endpoint = `${this.apiUrl}/api/cmu/create.json`;
+    const payloadDataStr = JSON.stringify(shipmentPayload);
+
+    // NOIR: Delhivery requires multipart/form-data with:
+    //   format=json
+    //   data=<JSON string>
+    // NOT application/json raw body — this is the "format key missing in POST" root cause.
+    const formData = new URLSearchParams();
+    formData.append('format', 'json');
+    formData.append('data', payloadDataStr);
+
+    const requestHeaders: Record<string, string> = {
+      ...this.authHeader(),
+      'Content-Type': 'application/x-www-form-urlencoded',
+    };
+
     try {
       const t0 = Date.now();
-      // FIXED: Add /api/ prefix since base URL no longer includes it
-      const response = await fetch(`${this.apiUrl}/api/cmu/create.json`, {
-        method: 'POST',
-        headers: { ...this.authHeader(), 'Content-Type': 'application/json' },
-        body: JSON.stringify({ data: JSON.stringify(payload), format: 'json' }),
-      });
-      const latencyMs = Date.now() - t0;
-      const data = await response.json() as Record<string, unknown>;
 
-      // Log structured operational event
-      logEvent('shipping.delhivery.create_shipment', {
+      logEvent('shipping.delhivery.create_shipment_attempt', {
         order_number: req.order_number,
-        status_code: response.status,
-        latency_ms: latencyMs,
-        success: !!data.success,
+        endpoint,
         pickup_name: this.pickupName,
+        payment_mode: shipmentPayload.shipments[0].payment_mode,
+        weight_kg: shipmentPayload.shipments[0].weight,
+        pincode: req.address.pincode,
+        payload_preview: payloadDataStr.substring(0, 300),
       }, { source: 'api' });
 
-      if (data.success) {
-        const pkgs = data.packages as Array<{ waybill?: string }> | undefined;
-        const waybill = pkgs?.[0]?.waybill ?? (data.waybill as string | undefined);
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: requestHeaders,
+        body: formData.toString(),
+      });
 
-        // Log successful AWB creation
+      const latencyMs = Date.now() - t0;
+      const rawText = await response.text();
+
+      // Safe JSON parse — Delhivery sometimes returns non-JSON on errors
+      let data: Record<string, unknown> = {};
+      try {
+        data = JSON.parse(rawText) as Record<string, unknown>;
+      } catch {
+        data = { raw_text: rawText, parse_error: 'Response was not valid JSON' };
+      }
+
+      // Log full request/response for diagnostics
+      logEvent('shipping.delhivery.create_shipment', {
+        order_number: req.order_number,
+        endpoint,
+        status_code: response.status,
+        latency_ms: latencyMs,
+        success: response.ok && !!data.packages,
+        pickup_name: this.pickupName,
+        response_preview: rawText.substring(0, 500),
+      }, { source: 'api' });
+
+      // Success: Delhivery returns { packages: [{ waybill, ... }] } on success
+      const pkgs = data.packages as Array<{ waybill?: string; status?: string }> | undefined;
+      const waybill = pkgs?.[0]?.waybill ?? (data.waybill as string | undefined);
+
+      if (response.ok && waybill) {
         logEvent('shipping.delhivery.awb_created', {
           order_number: req.order_number,
-          waybill: waybill ?? 'MISSING',
+          waybill,
           latency_ms: latencyMs,
         }, { source: 'api' });
 
         return {
           success: true,
           tracking_id: waybill,
-          label_url: waybill ? `${this.apiUrl}/api/p/packing_slip?wbns=${waybill}` : undefined,
+          label_url: `${this.apiUrl}/api/p/packing_slip?wbns=${waybill}`,
+          raw_response: data,
+          latency_ms: latencyMs,
+        };
+      }
+
+      // Also handle Delhivery's "upload" style success with cod/pre_count
+      if (response.ok && (data.cod_count !== undefined || data.pre_count !== undefined)) {
+        // Partial success — may have created some AWBs
+        const uploadPkgs = data.package_count as number | undefined;
+        logEvent('shipping.delhivery.awb_created', {
+          order_number: req.order_number,
+          waybill: 'pending_upload_response',
+          package_count: uploadPkgs,
+          latency_ms: latencyMs,
+        }, { source: 'api' });
+        return {
+          success: true,
+          tracking_id: waybill,
           raw_response: data,
           latency_ms: latencyMs,
         };
@@ -363,42 +445,39 @@ export class DelhiveryProvider implements ShippingProvider {
       // Parse error with forensic diagnostics
       const parsedError = parseDelhiveryError(response.status, data, 'createShipment');
 
-      // Map operational severity to log severity
       const logSeverity: import('@/lib/log').Severity =
         parsedError.severity === 'critical' ? 'fatal' :
           parsedError.severity === 'high' ? 'error' :
-            parsedError.severity === 'medium' ? 'warn' :
-              parsedError.severity === 'low' ? 'info' : 'info';
+            parsedError.severity === 'medium' ? 'warn' : 'info';
 
-      // Log structured failure event
       logEvent('shipping.delhivery.create_shipment_failed', {
         order_number: req.order_number,
+        endpoint,
         status_code: response.status,
         error: parsedError.message,
         operational_category: parsedError.operational_category,
         severity: parsedError.severity,
         retry_safe: parsedError.retry_safe,
         latency_ms: latencyMs,
-        raw: data,
+        response_body: rawText.substring(0, 1000),
       }, { source: 'api', severity: logSeverity });
 
       return {
         success: false,
         error: parsedError.message,
         parsed_error: parsedError,
-        raw_response: data,
+        raw_response: { ...data, _endpoint: endpoint, _status: response.status },
         retry_safe: parsedError.retry_safe,
         latency_ms: latencyMs,
       };
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Network error';
       const isTimeout = msg.includes('timeout') || msg.includes('ETIMEDOUT');
-
-      // Parse network/timeout errors
       const parsedError = parseDelhiveryError(isTimeout ? 0 : -1, { error: msg });
 
       logEvent('shipping.delhivery.create_shipment_failed', {
         order_number: req.order_number,
+        endpoint,
         error: msg,
         operational_category: parsedError.operational_category,
         severity: parsedError.severity,
@@ -409,7 +488,7 @@ export class DelhiveryProvider implements ShippingProvider {
         success: false,
         error: parsedError.message,
         parsed_error: parsedError,
-        raw_response: err,
+        raw_response: { error: msg, _endpoint: endpoint },
         retry_safe: parsedError.retry_safe,
       };
     }
@@ -437,13 +516,20 @@ export class DelhiveryProvider implements ShippingProvider {
 
   async cancelShipment(tracking_id: string): Promise<{ success: boolean }> {
     try {
+      // Delhivery cancel also uses form-encoded body
+      const formData = new URLSearchParams();
+      formData.append('waybill', tracking_id);
+      formData.append('cancellation', 'true');
+
       const response = await fetch(`${this.apiUrl}/api/p/edit`, {
         method: 'POST',
-        headers: { ...this.authHeader(), 'Content-Type': 'application/json' },
-        body: JSON.stringify({ waybill: tracking_id, cancellation: true }),
+        headers: { ...this.authHeader(), 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: formData.toString(),
       });
-      const data = await response.json() as Record<string, unknown>;
-      return { success: !!data.status };
+      const rawText = await response.text();
+      let data: Record<string, unknown> = {};
+      try { data = JSON.parse(rawText) as Record<string, unknown>; } catch { /* non-JSON */ }
+      return { success: response.ok && !!data.status };
     } catch {
       return { success: false };
     }
@@ -534,62 +620,127 @@ export class DelhiveryProvider implements ShippingProvider {
     let apiOk = false;
     let pickupOk = false;
     let authLatency = 0;
+    let pickupLatency = 0;
 
-    // 1. Auth check — lightweight pincode serviceability call
+    // ── 1. Auth + endpoint check via pincode serviceability (lightweight) ──
     try {
-      const testPin = '110001'; // Delhi HQ pincode — always serviceable
+      const testPin = '110001'; // Delhi — always serviceable
+      const t1 = Date.now();
       const res = await fetch(
         `${this.apiUrl}/c/api/pin-codes/json/?filter_codes=${testPin}`,
         { headers: this.authHeader() },
       );
-      authLatency = Date.now() - t0;
+      authLatency = Date.now() - t1;
+      const rawText = await res.text();
 
       if (res.status === 401 || res.status === 403) {
-        errors.push('API key invalid or expired — check Delhivery dashboard');
+        errors.push('API key invalid or expired — regenerate in Delhivery One dashboard');
+      } else if (res.status === 404) {
+        errors.push(`Endpoint not found (404) — base URL should be https://track.delhivery.com, got: ${this.apiUrl}`);
       } else if (res.ok) {
         authOk = true;
         apiOk = true;
-        const data = await res.json() as Record<string, unknown>;
-        if (!data?.delivery_codes || !Array.isArray(data.delivery_codes)) {
-          warnings.push('Unexpected API response format — verify API endpoint URL');
+        let parsed: Record<string, unknown> = {};
+        try { parsed = JSON.parse(rawText) as Record<string, unknown>; } catch { /* skip */ }
+        if (!parsed?.delivery_codes || !Array.isArray(parsed.delivery_codes)) {
+          warnings.push('Unexpected API response format — verify base URL is https://track.delhivery.com');
         }
       } else {
-        errors.push(`API returned ${res.status} — verify endpoint URL`);
+        errors.push(`API returned HTTP ${res.status} — verify endpoint URL and API key`);
       }
     } catch (err) {
       authLatency = Date.now() - t0;
       const msg = err instanceof Error ? err.message : String(err);
-      if (msg.includes('fetch') || msg.includes('network') || msg.includes('ENOTFOUND')) {
-        errors.push('Cannot reach Delhivery API — check network/firewall');
+      if (msg.includes('ENOTFOUND') || msg.includes('ECONNREFUSED') || msg.includes('network')) {
+        errors.push(`Cannot reach Delhivery API (${this.apiUrl}) — check network/firewall`);
       } else {
         errors.push(`Auth check failed: ${msg}`);
       }
     }
 
-    // 2. Pickup location check — verify pickup name is set
+    // ── 2. Pickup facility validation via Delhivery facilities API ──
     if (!this.pickupName || this.pickupName.trim().length === 0) {
-      errors.push('Pickup location name not configured');
+      errors.push('Pickup location name not configured — add pickup name in provider settings');
       pickupOk = false;
+    } else if (authOk) {
+      // Try to validate pickup name exists in Delhivery's registered facilities
+      try {
+        const t2 = Date.now();
+        const facilityRes = await fetch(
+          `${this.apiUrl}/api/backend/clientwarehouse/detail/?name=${encodeURIComponent(this.pickupName)}`,
+          { headers: this.authHeader() },
+        );
+        pickupLatency = Date.now() - t2;
+
+        if (facilityRes.ok) {
+          const rawText = await facilityRes.text();
+          let facilityData: Record<string, unknown> = {};
+          try { facilityData = JSON.parse(rawText) as Record<string, unknown>; } catch { /* skip */ }
+
+          // Delhivery returns { data: [...] } or { count: N, data: [...] }
+          const facilityList = facilityData.data as unknown[] | undefined;
+          if (facilityList && facilityList.length > 0) {
+            pickupOk = true;
+          } else if (facilityData.count === 0 || (facilityList && facilityList.length === 0)) {
+            errors.push(`Pickup location "${this.pickupName}" not found in Delhivery One — verify name matches exactly`);
+            warnings.push('Go to Delhivery One → Settings → Pickup Locations to verify the pickup name');
+          } else {
+            // Unknown response format — treat as ok (can't definitively fail)
+            pickupOk = true;
+            warnings.push('Could not verify pickup location — response format unexpected');
+          }
+        } else if (facilityRes.status === 404) {
+          // Some Delhivery accounts don't have this endpoint — fall back to name-present check
+          pickupOk = true;
+          warnings.push(`Pickup name set: "${this.pickupName}" (facility API not available for verification)`);
+        } else {
+          pickupOk = true; // Don't block on non-critical facility check failures
+          warnings.push(`Pickup facility check returned ${facilityRes.status} — name may not be registered`);
+        }
+      } catch {
+        // Network error on facility check — don't fail the whole test
+        pickupOk = true;
+        warnings.push(`Pickup name set: "${this.pickupName}" (could not verify via API)`);
+      }
     } else {
-      pickupOk = true; // We can't validate via API without creating a shipment, but name is present
+      // Auth failed — can't check pickup
+      pickupOk = false;
     }
 
+    const overallSuccess = authOk && apiOk && pickupOk && errors.length === 0;
+
     logEvent('shipping.delhivery.connection_test', {
-      success: authOk && apiOk && pickupOk,
+      success: overallSuccess,
       auth_ok: authOk,
       api_ok: apiOk,
       pickup_ok: pickupOk,
-      latency_ms: authLatency,
+      auth_latency_ms: authLatency,
+      pickup_latency_ms: pickupLatency,
       error_count: errors.length,
+      warning_count: warnings.length,
+      base_url: this.apiUrl,
+      pickup_name: this.pickupName,
     }, { source: 'system', severity: errors.length > 0 ? 'warn' : 'info' });
 
     return {
-      success: authOk && apiOk && pickupOk,
+      success: overallSuccess,
       provider: 'delhivery',
       checks: {
-        auth: { ok: authOk, latency_ms: authLatency, message: authOk ? 'API key valid' : errors.find(e => e.includes('API key')) },
-        api: { ok: apiOk, message: apiOk ? 'Endpoint reachable' : errors.find(e => e.includes('reach') || e.includes('endpoint')) },
-        pickup: { ok: pickupOk, message: pickupOk ? `Pickup name: ${this.pickupName}` : 'Pickup name not configured' },
+        auth: {
+          ok: authOk,
+          latency_ms: authLatency,
+          message: authOk ? 'API key valid — endpoint reachable' : (errors.find(e => e.includes('API key') || e.includes('reach') || e.includes('Cannot reach') || e.includes('HTTP')) ?? 'Auth check failed'),
+        },
+        api: {
+          ok: apiOk,
+          message: apiOk ? `Endpoint reachable: ${this.apiUrl}` : (errors.find(e => e.includes('endpoint') || e.includes('reach')) ?? 'Endpoint unreachable'),
+        },
+        pickup: {
+          ok: pickupOk,
+          message: pickupOk
+            ? `Pickup configured: "${this.pickupName}"`
+            : (errors.find(e => e.includes('Pickup') || e.includes('pickup')) ?? 'Pickup not configured'),
+        },
       },
       errors,
       warnings,
