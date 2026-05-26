@@ -87,22 +87,45 @@ export async function GET(): Promise<NextResponse> {
     const supabase = createAdminClient();
 
     // ─────────────────────────────────────────────────────────────────
-    // 1. Provider Configuration
+    // 1. Provider Configuration (check both new and legacy systems)
     // ─────────────────────────────────────────────────────────────────
-    const { data: provider } = await supabase
+    let providerHealth: ShippingDiagnostics['provider'] = null;
+
+    // Try new system first
+    const { data: newProvider } = await supabase
       .from('shipping_providers')
       .select('*')
       .eq('is_active', true)
       .maybeSingle();
 
-    const providerHealth = provider ? {
-      name: provider.name,
-      is_active: provider.is_active,
-      api_url: provider.api_url,
-      last_tested_at: provider.updated_at,
-      auth_configured: !!(provider.api_key || (provider.auth_email && provider.auth_password_encrypted)),
-      pickup_configured: !!(provider.pickup_name && provider.pickup_pincode),
-    } : null;
+    if (newProvider) {
+      providerHealth = {
+        name: newProvider.name,
+        is_active: newProvider.is_active,
+        api_url: newProvider.api_url,
+        last_tested_at: newProvider.updated_at,
+        auth_configured: !!(newProvider.api_key || (newProvider.auth_email && newProvider.auth_password_encrypted)),
+        pickup_configured: !!(newProvider.pickup_name && newProvider.pickup_pincode),
+      };
+    } else {
+      // Fall back to legacy system
+      const { data: legacySettings } = await supabase
+        .from('shipping_settings')
+        .select('*')
+        .limit(1)
+        .maybeSingle();
+
+      if (legacySettings) {
+        providerHealth = {
+          name: legacySettings.provider_name ?? 'delhivery',
+          is_active: legacySettings.provider_enabled ?? false,
+          api_url: legacySettings.api_url,
+          last_tested_at: legacySettings.updated_at,
+          auth_configured: !!legacySettings.api_key,
+          pickup_configured: !!(legacySettings.pickup_name && legacySettings.pickup_pincode),
+        };
+      }
+    }
 
     // ─────────────────────────────────────────────────────────────────
     // 2. Webhook Health (last 24h)
