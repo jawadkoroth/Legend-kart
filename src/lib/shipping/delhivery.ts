@@ -354,13 +354,13 @@ export class DelhiveryProvider implements ShippingProvider {
     //   format=json
     //   data=<JSON string>
     // NOT application/json raw body — this is the "format key missing in POST" root cause.
-    const formData = new URLSearchParams();
+    const formData = new FormData();
     formData.append('format', 'json');
     formData.append('data', payloadDataStr);
 
     const requestHeaders: Record<string, string> = {
       ...this.authHeader(),
-      'Content-Type': 'application/x-www-form-urlencoded',
+      // Note: Don't set Content-Type for FormData - browser sets it with boundary
     };
 
     try {
@@ -517,14 +517,14 @@ export class DelhiveryProvider implements ShippingProvider {
   async cancelShipment(tracking_id: string): Promise<{ success: boolean }> {
     try {
       // Delhivery cancel also uses form-encoded body
-      const formData = new URLSearchParams();
+      const formData = new FormData();
       formData.append('waybill', tracking_id);
       formData.append('cancellation', 'true');
 
       const response = await fetch(`${this.apiUrl}/api/p/edit`, {
         method: 'POST',
-        headers: { ...this.authHeader(), 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: formData.toString(),
+        headers: { ...this.authHeader() }, // Don't set Content-Type for FormData
+        body: formData,
       });
       const rawText = await response.text();
       let data: Record<string, unknown> = {};
