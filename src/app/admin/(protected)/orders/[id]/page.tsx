@@ -137,7 +137,37 @@ export default function AdminOrderDetail({ params }: { params: Promise<{ id: str
         .order('created_at', { ascending: true });
       setShipmentData({ shipment, history: history ?? [] });
     } else {
-      setShipmentData({ shipment: null, history: [] });
+      // Fall back to legacy shipment data from orders table
+      const { data: order } = await supabase
+        .from('orders')
+        .select('tracking_id, label_url, shipping_provider, order_status, updated_at')
+        .eq('id', id)
+        .single();
+
+      if (order && order.tracking_id) {
+        // Create a legacy shipment object for display
+        const legacyShipment = {
+          id: `legacy-${id}`,
+          tracking_id: order.tracking_id,
+          provider_name: order.shipping_provider,
+          status: order.order_status === 'shipped' ? 'shipment_created' as const : 'pending' as const,
+          label_url: order.label_url,
+          created_at: order.updated_at,
+          last_provider_event_at: order.updated_at,
+          environment: null,
+          failure_reason: null,
+          parsed_error: null,
+          retry_safe: null,
+          latency_ms: null,
+          last_error_at: null,
+          operational_category: null,
+          error_severity: null,
+          raw_create_response: null,
+        };
+        setShipmentData({ shipment: legacyShipment, history: [] });
+      } else {
+        setShipmentData({ shipment: null, history: [] });
+      }
     }
   }
 
