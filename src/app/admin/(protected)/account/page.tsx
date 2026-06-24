@@ -28,8 +28,7 @@ export default function AccountPage() {
           if (data?.role) {
             setRole(data.role.charAt(0).toUpperCase() + data.role.slice(1));
           }
-        })
-        .catch(() => {});
+        }, () => { /* ignore errors */ });
     }
 
     // Check Capacitor native notification permissions
