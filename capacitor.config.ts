@@ -6,7 +6,7 @@ const config: CapacitorConfig = {
   webDir: 'out',
   appendUserAgent: 'PANTHER_MOBILE',
   server: {
-    url: 'https://legend-kart.vercel.app/admin',
+    url: 'https://legend-kart.vercel.app/admin/dashboard',
     cleartext: true
   },
   android: {

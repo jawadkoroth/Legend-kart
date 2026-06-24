@@ -6,6 +6,7 @@ import { createClient } from '@/lib/supabase/client';
 import { Capacitor } from '@capacitor/core';
 import { PushNotifications } from '@capacitor/push-notifications';
 import { App } from '@capacitor/app';
+import { useAuth } from '@/lib/auth/AuthProvider';
 
 /**
  * PANTHER Admin — Premium Realtime Alert System v3
@@ -148,6 +149,7 @@ function notifyViaServiceWorker(payload: any): void {
 
 export default function AdminRealtimeProvider() {
   const router = useRouter();
+  const { user } = useAuth();
   const [toasts, setToasts] = useState<ToastEntry[]>([]);
   const [isMuted, setIsMuted] = useState(false);
   const [showMuteIndicator, setShowMuteIndicator] = useState(false);
@@ -155,6 +157,32 @@ export default function AdminRealtimeProvider() {
   const mountedRef = useRef(true);
   const seenIds = useRef<Set<string>>(new Set());
   const toastIdRef = useRef(0);
+
+  const registeredTokenRef = useRef<string | null>(null);
+  const userRegisteredForTokenRef = useRef<string | null>(null);
+
+  const registerTokenToSupabase = useCallback(async (userId: string, email: string | undefined, token: string) => {
+    console.log(`[FCM_TOKEN_REGISTERED] Registering FCM token to Supabase for admin ${email}`);
+    const supabase = createClient();
+    const { error } = await supabase.from('admin_fcm_tokens').upsert({
+      user_id: userId,
+      token: token,
+      device_name: 'Android App Client',
+      last_used_at: new Date().toISOString(),
+    }, { onConflict: 'token' });
+    
+    if (!error) {
+      userRegisteredForTokenRef.current = userId;
+    } else {
+      console.error('[FCM_TOKEN_REGISTER_ERROR]', error);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (user && registeredTokenRef.current && userRegisteredForTokenRef.current !== user.id) {
+      registerTokenToSupabase(user.id, user.email, registeredTokenRef.current);
+    }
+  }, [user, registerTokenToSupabase]);
 
   useEffect(() => { setIsMuted(getMuteState()); }, []);
 
@@ -461,16 +489,10 @@ export default function AdminRealtimeProvider() {
         PushNotifications.addListener('registration', async (token) => {
           const fcmToken = token.value;
           console.log(`[FCM_TOKEN_REGISTERED] Generated FCM token: ${fcmToken}`);
-          const supabase = createClient();
-          const { data: { user } } = await supabase.auth.getUser();
-          if (user) {
-            console.log(`[FCM_TOKEN_REGISTERED] Registering FCM token to Supabase for admin ${user.email}`);
-            await supabase.from('admin_fcm_tokens').upsert({
-              user_id: user.id,
-              token: fcmToken,
-              device_name: 'Android App Client',
-              last_used_at: new Date().toISOString(),
-            }, { onConflict: 'token' });
+          registeredTokenRef.current = fcmToken;
+          
+          if (user && userRegisteredForTokenRef.current !== user.id) {
+            await registerTokenToSupabase(user.id, user.email, fcmToken);
           }
         });
 

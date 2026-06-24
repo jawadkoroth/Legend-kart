@@ -1,16 +1,49 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
+import { useAuth } from '@/lib/auth/AuthProvider';
 import styles from './page.module.css';
 
 export default function AdminLogin() {
   const router = useRouter();
+  const { user, loading: authLoading } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
+
+  useEffect(() => {
+    if (typeof navigator !== 'undefined' && navigator.userAgent.includes('PANTHER_MOBILE')) {
+      setIsMobile(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!authLoading && user) {
+      router.replace('/admin/dashboard');
+    }
+  }, [user, authLoading, router]);
+
+  if (isMobile && authLoading) {
+    return (
+      <div style={{
+        display: 'flex',
+        height: '100vh',
+        alignItems: 'center',
+        justifyContent: 'center',
+        background: '#0B0B0B',
+        color: '#8A8A8A',
+        fontFamily: 'monospace',
+        fontSize: '0.8rem',
+        letterSpacing: '0.1em'
+      }}>
+        RESTORING SESSION...
+      </div>
+    );
+  }
 
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault();
