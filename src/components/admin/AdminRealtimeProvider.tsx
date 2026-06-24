@@ -558,10 +558,10 @@ export default function AdminRealtimeProvider() {
               onClick={async () => {
                 if (typeof window === 'undefined' || !Capacitor.isNativePlatform()) return;
                 try {
-                  const { NativeSettings, AndroidSettings } = await import('capacitor-native-settings');
+                  const { NativeSettings, AndroidSettings, IOSSettings } = await import('capacitor-native-settings');
                   await NativeSettings.open({
                     optionAndroid: AndroidSettings.ApplicationDetails,
-                    optionIOS: 'App',
+                    optionIOS: IOSSettings.App,
                   });
                 } catch (err) {
                   console.error('Failed to open app settings details:', err);
