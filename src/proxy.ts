@@ -61,6 +61,13 @@ export async function proxy(request: NextRequest) {
           cookiesToSet.forEach(({ name, value }) => {
             request.cookies.set(name, value);
           });
+          // Serialize request.cookies back into the requestHeaders Cookie header
+          const cookieHeader = request.cookies
+            .getAll()
+            .map((c) => `${c.name}=${c.value}`)
+            .join('; ');
+          requestHeaders.set('Cookie', cookieHeader);
+
           response = NextResponse.next({ request: { headers: requestHeaders } });
           // Re-attach the correlation id after the response is rebuilt.
           response.headers.set('x-request-id', requestId);

@@ -199,7 +199,7 @@ export default function AdminPushPrompt() {
   if (state === 'ios-install') {
     return (
       <span
-        title="Install PANTHER Admin to your Home Screen to enable push notifications"
+        title="Install NOIR Admin to your Home Screen to enable push notifications"
         style={{
           fontSize: '0.65rem',
           letterSpacing: '0.08em',

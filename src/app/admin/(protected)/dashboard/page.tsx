@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import Link from 'next/link';
-import { createClient } from '@/lib/supabase/client';
 import {
   RevenueTrendChart,
   OrderTrendChart,
@@ -10,6 +9,21 @@ import {
 } from '@/components/admin/DashboardCharts';
 import { ADMIN_ORDER_CREATED_EVENT } from '@/components/admin/AdminRealtimeProvider';
 import AdminWelcome from '@/components/admin/AdminWelcome';
+
+/**
+ * NOIR Admin — operations dashboard.
+ *
+ * Server-side aggregation only: this page fetches a single
+ * `/api/admin/analytics` endpoint that returns every metric / list
+ * in one bounded query. Filters narrow the date range; the chart,
+ * cards and operational widgets all derive from the same payload
+ * → no fan-out queries, no client-side scan over the orders table.
+ *
+ * Realtime: the global `AdminRealtimeProvider` dispatches a
+ * `admin:order-created` window event whenever a new order arrives.
+ * We listen here and softly refetch (debounced) so revenue / counts
+ * / recent orders update without a full reload.
+ */
 
 type Preset = 'today' | 'yesterday' | '7d' | 'month' | 'custom';
 
@@ -57,17 +71,6 @@ interface Analytics {
     size: string;
     stock: number;
   }[];
-}
-
-interface TimelineItem {
-  id: string;
-  type: 'NEW_ORDER' | 'RETURN_REQUEST' | 'EXCHANGE_REQUEST' | 'DELIVERED' | 'ADMIN_NOTE';
-  title: string;
-  body: string;
-  time: string;
-  link: string;
-  icon: string;
-  color: string;
 }
 
 function startOfDay(d: Date): Date {
@@ -129,16 +132,6 @@ export default function AdminDashboard() {
   const [data, setData] = useState<Analytics | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-
-  // Operational Control Center States
-  const [todayRevenue, setTodayRevenue] = useState<number>(0);
-  const [todayOrders, setTodayOrders] = useState<number>(0);
-  const [pendingShipments, setPendingShipments] = useState<number>(0);
-  const [pendingReturns, setPendingReturns] = useState<number>(0);
-  const [pendingExchanges, setPendingExchanges] = useState<number>(0);
-  const [timeline, setTimeline] = useState<TimelineItem[]>([]);
-  const [timelineLoading, setTimelineLoading] = useState(true);
-
   const refetchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const range = useMemo(
@@ -146,7 +139,6 @@ export default function AdminDashboard() {
     [preset, customFrom, customTo],
   );
 
-  // Fetch range analytics (trends/split charts)
   const fetchAnalytics = useCallback(async () => {
     setError(null);
     try {
@@ -168,171 +160,24 @@ export default function AdminDashboard() {
     }
   }, [range.from, range.to]);
 
-  // Fetch real-time operational dashboard (Today stats + return counts + timeline)
-  const fetchOperationalCenter = useCallback(async () => {
-    try {
-      const supabase = createClient();
-
-      // A. Today's Revenue and Orders
-      const tNow = new Date();
-      const tFrom = startOfDay(tNow).toISOString();
-      const tTo = endOfDay(tNow).toISOString();
-      const url = new URL('/api/admin/analytics', window.location.origin);
-      url.searchParams.set('from', tFrom);
-      url.searchParams.set('to', tTo);
-      const res = await fetch(url.toString(), { cache: 'no-store' });
-      const json = await res.json();
-      if (json.success) {
-        setTodayRevenue(json.revenue.total);
-        setTodayOrders(json.orders.total);
-      }
-
-      // B. Pending Shipments (confirmed but not yet shipped/delivered)
-      const { count: sCount } = await supabase
-        .from('orders')
-        .select('*', { count: 'exact', head: true })
-        .eq('order_status', 'confirmed');
-      setPendingShipments(sCount ?? 0);
-
-      // C. Returns Pending
-      const { count: rCount } = await supabase
-        .from('return_requests')
-        .select('*', { count: 'exact', head: true })
-        .eq('type', 'return')
-        .in('status', ['requested', 'under_review']);
-      setPendingReturns(rCount ?? 0);
-
-      // D. Exchanges Pending
-      const { count: eCount } = await supabase
-        .from('return_requests')
-        .select('*', { count: 'exact', head: true })
-        .eq('type', 'exchange')
-        .in('status', ['requested', 'under_review']);
-      setPendingExchanges(eCount ?? 0);
-
-      // E. Timeline (Recent Notifications & Activities)
-      setTimelineLoading(true);
-      
-      const { data: rawOrders } = await supabase
-        .from('orders')
-        .select('id, order_number, customer, total_paise, created_at')
-        .order('created_at', { ascending: false })
-        .limit(6);
-
-      const { data: rawReturns } = await supabase
-        .from('return_requests')
-        .select('id, order_id, type, status, reason, created_at, orders(order_number)')
-        .order('created_at', { ascending: false })
-        .limit(6);
-
-      const { data: rawNotes } = await supabase
-        .from('admin_notes')
-        .select('id, order_id, admin_email, content, created_at, orders(order_number)')
-        .order('created_at', { ascending: false })
-        .limit(6);
-
-      const { data: rawDeliveries } = await supabase
-        .from('shipment_status_history')
-        .select('id, shipment_id, created_at, shipments(order_id, orders(order_number, customer))')
-        .eq('next_status', 'delivered')
-        .order('created_at', { ascending: false })
-        .limit(6);
-
-      // Transform and combine
-      const timelineItems: TimelineItem[] = [];
-
-      (rawOrders || []).forEach(o => {
-        timelineItems.push({
-          id: `order-${o.id}`,
-          type: 'NEW_ORDER',
-          title: 'New Order Received',
-          body: `${o.customer?.name || 'Guest'} placed order ${o.order_number} · ${formatPrice(o.total_paise)}`,
-          time: o.created_at,
-          link: `/admin/orders/${o.id}`,
-          icon: '💰',
-          color: '#4CAF50'
-        });
-      });
-
-      (rawReturns || []).forEach(r => {
-        const isExchange = r.type === 'exchange';
-        const orderNum = (r.orders as any)?.order_number || '';
-        timelineItems.push({
-          id: `return-${r.id}`,
-          type: isExchange ? 'EXCHANGE_REQUEST' : 'RETURN_REQUEST',
-          title: isExchange ? 'Exchange Requested' : 'Return Requested',
-          body: `Order ${orderNum}: ${r.reason}`,
-          time: r.created_at,
-          link: `/admin/orders/${r.order_id}`,
-          icon: isExchange ? '🔀' : '🔄',
-          color: isExchange ? '#2196F3' : '#FF9800'
-        });
-      });
-
-      (rawNotes || []).forEach(n => {
-        const orderNum = (n.orders as any)?.order_number || '';
-        timelineItems.push({
-          id: `note-${n.id}`,
-          type: 'ADMIN_NOTE',
-          title: 'Internal Admin Note',
-          body: `${n.admin_email?.split('@')[0] || 'System'}: ${n.content} on order ${orderNum}`,
-          time: n.created_at,
-          link: `/admin/orders/${n.order_id}`,
-          icon: '📝',
-          color: '#D4AF37'
-        });
-      });
-
-      (rawDeliveries || []).forEach(d => {
-        const shipmentData = d.shipments as any;
-        const orderData = shipmentData?.orders as any;
-        const orderNum = orderData?.order_number || '';
-        const custName = orderData?.customer?.name || 'Guest';
-        timelineItems.push({
-          id: `delivery-${d.id}`,
-          type: 'DELIVERED',
-          title: 'Shipment Delivered',
-          body: `Order ${orderNum} delivered to ${custName}`,
-          time: d.created_at,
-          link: `/admin/orders/${shipmentData?.order_id || ''}`,
-          icon: '📦',
-          color: '#00E676'
-        });
-      });
-
-      const sorted = timelineItems
-        .sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime())
-        .slice(0, 10);
-
-      setTimeline(sorted);
-    } catch (e) {
-      console.error('[OPERATIONAL_CENTER_FETCH_FAILED]', e);
-    } finally {
-      setTimelineLoading(false);
-    }
-  }, []);
-
-  // Initial loads
+  // Initial + filter-change fetch (debounced for custom range typing).
   useEffect(() => {
     setLoading(true);
     if (refetchTimer.current) clearTimeout(refetchTimer.current);
-    refetchTimer.current = setTimeout(() => {
-      fetchAnalytics();
-      fetchOperationalCenter();
-    }, 200);
+    refetchTimer.current = setTimeout(fetchAnalytics, 200);
     return () => {
       if (refetchTimer.current) clearTimeout(refetchTimer.current);
     };
-  }, [fetchAnalytics, fetchOperationalCenter]);
+  }, [fetchAnalytics]);
 
-  // Realtime: Listen for new orders / update events
+  // Realtime: refetch on new-order event (debounced so a burst of
+  // inserts doesn't hammer the API).
   useEffect(() => {
     let pending: ReturnType<typeof setTimeout> | null = null;
     const onOrder = () => {
       if (pending) clearTimeout(pending);
       pending = setTimeout(() => {
         fetchAnalytics();
-        fetchOperationalCenter();
       }, 800);
     };
     window.addEventListener(ADMIN_ORDER_CREATED_EVENT, onOrder);
@@ -340,413 +185,374 @@ export default function AdminDashboard() {
       window.removeEventListener(ADMIN_ORDER_CREATED_EVENT, onOrder);
       if (pending) clearTimeout(pending);
     };
-  }, [fetchAnalytics, fetchOperationalCenter]);
+  }, [fetchAnalytics]);
 
   return (
-    <div style={{ paddingBottom: '32px' }}>
+    <div>
       {/* Personalized Admin Welcome */}
       <AdminWelcome />
 
-      {/* ─── PHASE 4 REDESIGN: OPERATIONAL CONTROL CENTER ─── */}
-      <div style={{ marginBottom: '28px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
-          <span style={{ fontSize: '1.5rem' }}>⚡</span>
-          <h2 style={{
-            fontSize: '1.2rem',
-            fontWeight: 700,
-            letterSpacing: '0.04em',
-            margin: 0,
-            textTransform: 'uppercase',
-            color: 'var(--gold, #D4AF37)',
-            fontFamily: 'var(--font-serif, serif)'
-          }}>
-            Operations Control Center
-          </h2>
-        </div>
-
-        {/* Large, Touch-Friendly Metrics Grid */}
-        <div style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
-          gap: '12px',
-          marginBottom: '20px'
-        }}>
-          {/* Today's Revenue */}
-          <div style={cardStyle('linear-gradient(135deg, rgba(212, 175, 55, 0.15) 0%, rgba(18, 18, 18, 0.85) 100%)', 'rgba(212, 175, 55, 0.25)')}>
-            <div style={{ fontSize: '1.5rem', marginBottom: '8px' }}>💰</div>
-            <div style={cardLabelStyle}>Today's Revenue</div>
-            <div style={cardValueStyle}>{formatPrice(todayRevenue)}</div>
-          </div>
-
-          {/* Today's Orders */}
-          <div style={cardStyle('linear-gradient(135deg, rgba(76, 175, 80, 0.12) 0%, rgba(18, 18, 18, 0.85) 100%)', 'rgba(76, 175, 80, 0.2)')}>
-            <div style={{ fontSize: '1.5rem', marginBottom: '8px' }}>📦</div>
-            <div style={cardLabelStyle}>Today's Orders</div>
-            <div style={cardValueStyle}>{todayOrders}</div>
-          </div>
-
-          {/* Pending Shipments */}
-          <div style={cardStyle('linear-gradient(135deg, rgba(33, 150, 243, 0.12) 0%, rgba(18, 18, 18, 0.85) 100%)', 'rgba(33, 150, 243, 0.2)')}>
-            <Link href="/admin/orders?filter=confirmed" style={{ textDecoration: 'none', color: 'inherit', display: 'block', width: '100%', height: '100%' }}>
-              <div style={{ fontSize: '1.5rem', marginBottom: '8px' }}>🚚</div>
-              <div style={cardLabelStyle}>Pending Shipments</div>
-              <div style={cardValueStyle}>{pendingShipments}</div>
-            </Link>
-          </div>
-
-          {/* Returns Pending */}
-          <div style={cardStyle('linear-gradient(135deg, rgba(255, 152, 0, 0.12) 0%, rgba(18, 18, 18, 0.85) 100%)', 'rgba(255, 152, 0, 0.2)')}>
-            <Link href="/admin/orders" style={{ textDecoration: 'none', color: 'inherit', display: 'block', width: '100%', height: '100%' }}>
-              <div style={{ fontSize: '1.5rem', marginBottom: '8px' }}>🔄</div>
-              <div style={cardLabelStyle}>Returns Pending</div>
-              <div style={cardValueStyle}>{pendingReturns}</div>
-            </Link>
-          </div>
-
-          {/* Exchange Requests */}
-          <div style={cardStyle('linear-gradient(135deg, rgba(156, 39, 176, 0.12) 0%, rgba(18, 18, 18, 0.85) 100%)', 'rgba(156, 39, 176, 0.2)')}>
-            <Link href="/admin/orders" style={{ textDecoration: 'none', color: 'inherit', display: 'block', width: '100%', height: '100%' }}>
-              <div style={{ fontSize: '1.5rem', marginBottom: '8px' }}>🔀</div>
-              <div style={cardLabelStyle}>Exchanges Pending</div>
-              <div style={cardValueStyle}>{pendingExchanges}</div>
-            </Link>
-          </div>
-        </div>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          marginBottom: 'var(--space-4)',
+          gap: 'var(--space-2)',
+          flexWrap: 'wrap',
+        }}
+      >
+        <h1 style={{ fontSize: '1.25rem', fontWeight: 600 }}>Dashboard</h1>
+        <FilterPills
+          preset={preset}
+          onChange={(p) => setPreset(p)}
+          customFrom={customFrom}
+          customTo={customTo}
+          setCustomFrom={setCustomFrom}
+          setCustomTo={setCustomTo}
+        />
       </div>
 
-      {/* Needs action warnings banner */}
+      {error && (
+        <div className="warning-banner" style={{ marginBottom: 'var(--space-4)' }}>
+          ⚠ {error}
+        </div>
+      )}
+
+      {/* Stuck orders banner */}
       {data && data.orders.stuck > 0 && (
-        <div className="warning-banner" style={{ marginBottom: '24px', background: 'rgba(244, 67, 54, 0.12)', border: '1px solid rgba(244, 67, 54, 0.3)', padding: '12px 16px', borderRadius: '12px', color: '#FF7675', display: 'flex', alignItems: 'center' }}>
-          <span>⚠ {data.orders.stuck} stuck online order{data.orders.stuck > 1 ? 's' : ''} (&gt;30m delay)</span>
+        <div className="warning-banner" style={{ marginBottom: 'var(--space-4)' }}>
+          ⚠ {data.orders.stuck} online order{data.orders.stuck > 1 ? 's' : ''}{' '}
+          pending payment &gt; 30 min
           <Link
             href="/admin/orders?filter=stuck"
             style={{
               marginLeft: 'auto',
               textDecoration: 'underline',
-              fontSize: '0.8rem',
-              color: '#FF7675',
-              fontWeight: 600
+              fontSize: '0.8125rem',
             }}
           >
-            Review Stuck
+            Review →
           </Link>
         </div>
       )}
 
-      {/* Split Feeds: Recent Orders & Unified Activity Timeline */}
-      <div style={{
-        display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fit, minmax(290px, 1fr))',
-        gap: '20px',
-        marginBottom: '28px'
-      }}>
-        {/* Left Col: Recent Orders */}
-        <div style={feedCardStyle}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-            <h3 style={feedTitleStyle}>Recent Orders</h3>
-            <Link href="/admin/orders" style={viewAllLinkStyle}>View all →</Link>
-          </div>
-
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-            {loading && !data && (
-              <div style={{ color: '#8A8A8A', fontSize: '0.85rem', textAlign: 'center', padding: '24px 0' }}>
-                Loading recent orders...
-              </div>
-            )}
-            {data?.recentOrders.map((o) => (
-              <Link key={o.id} href={`/admin/orders/${o.id}`} style={touchOrderCardStyle}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-                  <span style={{ fontWeight: 700, fontSize: '0.85rem', fontFamily: 'var(--font-mono, monospace)', color: '#FFF' }}>
-                    {o.order_number}
-                  </span>
-                  <span style={badgeStyle(o.order_status)}>{o.order_status.toUpperCase()}</span>
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.75rem', color: '#AAA' }}>
-                  <span>{o.customer_name || 'Guest'} · {o.payment_method.toUpperCase()}</span>
-                  <span style={{ fontWeight: 600, color: 'var(--gold, #D4AF37)' }}>{formatPrice(o.total_paise)}</span>
-                </div>
-              </Link>
-            ))}
-            {data && data.recentOrders.length === 0 && (
-              <div style={{ color: '#8A8A8A', fontSize: '0.85rem', textAlign: 'center', padding: '24px 0' }}>
-                No recent orders found.
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Right Col: Recent Notifications Timeline */}
-        <div style={feedCardStyle}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-            <h3 style={feedTitleStyle}>Recent Notifications</h3>
-            <span style={{ fontSize: '0.7rem', color: '#8A8A8A', fontWeight: 600 }}>REAL-TIME UPDATES</span>
-          </div>
-
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', position: 'relative' }}>
-            {timelineLoading && timeline.length === 0 ? (
-              <div style={{ color: '#8A8A8A', fontSize: '0.85rem', textAlign: 'center', padding: '24px 0' }}>
-                Loading activities feed...
-              </div>
-            ) : (
-              timeline.map((item, idx) => (
-                <Link key={item.id} href={item.link} style={{
-                  display: 'flex',
-                  gap: '12px',
-                  textDecoration: 'none',
-                  color: 'inherit',
-                  padding: '8px',
-                  borderRadius: '8px',
-                  background: 'rgba(255, 255, 255, 0.02)',
-                  transition: 'background 200ms ease',
-                  border: '1px solid rgba(255,255,255,0.03)'
-                }}
-                onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255, 255, 255, 0.05)'; }}
-                onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(255, 255, 255, 0.02)'; }}
-                >
-                  {/* Timeline Badge */}
-                  <div style={{
-                    width: '32px',
-                    height: '32px',
-                    borderRadius: '50%',
-                    background: `${item.color}15`,
-                    border: `1px solid ${item.color}40`,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    fontSize: '1rem',
-                    flexShrink: 0
-                  }}>
-                    {item.icon}
-                  </div>
-
-                  {/* Timeline Content */}
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', flex: 1, minWidth: 0 }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-                      <span style={{ fontSize: '0.8rem', fontWeight: 600, color: '#FFF' }}>{item.title}</span>
-                      <span style={{ fontSize: '0.65rem', color: '#8A8A8A' }}>{formatRelative(item.time)}</span>
-                    </div>
-                    <span style={{
-                      fontSize: '0.75rem',
-                      color: '#AAA',
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      whiteSpace: 'nowrap'
-                    }}>
-                      {item.body}
-                    </span>
-                  </div>
-                </Link>
-              ))
-            )}
-            {timeline.length === 0 && !timelineLoading && (
-              <div style={{ color: '#8A8A8A', fontSize: '0.85rem', textAlign: 'center', padding: '24px 0' }}>
-                No recent notifications/activities logged.
-              </div>
-            )}
-          </div>
-        </div>
+      {/* Metric cards */}
+      <div className="stats-grid" style={{ marginBottom: 'var(--space-5)' }}>
+        <MetricCard
+          label="Revenue"
+          value={loading || !data ? '—' : formatPrice(data.revenue.total)}
+          accent="success"
+          trend={
+            data
+              ? { pct: data.revenue.trendPct, label: 'vs prev period' }
+              : undefined
+          }
+          loading={loading}
+        />
+        <MetricCard
+          label="Orders"
+          value={loading || !data ? '—' : String(data.orders.total)}
+          loading={loading}
+        />
+        <MetricCard
+          label="AOV"
+          value={loading || !data ? '—' : formatPrice(data.aov)}
+          loading={loading}
+        />
+        <MetricCard
+          label="Repeat customers"
+          value={loading || !data ? '—' : String(data.repeatCustomers)}
+          loading={loading}
+        />
       </div>
 
-      {/* ─── HISTORICAL ANALYTICS & TRENDS ─── */}
-      <div style={{
-        background: 'rgba(12, 12, 12, 0.85)',
-        backdropFilter: 'blur(20px)',
-        WebkitBackdropFilter: 'blur(20px)',
-        border: '1px solid rgba(255,255,255,0.06)',
-        borderRadius: '16px',
-        padding: '20px',
-        boxShadow: '0 8px 32px rgba(0,0,0,0.5)'
-      }}>
-        <div style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          marginBottom: '20px',
-          gap: '12px',
-          flexWrap: 'wrap',
-        }}>
-          <div>
-            <h3 style={{ fontSize: '1rem', fontWeight: 700, color: '#FFF', margin: 0 }}>Analytics Insights</h3>
-            <span style={{ fontSize: '0.75rem', color: '#8A8A8A' }}>Review historical performance trends</span>
-          </div>
-          <FilterPills
-            preset={preset}
-            onChange={(p) => setPreset(p)}
-            customFrom={customFrom}
-            customTo={customTo}
-            setCustomFrom={setCustomFrom}
-            setCustomTo={setCustomTo}
-          />
-        </div>
+      {/* Status row */}
+      <div className="stats-grid" style={{ marginBottom: 'var(--space-5)' }}>
+        <MetricCard
+          label="Pending"
+          value={data ? String(data.orders.pending) : '—'}
+          accent="warning"
+          loading={loading}
+        />
+        <MetricCard
+          label="Confirmed"
+          value={data ? String(data.orders.confirmed) : '—'}
+          accent="info"
+          loading={loading}
+        />
+        <MetricCard
+          label="Shipped"
+          value={data ? String(data.orders.shipped) : '—'}
+          loading={loading}
+        />
+        <MetricCard
+          label="Delivered"
+          value={data ? String(data.orders.delivered) : '—'}
+          accent="success"
+          loading={loading}
+        />
+      </div>
 
-        {error && (
-          <div style={{ marginBottom: '16px', color: '#FF7675', fontSize: '0.85rem' }}>⚠ {error}</div>
-        )}
-
-        {/* Metric Cards Row */}
-        <div style={{
+      {/* Charts */}
+      <div
+        style={{
           display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))',
-          gap: '12px',
-          marginBottom: '20px'
-        }}>
-          <MetricCard
-            label="Period Revenue"
-            value={loading || !data ? '—' : formatPrice(data.revenue.total)}
-            accent="success"
-            trend={
-              data
-                ? { pct: data.revenue.trendPct, label: 'vs prev period' }
-                : undefined
-            }
-            loading={loading}
-          />
-          <MetricCard
-            label="Total Orders"
-            value={loading || !data ? '—' : String(data.orders.total)}
-            loading={loading}
-          />
-          <MetricCard
-            label="AOV"
-            value={loading || !data ? '—' : formatPrice(data.aov)}
-            loading={loading}
-          />
-          <MetricCard
-            label="Repeat Customers"
-            value={loading || !data ? '—' : String(data.repeatCustomers)}
-            loading={loading}
-          />
-        </div>
-
-        {/* Split Charts */}
-        <div style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
-          gap: '16px',
-        }}>
-          <ChartCard title="Revenue Trend">
-            {data ? <RevenueTrendChart data={data.trend} /> : <ChartSkeleton />}
-          </ChartCard>
-          <ChartCard title="Orders Trend">
-            {data ? <OrderTrendChart data={data.trend} /> : <ChartSkeleton />}
-          </ChartCard>
-          <ChartCard title="Payment Gateway Split">
-            {data ? (
-              <div style={{ paddingTop: 8 }}>
-                <PaymentSplitBar
-                  online={data.orders.paymentSplit.online}
-                  cod={data.orders.paymentSplit.cod}
-                />
-                <div style={{
+          gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
+          gap: 'var(--space-3)',
+          marginBottom: 'var(--space-5)',
+        }}
+      >
+        <ChartCard title="Revenue trend">
+          {data ? <RevenueTrendChart data={data.trend} /> : <ChartSkeleton />}
+        </ChartCard>
+        <ChartCard title="Orders trend">
+          {data ? <OrderTrendChart data={data.trend} /> : <ChartSkeleton />}
+        </ChartCard>
+        <ChartCard title="Payment split">
+          {data ? (
+            <div style={{ paddingTop: 8 }}>
+              <PaymentSplitBar
+                online={data.orders.paymentSplit.online}
+                cod={data.orders.paymentSplit.cod}
+              />
+              <div
+                style={{
                   display: 'flex',
                   justifyContent: 'space-between',
-                  marginTop: '12px',
-                  fontSize: '0.7rem',
-                  color: '#8A8A8A',
-                }}>
-                  <span>Online: {formatPrice(data.revenue.prepaid)}</span>
-                  <span>COD: {formatPrice(data.revenue.cod)}</span>
-                </div>
+                  marginTop: 'var(--space-3)',
+                  fontSize: '0.75rem',
+                  color: 'var(--text-muted)',
+                }}
+              >
+                <span>Online revenue: {formatPrice(data.revenue.prepaid)}</span>
+                <span>COD revenue: {formatPrice(data.revenue.cod)}</span>
               </div>
-            ) : (
-              <ChartSkeleton />
-            )}
-          </ChartCard>
-        </div>
+            </div>
+          ) : (
+            <ChartSkeleton />
+          )}
+        </ChartCard>
+      </div>
+
+      {/* Two-col widgets */}
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
+          gap: 'var(--space-3)',
+          marginBottom: 'var(--space-5)',
+        }}
+      >
+        <SectionCard
+          title="Needs action"
+          empty={
+            data &&
+              data.needsAction.unconfirmed === 0 &&
+              data.needsAction.failed === 0 &&
+              data.needsAction.stuck === 0
+              ? 'All clear ✓'
+              : null
+          }
+        >
+          {data && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {data.needsAction.unconfirmed > 0 && (
+                <ActionRow
+                  label="Paid but unconfirmed"
+                  count={data.needsAction.unconfirmed}
+                  href="/admin/orders?filter=unconfirmed"
+                />
+              )}
+              {data.needsAction.failed > 0 && (
+                <ActionRow
+                  label="Failed payment"
+                  count={data.needsAction.failed}
+                  href="/admin/orders?filter=failed"
+                  tone="error"
+                />
+              )}
+              {data.needsAction.stuck > 0 && (
+                <ActionRow
+                  label="Stuck (online > 30 min)"
+                  count={data.needsAction.stuck}
+                  href="/admin/orders?filter=stuck"
+                  tone="warning"
+                />
+              )}
+            </div>
+          )}
+        </SectionCard>
+
+        <SectionCard
+          title="Low stock"
+          empty={data && data.lowStock.length === 0 ? 'No low-stock items' : null}
+        >
+          {data && data.lowStock.length > 0 && (
+            <ul
+              style={{
+                listStyle: 'none',
+                padding: 0,
+                margin: 0,
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 6,
+              }}
+            >
+              {data.lowStock.slice(0, 8).map((row, i) => (
+                <li
+                  key={`${row.product_id}-${row.size}-${i}`}
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    fontSize: '0.8125rem',
+                    paddingBottom: 6,
+                    borderBottom:
+                      i < Math.min(7, data.lowStock.length - 1)
+                        ? '1px solid var(--border-color)'
+                        : 'none',
+                  }}
+                >
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '60%' }}>
+                    {row.name}{' '}
+                    <span className="text-muted">· {row.size}</span>
+                  </span>
+                  <span
+                    style={{
+                      color: row.stock === 0 ? 'var(--error)' : 'var(--warning)',
+                      fontWeight: 600,
+                      fontFamily: 'var(--font-mono, ui-monospace), monospace',
+                    }}
+                  >
+                    {row.stock}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </SectionCard>
+      </div>
+
+      {/* Top products + Recent customers */}
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
+          gap: 'var(--space-3)',
+          marginBottom: 'var(--space-5)',
+        }}
+      >
+        <SectionCard
+          title="Top products"
+          empty={data && data.topProducts.length === 0 ? 'No sales yet' : null}
+        >
+          {data && data.topProducts.length > 0 && (
+            <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {data.topProducts.map((p) => (
+                <li
+                  key={p.product_id}
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    fontSize: '0.8125rem',
+                    gap: 12,
+                  }}
+                >
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
+                    {p.name}
+                  </span>
+                  <span className="text-muted">×{p.qty}</span>
+                  <span style={{ fontWeight: 600 }}>{formatPrice(p.revenue)}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </SectionCard>
+
+        <SectionCard
+          title="Recent customers"
+          empty={data && data.recentCustomers.length === 0 ? 'No customers yet' : null}
+        >
+          {data && data.recentCustomers.length > 0 && (
+            <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {data.recentCustomers.map((c, i) => (
+                <li
+                  key={`${c.phone}-${i}`}
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    fontSize: '0.8125rem',
+                  }}
+                >
+                  <span>
+                    {c.name || '—'}{' '}
+                    <span className="text-muted" style={{ fontFamily: 'var(--font-mono, ui-monospace), monospace' }}>
+                      {c.phone}
+                    </span>
+                  </span>
+                  <span className="text-muted">{formatRelative(c.last_order_at)}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </SectionCard>
+      </div>
+
+      {/* Recent orders */}
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'baseline',
+          justifyContent: 'space-between',
+          marginBottom: 'var(--space-3)',
+        }}
+      >
+        <h2 style={{ fontSize: '1rem', fontWeight: 600 }}>Recent orders</h2>
+        <Link
+          href="/admin/orders"
+          style={{ fontSize: '0.8125rem', color: 'var(--text-muted)' }}
+        >
+          View all →
+        </Link>
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
+        {loading && !data && (
+          <>
+            <SkeletonRow />
+            <SkeletonRow />
+            <SkeletonRow />
+          </>
+        )}
+        {data?.recentOrders.map((o) => (
+          <Link key={o.id} href={`/admin/orders/${o.id}`} className="order-card">
+            <div className="order-card-header">
+              <span style={{ fontWeight: 600, fontSize: '0.875rem', fontFamily: 'monospace' }}>
+                {o.order_number}
+              </span>
+              <span className={`badge badge-${o.order_status}`}>{o.order_status}</span>
+            </div>
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                fontSize: '0.8125rem',
+                color: 'var(--text-muted)',
+              }}
+            >
+              <span>{o.customer_name || '—'} · {o.payment_method === 'cod' ? 'COD' : 'Online'}</span>
+              <span>{formatPrice(o.total_paise)}</span>
+            </div>
+          </Link>
+        ))}
+        {data?.recentOrders.length === 0 && (
+          <p className="text-muted" style={{ textAlign: 'center', padding: 'var(--space-6) 0' }}>
+            No orders in this range
+          </p>
+        )}
       </div>
     </div>
   );
 }
-
-/* ─────────────── Styling Configurations ─────────────── */
-
-const cardStyle = (background: string, borderColor: string): React.CSSProperties => ({
-  background,
-  border: `1px solid ${borderColor}`,
-  borderRadius: '16px',
-  padding: '16px',
-  display: 'flex',
-  flexDirection: 'column',
-  justifyContent: 'center',
-  minHeight: '110px',
-  boxShadow: '0 4px 20px rgba(0, 0, 0, 0.25)',
-  cursor: 'pointer',
-  transition: 'transform 150ms ease, box-shadow 150ms ease',
-});
-
-const cardLabelStyle: React.CSSProperties = {
-  fontSize: '0.72rem',
-  color: '#AAA',
-  fontWeight: 600,
-  letterSpacing: '0.04em',
-  textTransform: 'uppercase',
-  marginBottom: '4px'
-};
-
-const cardValueStyle: React.CSSProperties = {
-  fontSize: '1.25rem',
-  fontWeight: 700,
-  color: '#FFF',
-  letterSpacing: '0.02em'
-};
-
-const feedCardStyle: React.CSSProperties = {
-  background: 'rgba(18, 18, 18, 0.85)',
-  backdropFilter: 'blur(20px)',
-  WebkitBackdropFilter: 'blur(20px)',
-  border: '1px solid rgba(255, 255, 255, 0.05)',
-  borderRadius: '16px',
-  padding: '18px',
-  boxShadow: '0 8px 30px rgba(0, 0, 0, 0.35)',
-};
-
-const feedTitleStyle: React.CSSProperties = {
-  fontSize: '0.95rem',
-  fontWeight: 700,
-  color: '#FFF',
-  margin: 0,
-  letterSpacing: '0.02em',
-};
-
-const viewAllLinkStyle: React.CSSProperties = {
-  fontSize: '0.75rem',
-  color: 'var(--gold, #D4AF37)',
-  textDecoration: 'none',
-  fontWeight: 600
-};
-
-const touchOrderCardStyle: React.CSSProperties = {
-  display: 'flex',
-  flexDirection: 'column',
-  padding: '12px',
-  borderRadius: '12px',
-  background: 'rgba(255, 255, 255, 0.02)',
-  border: '1px solid rgba(255, 255, 255, 0.04)',
-  textDecoration: 'none',
-  cursor: 'pointer',
-  transition: 'all 200ms ease'
-};
-
-const badgeStyle = (status: string): React.CSSProperties => {
-  let bg = 'rgba(255,255,255,0.08)';
-  let color = '#FFF';
-  if (status === 'delivered') { bg = 'rgba(76,175,80,0.12)'; color = '#4CAF50'; }
-  else if (status === 'pending') { bg = 'rgba(255,152,0,0.12)'; color = '#FF9800'; }
-  else if (status === 'shipped') { bg = 'rgba(33,150,243,0.12)'; color = '#2196F3'; }
-  else if (status === 'confirmed') { bg = 'rgba(0,188,212,0.12)'; color = '#00BCD4'; }
-  else if (status === 'cancelled') { bg = 'rgba(244,67,54,0.12)'; color = '#F44336'; }
-
-  return {
-    fontSize: '0.62rem',
-    fontWeight: 800,
-    letterSpacing: '0.06em',
-    padding: '3px 8px',
-    borderRadius: '8px',
-    background: bg,
-    color,
-    border: `1px solid ${color}20`
-  };
-};
 
 /* ─────────────── small presentational helpers ─────────────── */
 
@@ -794,12 +600,12 @@ function FilterPills({
             onClick={() => onChange(o.id)}
             style={{
               border: '1px solid',
-              borderColor: active ? 'rgba(212,175,55,0.55)' : 'rgba(255, 255, 255, 0.08)',
+              borderColor: active ? 'rgba(212,175,55,0.55)' : 'var(--border-color)',
               background: active ? 'rgba(212,175,55,0.10)' : 'transparent',
-              color: active ? 'var(--gold, #D4AF37)' : '#AAA',
+              color: active ? 'var(--gold, #D4AF37)' : 'var(--text)',
               padding: '4px 10px',
               borderRadius: 999,
-              fontSize: '0.72rem',
+              fontSize: '0.75rem',
               fontWeight: 600,
               letterSpacing: '0.04em',
               cursor: 'pointer',
@@ -833,11 +639,11 @@ function FilterPills({
 
 const dateInput: React.CSSProperties = {
   background: 'transparent',
-  border: '1px solid rgba(255, 255, 255, 0.1)',
+  border: '1px solid var(--border-color)',
   borderRadius: 6,
-  color: '#FFF',
+  color: 'var(--text)',
   padding: '4px 6px',
-  fontSize: '0.7rem',
+  fontSize: '0.75rem',
   colorScheme: 'dark',
 };
 
@@ -854,43 +660,33 @@ function MetricCard({
   trend?: { pct: number; label: string };
   loading?: boolean;
 }) {
-  let valueColor = '#FFF';
-  if (accent === 'success') valueColor = '#4CAF50';
-  else if (accent === 'warning') valueColor = '#FF9800';
-  else if (accent === 'info') valueColor = '#2196F3';
-  else if (accent === 'error') valueColor = '#F44336';
-
+  const colorMap: Record<string, string> = {
+    success: 'var(--success)',
+    warning: 'var(--warning)',
+    info: 'var(--info)',
+    error: 'var(--error)',
+  };
   return (
-    <div style={{
-      background: 'rgba(255,255,255,0.02)',
-      border: '1px solid rgba(255,255,255,0.04)',
-      borderRadius: '12px',
-      padding: '14px',
-      display: 'flex',
-      flexDirection: 'column',
-      gap: '4px'
-    }}>
-      <div style={{
-        fontSize: '1.1rem',
-        fontWeight: 700,
-        color: valueColor,
-        letterSpacing: '0.02em'
-      }}>
-        {loading ? <span style={{ opacity: 0.5 }}>—</span> : value}
+    <div className="stat-card">
+      <div
+        className="stat-value"
+        style={{ color: accent ? colorMap[accent] : undefined }}
+      >
+        {loading ? <span className="animate-pulse" style={{ opacity: 0.5 }}>—</span> : value}
       </div>
-      <div style={{ fontSize: '0.72rem', color: '#8A8A8A', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em' }}>{label}</div>
+      <div className="stat-label">{label}</div>
       {trend && (
         <div
           style={{
-            marginTop: 2,
-            fontSize: '0.65rem',
+            marginTop: 4,
+            fontSize: '0.7rem',
             color:
               trend.pct > 0
-                ? '#4CAF50'
+                ? 'var(--success)'
                 : trend.pct < 0
-                  ? '#FF7675'
-                  : '#8A8A8A',
-            letterSpacing: '0.02em',
+                  ? 'var(--error)'
+                  : 'var(--text-muted)',
+            letterSpacing: '0.04em',
           }}
         >
           {trend.pct > 0 ? '▲ ' : trend.pct < 0 ? '▼ ' : ''}
@@ -909,30 +705,107 @@ function ChartCard({
   children: React.ReactNode;
 }) {
   return (
-    <div style={{
-      background: 'rgba(255,255,255,0.01)',
-      border: '1px solid rgba(255,255,255,0.03)',
-      borderRadius: '12px',
-      padding: '12px',
-      display: 'flex',
-      flexDirection: 'column',
-      gap: '8px',
-    }}>
-      <span style={{ fontSize: '0.75rem', color: '#8A8A8A', fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase' }}>
+    <div
+      className="card"
+      style={{
+        padding: 'var(--space-3)',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 'var(--space-2)',
+      }}
+    >
+      <p
+        className="input-label"
+        style={{ margin: 0, color: 'var(--text-muted)', fontWeight: 600, letterSpacing: '0.06em' }}
+      >
         {title}
-      </span>
+      </p>
       {children}
     </div>
   );
 }
 
+function SectionCard({
+  title,
+  children,
+  empty,
+}: {
+  title: string;
+  children: React.ReactNode;
+  empty: string | null;
+}) {
+  return (
+    <div className="card" style={{ padding: 'var(--space-3)' }}>
+      <p
+        className="input-label"
+        style={{ marginBottom: 'var(--space-3)', color: 'var(--text-muted)', fontWeight: 600, letterSpacing: '0.06em' }}
+      >
+        {title}
+      </p>
+      {empty ? (
+        <p className="text-muted" style={{ fontSize: '0.8125rem' }}>{empty}</p>
+      ) : (
+        children
+      )}
+    </div>
+  );
+}
+
+function ActionRow({
+  label,
+  count,
+  href,
+  tone,
+}: {
+  label: string;
+  count: number;
+  href: string;
+  tone?: 'warning' | 'error';
+}) {
+  const c =
+    tone === 'error'
+      ? 'var(--error)'
+      : tone === 'warning'
+        ? 'var(--warning)'
+        : 'var(--text)';
+  return (
+    <Link
+      href={href}
+      style={{
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        padding: '8px 10px',
+        border: '1px solid var(--border-color)',
+        borderRadius: 8,
+        textDecoration: 'none',
+        color: 'var(--text)',
+        fontSize: '0.8125rem',
+      }}
+    >
+      <span>{label}</span>
+      <span style={{ color: c, fontWeight: 700 }}>{count}</span>
+    </Link>
+  );
+}
+
+function SkeletonRow() {
+  return (
+    <div
+      className="skeleton"
+      style={{
+        height: 56,
+        borderRadius: 10,
+      }}
+    />
+  );
+}
+
 function ChartSkeleton() {
   return (
-    <div style={{
-      height: '110px',
-      borderRadius: '8px',
-      background: 'rgba(255,255,255,0.02)',
-      animation: 'pulse 1.5s infinite ease-in-out'
-    }} />
+    <div
+      className="skeleton"
+      style={{ height: 120, borderRadius: 8 }}
+    />
   );
 }

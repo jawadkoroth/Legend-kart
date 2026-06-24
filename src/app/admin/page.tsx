@@ -1,34 +1,16 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
-import { useAuth } from '@/lib/auth/AuthProvider';
 import styles from './page.module.css';
 
 export default function AdminLogin() {
   const router = useRouter();
-  const { user } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-
-  useEffect(() => {
-    if (user) {
-      const supabase = createClient();
-      supabase
-        .from('admin_users')
-        .select('id')
-        .eq('id', user.id)
-        .single()
-        .then(({ data }) => {
-          if (data) {
-            router.replace('/admin/dashboard');
-          }
-        });
-    }
-  }, [user, router]);
 
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault();
@@ -83,7 +65,7 @@ export default function AdminLogin() {
   return (
     <div className={styles.page}>
       <div className={styles.card}>
-        <div className={styles.logo}>PANTHER</div>
+        <div className={styles.logo}>NOIR</div>
         <h1 className={styles.heading}>Admin Login</h1>
         <form onSubmit={handleLogin} className={styles.form}>
           <div className="input-group">

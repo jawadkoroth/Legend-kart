@@ -22,7 +22,7 @@ function getGreeting(): string {
 function extractFirstName(email: string | undefined): string {
   if (!email) return 'Admin';
   
-  // Extract name from email (e.g., jawad@panther.com → Jawad)
+  // Extract name from email (e.g., jawad@noir.com → Jawad)
   const localPart = email.split('@')[0];
   
   // Handle common separators
@@ -122,7 +122,7 @@ export default function AdminWelcome() {
           fontWeight: 400,
         }}
       >
-        PANTHER Operations Dashboard
+        NOIR Operations Dashboard
       </p>
     </div>
   );

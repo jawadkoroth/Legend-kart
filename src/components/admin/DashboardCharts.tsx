@@ -68,7 +68,7 @@ export function RevenueTrendChart({ data }: { data: TrendPoint[] }) {
       style={{ display: 'block' }}
     >
       <defs>
-        <linearGradient id="panther-revenue-fill" x1="0" x2="0" y1="0" y2="1">
+        <linearGradient id="noir-revenue-fill" x1="0" x2="0" y1="0" y2="1">
           <stop offset="0%" stopColor={GOLD} stopOpacity="0.22" />
           <stop offset="100%" stopColor={GOLD} stopOpacity="0" />
         </linearGradient>
@@ -82,7 +82,7 @@ export function RevenueTrendChart({ data }: { data: TrendPoint[] }) {
         stroke={BORDER}
         strokeDasharray="2 4"
       />
-      <path d={areaPath} fill="url(#panther-revenue-fill)" />
+      <path d={areaPath} fill="url(#noir-revenue-fill)" />
       <path
         d={linePath}
         fill="none"
