@@ -8,6 +8,7 @@ import AdminRealtimeProvider from '@/components/admin/AdminRealtimeProvider';
 import AdminPushPrompt from '@/components/admin/AdminPushPrompt';
 import AdminReturnsBadge from '@/components/admin/AdminReturnsBadge';
 import { useAuth } from '@/lib/auth/AuthProvider';
+import { createClient } from '@/lib/supabase/client';
 
 const NAV_ITEMS = [
   { href: '/admin/dashboard', label: 'Home', icon: '📊' },
@@ -30,6 +31,14 @@ export default function AdminShell({
   const { user, loading } = useAuth();
   const [unreadCount, setUnreadCount] = useState(initialUnreadCount);
   const [isFeedbackOpen, setIsFeedbackOpen] = useState(false);
+
+  const handleLogout = async () => {
+    if (confirm('Are you sure you want to log out?')) {
+      const supabase = createClient();
+      await supabase.auth.signOut();
+      router.replace('/admin');
+    }
+  };
 
   useEffect(() => {
     const isMobileApp = typeof navigator !== 'undefined' && navigator.userAgent.includes('PANTHER_MOBILE');
@@ -77,6 +86,13 @@ export default function AdminShell({
                 {unreadCount}
               </span>
             )}
+          </button>
+          <button
+            onClick={handleLogout}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', padding: '4px' }}
+            title="Logout"
+          >
+            <span style={{ fontSize: '1.25rem' }}>🚪</span>
           </button>
         </div>
       </div>
