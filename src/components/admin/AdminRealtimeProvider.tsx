@@ -629,63 +629,7 @@ export default function AdminRealtimeProvider() {
         ))}
       </div>
 
-      {/* ── Mute toggle pill ── */}
-      <button
-        onClick={handleMuteToggle}
-        style={{
-          position: 'fixed',
-          bottom: 'calc(80px + env(safe-area-inset-bottom, 0px))',
-          right: 'max(16px, env(safe-area-inset-right, 0px))',
-          zIndex: 999,
-          background: 'rgba(18,18,18,0.88)',
-          backdropFilter: 'blur(14px)',
-          WebkitBackdropFilter: 'blur(14px)',
-          border: '1px solid rgba(212,175,55,0.22)',
-          borderRadius: '999px',
-          padding: '7px 14px',
-          fontSize: '0.7rem',
-          fontWeight: 600,
-          letterSpacing: '0.07em',
-          color: isMuted ? 'var(--text-muted, #8A8A8A)' : 'rgba(212,175,55,0.8)',
-          cursor: 'pointer',
-          display: 'flex',
-          alignItems: 'center',
-          gap: '6px',
-          transition: 'all 200ms ease',
-          boxShadow: '0 4px 20px rgba(0,0,0,0.35)',
-        }}
-        title={isMuted ? 'Unmute alerts' : 'Mute alerts'}
-      >
-        <span style={{ fontSize: '0.85rem' }}>{isMuted ? '🔇' : '🔔'}</span>
-        <span>{isMuted ? 'MUTED' : 'SOUND ON'}</span>
-      </button>
 
-      {/* ── Mute flash indicator ── */}
-      {showMuteIndicator && (
-        <div
-          style={{
-            position: 'fixed',
-            bottom: 'calc(136px + env(safe-area-inset-bottom, 0px))',
-            left: '50%',
-            transform: 'translateX(-50%)',
-            zIndex: 10000,
-            background: 'rgba(18,18,18,0.92)',
-            backdropFilter: 'blur(10px)',
-            border: '1px solid rgba(212,175,55,0.25)',
-            borderRadius: '8px',
-            padding: '9px 16px',
-            fontSize: '0.75rem',
-            fontWeight: 600,
-            letterSpacing: '0.06em',
-            color: 'var(--gold, #D4AF37)',
-            pointerEvents: 'none',
-            animation: 'panther-fade-inout 1.6s ease forwards',
-            whiteSpace: 'nowrap',
-          }}
-        >
-          {isMuted ? '🔇  Alerts muted' : '🔔  Sound enabled'}
-        </div>
-      )}
 
       <style jsx global>{`
         @keyframes panther-fade-inout {
