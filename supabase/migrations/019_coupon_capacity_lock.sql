@@ -1,5 +1,5 @@
 -- =============================================
--- NOIR Ecommerce — 019 Coupon capacity race-fix
+-- PANTHER Ecommerce — 019 Coupon capacity race-fix
 --
 -- Closes a TOCTOU window between the application-level
 -- `evaluateCoupon()` check and `create_order_atomic` insert.

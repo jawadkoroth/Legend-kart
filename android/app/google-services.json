@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "832277963318",
+    "project_id": "panther-ca80d",
+    "storage_bucket": "panther-ca80d.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:832277963318:android:9c5e0f3cacc396322f6e97",
+        "android_client_info": {
+          "package_name": "com.panther.admin"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCQAjJAXN83S2Ufc8L8Is4IhC4hndT3Q2k"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

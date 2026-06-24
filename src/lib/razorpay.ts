@@ -39,11 +39,27 @@ export function verifyPaymentSignature(
     return false;
   }
 
+  if (!orderId || !paymentId || !signature) {
+    return false;
+  }
+
   const body = `${orderId}|${paymentId}`;
   const expectedSignature = crypto
     .createHmac('sha256', keySecret)
     .update(body)
     .digest('hex');
 
-  return expectedSignature === signature;
+  // Timing-safe comparison — a plain `===` short-circuits on the first
+  // differing byte and leaks signature bytes via response timing.
+  const expectedBuf = Buffer.from(expectedSignature, 'hex');
+  let providedBuf: Buffer;
+  try {
+    providedBuf = Buffer.from(signature, 'hex');
+  } catch {
+    return false;
+  }
+  if (expectedBuf.length !== providedBuf.length) {
+    return false;
+  }
+  return crypto.timingSafeEqual(expectedBuf, providedBuf);
 }

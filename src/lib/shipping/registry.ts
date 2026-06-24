@@ -1,5 +1,5 @@
 /**
- * NOIR — Shipping provider registry.
+ * PANTHER — Shipping provider registry.
  *
  * Single read path for the active provider. All shipment-creating
  * code goes through getActiveProvider() — no direct provider imports

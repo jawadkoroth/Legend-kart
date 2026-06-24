@@ -38,6 +38,11 @@ type RazorpayPaymentEntity = {
   id: string;
   order_id: string;
   status?: string;
+  // Captured amount in paise and currency — used for a defence-in-depth
+  // cross-check against the order total. Razorpay already enforces that a
+  // payment matches its order's amount, so this is an alarm, not a gate.
+  amount?: number;
+  currency?: string;
   error_code?: string;
   error_description?: string;
 };
@@ -182,6 +187,31 @@ async function handlePOST(req: NextRequest) {
     // 200 — we don't want Razorpay to retry forever for an order
     // that doesn't exist in our DB (e.g. a mis-routed event).
     return NextResponse.json({ success: true, ignored: true });
+  }
+
+  // Defence-in-depth: the captured amount/currency should always match
+  // the order we created server-side (Razorpay enforces this), so a
+  // mismatch means tampering, a config bug, or a mis-routed event.
+  // We log loudly but do NOT change the flow — rejecting here on a
+  // false positive would strand a genuinely-paid customer.
+  if (
+    eventType === 'payment.captured' &&
+    typeof payment.amount === 'number' &&
+    (payment.amount !== order.total_paise ||
+      (payment.currency && payment.currency !== 'INR'))
+  ) {
+    logEvent(
+      'payment.webhook_amount_mismatch',
+      {
+        order_id: order.id,
+        order_number: order.order_number,
+        event_id: eventId,
+        expected_paise: order.total_paise,
+        received_paise: payment.amount,
+        received_currency: payment.currency,
+      },
+      { severity: 'error' },
+    );
   }
 
   // Event-id dedupe: same delivery applied twice is a no-op.

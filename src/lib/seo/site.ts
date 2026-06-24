@@ -1,5 +1,5 @@
 /**
- * NOIR — central site configuration for SEO / metadata / JSON-LD.
+ * PANTHER — central site configuration for SEO / metadata / JSON-LD.
  *
  * Every value that might change per-environment (production domain,
  * social handles, legal entity) is env-driven so brand lock-in can
@@ -42,10 +42,10 @@ export const SITE_URL = normaliseUrl(
  * knowledge panels.
  */
 export const BRAND = {
-  name: 'NOIR',
-  legalName: process.env.NOIR_LEGAL_NAME || 'NOIR',
+  name: 'PANTHER',
+  legalName: process.env.PANTHER_LEGAL_NAME || 'PANTHER',
   /** Appended after page-specific titles. Keep short. */
-  titleSuffix: 'NOIR',
+  titleSuffix: 'PANTHER',
   /** Fallback description for pages that don't supply their own. */
   description:
     'Monochrome menswear. Permanent black. Crafted in India.',
@@ -67,13 +67,13 @@ export const BRAND = {
  * than emitting empty strings).
  */
 export const CONTACT = {
-  email: process.env.NOIR_CONTACT_EMAIL || '',
-  addressLine1: process.env.NOIR_ADDRESS_LINE_1 || '',
-  addressLine2: process.env.NOIR_ADDRESS_LINE_2 || '',
-  locality: process.env.NOIR_ADDRESS_LOCALITY || '',
-  region: process.env.NOIR_ADDRESS_REGION || '',
-  postalCode: process.env.NOIR_ADDRESS_POSTAL_CODE || '',
-  gstin: process.env.NOIR_GSTIN || '',
+  email: process.env.PANTHER_CONTACT_EMAIL || '',
+  addressLine1: process.env.PANTHER_ADDRESS_LINE_1 || '',
+  addressLine2: process.env.PANTHER_ADDRESS_LINE_2 || '',
+  locality: process.env.PANTHER_ADDRESS_LOCALITY || '',
+  region: process.env.PANTHER_ADDRESS_REGION || '',
+  postalCode: process.env.PANTHER_ADDRESS_POSTAL_CODE || '',
+  gstin: process.env.PANTHER_GSTIN || '',
 } as const;
 
 /**
@@ -84,10 +84,10 @@ export const CONTACT = {
  * unification. Only add profiles the brand actually controls.
  */
 export const SOCIAL = {
-  instagram: process.env.NOIR_SOCIAL_INSTAGRAM || '',
-  youtube: process.env.NOIR_SOCIAL_YOUTUBE || '',
-  twitter: process.env.NOIR_SOCIAL_TWITTER || '',
-  pinterest: process.env.NOIR_SOCIAL_PINTEREST || '',
+  instagram: process.env.PANTHER_SOCIAL_INSTAGRAM || '',
+  youtube: process.env.PANTHER_SOCIAL_YOUTUBE || '',
+  twitter: process.env.PANTHER_SOCIAL_TWITTER || '',
+  pinterest: process.env.PANTHER_SOCIAL_PINTEREST || '',
 } as const;
 
 /**

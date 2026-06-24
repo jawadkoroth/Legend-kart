@@ -1,5 +1,5 @@
 -- =============================================
--- NOIR Ecommerce — 006 Order ownership (user_id)
+-- PANTHER Ecommerce — 006 Order ownership (user_id)
 -- Additive only; no destructive changes.
 -- Run this in Supabase SQL Editor after 005.
 -- =============================================

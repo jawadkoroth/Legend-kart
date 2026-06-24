@@ -1,5 +1,5 @@
 -- =============================================
--- NOIR Ecommerce — 007 Address book + soft-delete flag
+-- PANTHER Ecommerce — 007 Address book + soft-delete flag
 -- Additive only; safe to re-run.
 -- Run this in Supabase SQL Editor after 006.
 -- =============================================

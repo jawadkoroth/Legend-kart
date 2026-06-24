@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { MAX_QTY_PER_LINE } from '@/lib/validators';
 
 /**
  * POST /api/cart/validate
@@ -124,9 +125,11 @@ export async function POST(request: Request) {
     const removed = !isActive || stock === undefined;
     const maxStock = removed ? 0 : Math.max(0, stock);
     const requestedQty = Math.max(0, Math.floor(item.quantity));
+    // Clamp to BOTH live stock and the per-line order cap, so a line the
+    // server reports back can always pass orderItemSchema at checkout.
     const clampedQuantity = removed
       ? 0
-      : Math.min(requestedQty, maxStock);
+      : Math.min(requestedQty, maxStock, MAX_QTY_PER_LINE);
     return {
       product_id: item.product_id,
       size: item.size,

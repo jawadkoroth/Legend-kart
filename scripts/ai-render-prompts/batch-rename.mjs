@@ -1,5 +1,5 @@
 /**
- * NOIR — Batch rename AI-generated frames into sequence format.
+ * PANTHER — Batch rename AI-generated frames into sequence format.
  *
  * Usage:
  *   node scripts/ai-render-prompts/batch-rename.mjs <sourceDir> <outputDir>

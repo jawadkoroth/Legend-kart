@@ -1,5 +1,5 @@
 /**
- * NOIR — Unified shipping webhook receiver.
+ * PANTHER — Unified shipping webhook receiver.
  *
  * Handles inbound webhook events from all courier providers.
  * Provider is identified by the `?provider=delhivery` query param
@@ -193,15 +193,33 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     .maybeSingle();
 
   /* 5. Insert webhook event row (dedup anchor) ───────────────────── */
-  await supabase.from('shipping_webhook_events').insert({
-    provider_name: providerName,
-    external_event_id,
-    tracking_id,
-    raw_payload: raw as object,
-    canonical_status,
-    shipment_id: shipment?.id ?? null,
-    received_at: new Date().toISOString(),
-  });
+  // Column names MUST match the shipping_webhook_events schema
+  // (migration 023): payload / linked_shipment_id / event_type. The
+  // previous insert used raw_payload / canonical_status / shipment_id —
+  // columns that don't exist — so every insert failed silently (the
+  // result was never checked), leaving the dedup/audit store empty and
+  // the idempotency SELECT above unable to ever match. We now check the
+  // error so any future schema drift is loud, not silent.
+  const nowIso = new Date().toISOString();
+  const { error: eventInsertError } = await supabase
+    .from('shipping_webhook_events')
+    .insert({
+      provider_name: providerName,
+      external_event_id,
+      tracking_id,
+      event_type: provider_event_type,
+      payload: raw as object,
+      linked_shipment_id: shipment?.id ?? null,
+      received_at: nowIso,
+      processed_at: nowIso,
+    });
+  if (eventInsertError) {
+    logEvent('shipping.webhook.event_insert_failed', {
+      external_event_id,
+      tracking_id,
+      error: eventInsertError.message,
+    }, { source: 'webhook', severity: 'error' });
+  }
 
   if (!shipment) {
     logEvent('shipping.webhook.no_shipment', { tracking_id, canonical_status }, { source: 'webhook', severity: 'warn' });

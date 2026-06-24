@@ -22,10 +22,18 @@ export const addressSchema = z.object({
  * bounded; the cart can hold many distinct lines but no one line
  * may request more than 5 units of the same (product, size).
  */
+/**
+ * Hard per-line quantity cap. Single source of truth — the cart provider
+ * and the /api/cart/validate route both import this so a line can never
+ * be built/clamped above what `orderItemSchema` will accept (otherwise
+ * checkout 400s with a generic "Validation failed").
+ */
+export const MAX_QTY_PER_LINE = 5;
+
 export const orderItemSchema = z.object({
   product_id: z.string().uuid(),
   size: z.string().min(1, 'Select a size'),
-  quantity: z.number().int().min(1).max(5),
+  quantity: z.number().int().min(1).max(MAX_QTY_PER_LINE),
 });
 
 export const createOrderSchema = z.object({

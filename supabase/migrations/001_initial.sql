@@ -1,5 +1,5 @@
 -- =============================================
--- NOIR Ecommerce — Database Migration
+-- PANTHER Ecommerce — Database Migration
 -- Run this in Supabase SQL Editor
 -- =============================================
 
@@ -194,8 +194,8 @@ INSERT INTO shipping_settings (active_provider, provider_config) VALUES
 
 INSERT INTO products (name, slug, description, price_paise, images, sizes) VALUES
   (
-    'The Noir Linen Shirt',
-    'noir-linen-shirt',
+    'The Panther Linen Shirt',
+    'panther-linen-shirt',
     'Premium black linen, handcrafted with a minimal aesthetic. Breathable fabric with a relaxed fit that transitions effortlessly from day to night.',
     129900,
     '[]',
@@ -207,7 +207,7 @@ INSERT INTO inventory (product_id, size, stock)
 SELECT p.id, s.size, 10
 FROM products p,
   (VALUES ('S'), ('M'), ('L'), ('XL'), ('XXL')) AS s(size)
-WHERE p.slug = 'noir-linen-shirt';
+WHERE p.slug = 'panther-linen-shirt';
 
 -- SEED: Sample coupon
 INSERT INTO coupons (code, discount_percent) VALUES ('WELCOME10', 10);

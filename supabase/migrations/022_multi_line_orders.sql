@@ -1,5 +1,5 @@
 -- =============================================
--- NOIR Ecommerce — 022 Multi-line orders (Path B, Phase B1)
+-- PANTHER Ecommerce — 022 Multi-line orders (Path B, Phase B1)
 --
 -- Introduces order_items so a single order row can carry multiple
 -- (product, size, quantity) lines instead of exactly one. This is

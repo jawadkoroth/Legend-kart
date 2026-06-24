@@ -1,34 +1,16 @@
 import webpush, { WebPushError } from 'web-push';
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { getApps, initializeApp, cert } from 'firebase-admin/app';
+import { getMessaging } from 'firebase-admin/messaging';
 
 /**
- * NOIR — Web Push helper.
+ * PANTHER — Web Push & FCM helper.
  *
- * Wraps the `web-push` lib with:
+ * Wraps web-push and firebase-admin with:
  *
- *   - Lazy VAPID configuration (env vars). The library mutates
- *     module-level state on `setVapidDetails`; we guard with a
- *     boolean so repeated calls are no-ops.
- *
- *   - `notifyAdmins()` fans out a single payload to every active
- *     admin subscription. Dead endpoints (HTTP 404 / 410) are
- *     pruned in-line so a stale row never poisons future sends.
- *
- *   - Returns counts so the caller can log fan-out outcomes
- *     without crashing on transient failures.
- *
- * Configuration:
- *   VAPID_PUBLIC_KEY    base64url public key (uncompressed P-256)
- *   VAPID_PRIVATE_KEY   base64url private key
- *   VAPID_SUBJECT       mailto: or https:// contact URI
- *
- * The public key is also returned to the browser via
- * /api/admin/push/vapid so AdminPushPrompt can subscribe.
- *
- * If any var is missing, push is treated as "not configured":
- * `isPushConfigured()` returns false and `notifyAdmins()` early-
- * returns. The realtime + Notification API path keeps working
- * regardless — push is purely additive.
+ *   - Lazy VAPID and Firebase configurations.
+ *   - `notifyAdmins()` fans out to both standard browser Web Push and FCM.
+ *   - Prunes dead endpoints/tokens dynamically.
  */
 
 let vapidConfigured = false;
@@ -62,6 +44,24 @@ function ensureVapid(): boolean {
   }
 }
 
+function getFirebaseMessaging() {
+  if (typeof process.env.FIREBASE_SERVICE_ACCOUNT_JSON !== 'string') {
+    return null;
+  }
+  try {
+    if (getApps().length === 0) {
+      const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON);
+      initializeApp({
+        credential: cert(serviceAccount),
+      });
+    }
+    return getMessaging();
+  } catch (err) {
+    console.error('[FCM_INIT_ERROR]', err);
+    return null;
+  }
+}
+
 interface SubscriptionRow {
   id: string;
   endpoint: string;
@@ -74,43 +74,136 @@ export interface AdminPushPayload {
   body: string;
   url?: string;
   tag?: string;
+  orderId?: string;
+  type?: string;
 }
 
 /**
- * Send `payload` to every admin push subscription.
- *
- * Supabase admin client must be passed in by the caller — this
- * helper lives in /lib so we can't import the admin client
- * directly without creating a circular dep with the Supabase
- * cookie middleware.
- *
- * Returns { sent, pruned, errored } counts. Never throws.
+ * Send `payload` to native Android devices using FCM.
+ */
+export async function notifyFCMAdmins(
+  supabase: SupabaseClient,
+  payload: AdminPushPayload,
+): Promise<{ sent: number; pruned: number; errored: number }> {
+  const messaging = getFirebaseMessaging();
+  if (!messaging) {
+    return { sent: 0, pruned: 0, errored: 0 };
+  }
+
+  const { data: tokens, error } = await supabase
+    .from('admin_fcm_tokens')
+    .select('id, token');
+
+  if (error || !tokens || tokens.length === 0) {
+    console.log('[FCM_TOKEN_MISSING] No FCM tokens found in admin_fcm_tokens table.');
+    return { sent: 0, pruned: 0, errored: 0 };
+  }
+
+  console.log(`[FCM_TOKEN_FOUND] Found ${tokens.length} FCM token(s) for push dispatch.`);
+
+  const fcmTokens = tokens.map((t) => t.token);
+  const tokenIds = tokens.map((t) => t.id);
+
+  let channelId = 'new_orders';
+  let isSilent = false;
+  const pType = payload.type || 'new_order';
+
+  if (pType === 'return') {
+    channelId = 'return_requests';
+  } else if (pType === 'exchange') {
+    channelId = 'exchange_requests';
+  } else if (pType === 'delivery') {
+    channelId = 'shipments';
+  } else if (pType === 'note') {
+    channelId = 'admin_notes';
+    isSilent = true;
+  }
+
+  try {
+    const message = {
+      notification: {
+        title: payload.title,
+        body: payload.body,
+      },
+      android: {
+        notification: {
+          channelId: channelId,
+          sound: isSilent ? undefined : (channelId === 'new_orders' ? 'cash_register' : 'default'),
+        },
+      },
+      data: {
+        orderId: payload.orderId || '',
+        type: pType,
+      },
+      tokens: fcmTokens,
+    };
+
+    const response = await messaging.sendEachForMulticast(message);
+
+    const deadTokens: string[] = [];
+    response.responses.forEach((res, index) => {
+      if (!res.success) {
+        const error = res.error;
+        if (error && (
+          error.code === 'messaging/invalid-registration-token' ||
+          error.code === 'messaging/registration-token-not-registered'
+        )) {
+          deadTokens.push(tokenIds[index]);
+        }
+        console.error('[FCM_SEND_TOKEN_ERROR]', error);
+      }
+    });
+
+    if (deadTokens.length > 0) {
+      await supabase.from('admin_fcm_tokens').delete().in('id', deadTokens);
+    }
+
+    const sentCount = response.successCount;
+    const prunedCount = deadTokens.length;
+    const erroredCount = response.failureCount - prunedCount;
+
+    if (sentCount > 0) {
+      console.log(`[FCM_SEND_SUCCESS] Successfully sent ${sentCount} notifications via FCM.`);
+    }
+    if (response.failureCount > 0) {
+      console.log(`[FCM_SEND_FAILURE] Failed to send ${response.failureCount} notifications via FCM.`);
+    }
+
+    return { sent: sentCount, pruned: prunedCount, errored: erroredCount };
+  } catch (err) {
+    console.error('[FCM_SEND_MULTICAST_ERROR]', err);
+    console.log('[FCM_SEND_FAILURE] FCM send multicast threw an error.');
+    return { sent: 0, pruned: 0, errored: tokens.length };
+  }
+}
+
+/**
+ * Send `payload` to every admin Web Push & FCM subscription.
  */
 export async function notifyAdmins(
   supabase: SupabaseClient,
   payload: AdminPushPayload,
 ): Promise<{ sent: number; pruned: number; errored: number }> {
+  // 1. Send via FCM
+  const fcmResult = await notifyFCMAdmins(supabase, payload);
+
+  // 2. Send via Web Push (fallback/browser)
   if (!ensureVapid()) {
-    return { sent: 0, pruned: 0, errored: 0 };
+    return fcmResult;
   }
 
   const { data: subs, error } = await supabase
     .from('push_subscriptions')
     .select('id, endpoint, p256dh, auth');
 
-  if (error) {
-    console.error('[PUSH_FETCH_SUBS]', error);
-    return { sent: 0, pruned: 0, errored: 0 };
-  }
-
-  if (!subs || subs.length === 0) {
-    return { sent: 0, pruned: 0, errored: 0 };
+  if (error || !subs || subs.length === 0) {
+    return fcmResult;
   }
 
   const message = JSON.stringify(payload);
   const deadIds: string[] = [];
   const okIds: string[] = [];
-  let errored = 0;
+  let webPushErrored = 0;
 
   await Promise.all(
     (subs as SubscriptionRow[]).map(async (s) => {
@@ -127,11 +220,9 @@ export async function notifyAdmins(
       } catch (err) {
         const status = (err as WebPushError)?.statusCode;
         if (status === 404 || status === 410) {
-          // Subscription is dead (uninstalled, expired, replaced).
-          // Prune to keep the table clean.
           deadIds.push(s.id);
         } else {
-          errored += 1;
+          webPushErrored += 1;
           console.error('[PUSH_SEND_ERROR]', status, (err as Error)?.message);
         }
       }
@@ -143,52 +234,27 @@ export async function notifyAdmins(
   }
 
   if (okIds.length > 0) {
-    // Best-effort touch so an admin tracking "last_used_at" sees
-    // recent activity. Failure is non-fatal.
     await supabase
       .from('push_subscriptions')
       .update({ last_used_at: new Date().toISOString() })
       .in('id', okIds);
   }
 
-  return { sent: okIds.length, pruned: deadIds.length, errored };
+  return {
+    sent: fcmResult.sent + okIds.length,
+    pruned: fcmResult.pruned + deadIds.length,
+    errored: fcmResult.errored + webPushErrored,
+  };
 }
 
 /**
- * Fire-and-forget admin push fan-out for *real-time* code paths
- * (order creation, webhook state changes, admin status updates).
- *
- * Why this exists:
- *   The job queue is the right tool for emails — they have an
- *   external dependency (Resend) that can briefly fail, and a
- *   30-second delay is invisible to the recipient. It is the WRONG
- *   tool for "wake the admin up about a new order": GitHub Actions
- *   schedule events skew 5\u201315 minutes under load, so a queued
- *   push can land long after the customer has already moved on.
- *
- *   Web push is fast (<2s typical), idempotent on `tag` (the SW
- *   collapses duplicates, so even an accidental double-fire is
- *   harmless), and our `notifyAdmins` helper already prunes dead
- *   subscriptions inline. There is no benefit to deferring it.
- *
- * Contract:
- *   * Returns within `timeoutMs` no matter what \u2014 the caller's
- *     happy path (e.g. POST /api/orders) is never blocked beyond
- *     this budget.
- *   * Never throws. Errors and timeouts land in `app_events`.
- *   * Logs the fan-out outcome (`push.admin_fanout`) on every call
- *     and a `push.admin_no_active_subs` warning when the table is
- *     empty so silent-no-delivery never goes unnoticed.
+ * Fire-and-forget admin push fan-out for *real-time* code paths.
  */
 export async function notifyAdminsBestEffort(
   supabase: SupabaseClient,
   payload: AdminPushPayload,
   timeoutMs = 3000,
 ): Promise<void> {
-  // Lazy import avoids a static cycle: webPush is imported by job
-  // handlers, which are imported by /api routes; logEvent already
-  // pulls the supabase admin client and we don't want that dep at
-  // module load time on edge-adjacent runtimes.
   const { logEvent } = await import('@/lib/log');
 
   const fanout = (async () => {
@@ -204,16 +270,6 @@ export async function notifyAdminsBestEffort(
         },
         { source: 'system' },
       );
-      if (result.sent === 0 && result.pruned === 0 && result.errored === 0) {
-        // Table was empty \u2014 either no admin has subscribed yet, or
-        // every subscription was pruned on a previous run. Surface
-        // this so the operator notices BEFORE the next missed order.
-        logEvent(
-          'push.admin_no_active_subs',
-          { tag: payload.tag ?? null },
-          { source: 'system', severity: 'warn' },
-        );
-      }
     } catch (err) {
       logEvent(
         'push.admin_fanout_failed',
@@ -225,8 +281,6 @@ export async function notifyAdminsBestEffort(
 
   const timeout = new Promise<void>((resolve) => {
     setTimeout(() => {
-      // The fan-out continues in the background; we just stop
-      // waiting on it so the caller can return to the user.
       resolve();
     }, timeoutMs);
   });

@@ -1,5 +1,5 @@
 {
-  "name": "noir-store",
+  "name": "panther-store",
   "version": "0.1.0",
   "private": true,
   "scripts": {
@@ -9,12 +9,19 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@capacitor/android": "^8.4.1",
+    "@capacitor/app": "^8.1.0",
+    "@capacitor/cli": "^8.4.1",
+    "@capacitor/core": "^8.4.1",
+    "@capacitor/push-notifications": "^8.1.1",
     "@supabase/ssr": "^0.10.2",
     "@supabase/supabase-js": "^2.103.3",
     "@vercel/analytics": "^2.0.1",
     "@vercel/speed-insights": "^2.0.0",
+    "capacitor-native-settings": "^8.1.0",
     "embla-carousel-autoplay": "^8.6.0",
     "embla-carousel-react": "^8.6.0",
+    "firebase-admin": "^14.0.0",
     "next": "16.2.4",
     "razorpay": "^2.9.6",
     "react": "19.2.4",

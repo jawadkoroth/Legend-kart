@@ -1,5 +1,5 @@
 -- =============================================
--- NOIR Ecommerce — 023b Shipping RPC permission hardening
+-- PANTHER Ecommerce — 023b Shipping RPC permission hardening
 --
 -- Migration 023 created activate_shipping_provider and
 -- upsert_shipment_idempotent without first revoking the Postgres

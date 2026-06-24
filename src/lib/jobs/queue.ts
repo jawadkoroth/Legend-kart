@@ -3,7 +3,7 @@ import { createAdminClient } from '@/lib/supabase/admin';
 import { logEvent } from '@/lib/log';
 
 /**
- * NOIR job queue — thin wrapper around the `job_queue` table.
+ * PANTHER job queue — thin wrapper around the `job_queue` table.
  *
  * Design goals:
  *   * Zero external infra. Single Postgres-backed queue, claimed
@@ -89,6 +89,9 @@ export async function enqueue(
         error: error.message,
       });
       return null;
+    }
+    if (data?.id) {
+      console.log(`[QUEUE_JOB_CREATED] Enqueued job ID: ${data.id}, kind: ${input.kind}`);
     }
     return data?.id ?? null;
   } catch (err) {

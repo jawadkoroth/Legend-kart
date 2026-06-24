@@ -1,5 +1,5 @@
 -- =============================================
--- NOIR Ecommerce — 011 Coupon segmentation
+-- PANTHER Ecommerce — 011 Coupon segmentation
 --
 -- Additive columns on `coupons`:
 --

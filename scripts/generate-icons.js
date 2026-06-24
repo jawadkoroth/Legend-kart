@@ -1,5 +1,5 @@
 /**
- * NOIR Icon Generator
+ * PANTHER Icon Generator
  * 
  * Converts public/icons/icon.svg into all required PNG sizes for PWA
  * 

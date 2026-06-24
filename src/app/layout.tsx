@@ -18,7 +18,7 @@ import { SpeedInsights } from '@vercel/speed-insights/next';
  * `title.template` is inherited by every page; pages only need to
  * supply the leading fragment and the suffix is appended. Pages that
  * need to override the suffix (brand page, very short title) set
- * `title: { absolute: 'NOIR' }` locally.
+ * `title: { absolute: 'PANTHER' }` locally.
  *
  * `metadataBase` is derived from env via `SITE_URL` so CI/preview
  * deploys don't emit `localhost:3000` OG URLs that then get scraped
@@ -66,7 +66,7 @@ export const metadata: Metadata = {
   appleWebApp: {
     capable: true,
     statusBarStyle: 'black-translucent',
-    title: 'NOIR ADMIN',
+    title: 'PANTHER ADMIN',
   },
 };
 

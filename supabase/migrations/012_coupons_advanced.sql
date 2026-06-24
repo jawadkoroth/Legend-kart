@@ -1,5 +1,5 @@
 -- =============================================
--- NOIR Ecommerce — 012 Coupons advanced rules
+-- PANTHER Ecommerce — 012 Coupons advanced rules
 --
 -- Additive columns on `coupons` for production segmentation:
 --

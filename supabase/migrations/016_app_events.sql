@@ -1,5 +1,5 @@
 -- =============================================
--- NOIR Ecommerce — 016 App events (observability spine)
+-- PANTHER Ecommerce — 016 App events (observability spine)
 --
 -- Single append-only table that every server-side `logEvent` call
 -- lands in. Replaces the "logs are in stdout only, good luck

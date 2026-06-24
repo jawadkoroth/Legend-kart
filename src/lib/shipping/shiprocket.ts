@@ -1,5 +1,5 @@
 /**
- * NOIR — Shiprocket provider adapter.
+ * PANTHER — Shiprocket provider adapter.
  *
  * Auth model: JWT session token obtained via /auth/login.
  * Tokens expire after 24h. refreshAuth() obtains a new token
@@ -46,6 +46,7 @@ export class ShiprocketProvider implements ShippingProvider {
   private readonly authPasswordEncrypted: string | null;
   private readonly webhookSecret: string | null;
   private readonly pickupName: string;
+  private readonly pickupPincodeValue: string;
   private token: string | null;
 
   constructor(config: ProviderConfig) {
@@ -54,6 +55,7 @@ export class ShiprocketProvider implements ShippingProvider {
     this.authPasswordEncrypted = config.auth_password_encrypted ?? null;
     this.webhookSecret = config.webhook_secret ?? null;
     this.pickupName = config.pickup_name ?? '';
+    this.pickupPincodeValue = config.pickup_pincode ?? '';
     this.token = config.token ?? null;
   }
 
@@ -63,7 +65,7 @@ export class ShiprocketProvider implements ShippingProvider {
   }
 
   /**
-   * NOIR — Shiprocket Error Forensics
+   * PANTHER — Shiprocket Error Forensics
    * Parses Shiprocket API errors into actionable diagnostics.
    */
   private parseShiprocketError(status: number, data: Record<string, unknown>): ParsedProviderError {
@@ -228,7 +230,7 @@ export class ShiprocketProvider implements ShippingProvider {
   }
 
   /**
-   * NOIR: Pre-flight validation for shipment creation.
+   * PANTHER: Pre-flight validation for shipment creation.
    */
   validateShipmentRequest(req: ShipmentRequest): ParsedProviderError | null {
     // Customer phone required
@@ -360,17 +362,24 @@ export class ShiprocketProvider implements ShippingProvider {
         billing_email: req.customer.email ?? '',
         billing_phone: req.customer.phone,
         shipping_is_billing: 1,
+        // Order value in rupees. Prefer the full order amount (set for all
+        // methods); fall back to COD amount for legacy callers. Using
+        // cod_amount_paise alone sent ₹0 for every prepaid shipment.
         order_items: [{
           name: req.product.name,
           sku: req.order_number,
           units: req.product.quantity,
-          selling_price: (req.payment.cod_amount_paise ?? 0) / 100,
+          selling_price:
+            (req.payment.order_amount_paise ?? req.payment.cod_amount_paise ?? 0) /
+            100 /
+            Math.max(1, req.product.quantity),
           discount: 0,
           tax: 0,
           hsn: '',
         }],
         payment_method: req.payment.method === 'cod' ? 'COD' : 'Prepaid',
-        sub_total: (req.payment.cod_amount_paise ?? 0) / 100,
+        sub_total:
+          (req.payment.order_amount_paise ?? req.payment.cod_amount_paise ?? 0) / 100,
         length: 15, breadth: 12, height: 5,
         weight: req.product.weight_grams / 1000,
       };
@@ -466,7 +475,7 @@ export class ShiprocketProvider implements ShippingProvider {
   }
 
   private get pickupPincode(): string {
-    return '';
+    return this.pickupPincodeValue;
   }
 
   verifyWebhook(

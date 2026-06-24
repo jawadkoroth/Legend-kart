@@ -1,5 +1,5 @@
 -- =============================================
--- NOIR Ecommerce — 014 Admin audit log
+-- PANTHER Ecommerce — 014 Admin audit log
 --
 -- Lightweight, additive audit trail for admin actions.
 --

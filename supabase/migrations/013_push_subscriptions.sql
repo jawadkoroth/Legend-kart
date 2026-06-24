@@ -1,5 +1,5 @@
 -- =============================================
--- NOIR Ecommerce — 013 Web push subscriptions (admin)
+-- PANTHER Ecommerce — 013 Web push subscriptions (admin)
 --
 -- Stores PushSubscription records returned by the browser's
 -- ServiceWorkerRegistration.pushManager.subscribe() call. We

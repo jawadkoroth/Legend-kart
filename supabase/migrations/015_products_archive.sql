@@ -1,5 +1,5 @@
 -- =============================================
--- NOIR Ecommerce — 015 Product soft-archive
+-- PANTHER Ecommerce — 015 Product soft-archive
 --
 -- Why soft-delete:
 --

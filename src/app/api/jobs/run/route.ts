@@ -80,6 +80,7 @@ async function handle(req: NextRequest) {
 
       for (const job of jobs) {
         processed += 1;
+        console.log(`[QUEUE_JOB_PROCESSED] Processing job ID: ${job.id}, kind: ${job.kind}`);
         const handler = getHandler(job.kind);
         if (!handler) {
           // Unknown handler — promote straight to dead so it surfaces

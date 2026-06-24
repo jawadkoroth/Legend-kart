@@ -1,5 +1,5 @@
 -- =============================================
--- NOIR Ecommerce — 018 Rate limits (abuse mitigation)
+-- PANTHER Ecommerce — 018 Rate limits (abuse mitigation)
 --
 -- Pragmatic Postgres-backed fixed-window counter. One UPSERT per
 -- check, atomic increment in a single SQL function — no extra round

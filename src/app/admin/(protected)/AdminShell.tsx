@@ -9,12 +9,11 @@ import AdminPushPrompt from '@/components/admin/AdminPushPrompt';
 import AdminReturnsBadge from '@/components/admin/AdminReturnsBadge';
 
 const NAV_ITEMS = [
-  { href: '/admin/dashboard', label: 'Home', icon: '📊' },
+  { href: '/admin/dashboard', label: 'Dashboard', icon: '🏠' },
   { href: '/admin/orders', label: 'Orders', icon: '📦' },
   { href: '/admin/products', label: 'Products', icon: '👕' },
-  { href: '/admin/coupons', label: 'Coupons', icon: '🏷️' },
   { href: '/admin/shipping', label: 'Shipping', icon: '🚚' },
-  { href: '/admin/diagnostics', label: 'Diag', icon: '🩺' },
+  { href: '/admin/account', label: 'Account', icon: '👤' },
 ];
 
 export default function AdminShell({
@@ -32,7 +31,7 @@ export default function AdminShell({
     <div className="admin-layout">
       <div className="admin-header">
         <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
-          <span style={{ fontFamily: 'var(--font-serif)', fontSize: '1.25rem', fontWeight: 600, letterSpacing: '0.1em' }}>NOIR</span>
+          <span style={{ fontFamily: 'var(--font-serif)', fontSize: '1.25rem', fontWeight: 600, letterSpacing: '0.1em' }}>PANTHER</span>
           <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)', letterSpacing: '0.15em' }}>ADMIN</span>
         </div>
 

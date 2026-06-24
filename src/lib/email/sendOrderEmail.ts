@@ -3,7 +3,7 @@ import { logEvent } from '@/lib/log';
 import { getPublicUrl } from '@/lib/media';
 
 /**
- * NOIR — order lifecycle email module (v1).
+ * PANTHER — order lifecycle email module (v1).
  *
  * Design constraints:
  *   - Lazy Resend client so a missing RESEND_API_KEY does not break
@@ -223,7 +223,7 @@ function renderEmail(opts: RenderOpts): string {
             <!-- Header / wordmark -->
             <tr>
               <td style="padding:28px 28px 0;text-align:center;">
-                <p style="margin:0;font-family:Georgia,'Playfair Display',serif;font-size:22px;letter-spacing:0.32em;color:#F5F5F5;">NOIR</p>
+                <p style="margin:0;font-family:Georgia,'Playfair Display',serif;font-size:22px;letter-spacing:0.32em;color:#F5F5F5;">PANTHER</p>
                 <div style="height:1px;background:rgba(255,255,255,0.06);margin:24px 0 0;"></div>
               </td>
             </tr>
@@ -259,7 +259,7 @@ function renderEmail(opts: RenderOpts): string {
               <td style="padding:0 28px 28px;">
                 <div style="height:1px;background:rgba(255,255,255,0.06);margin:0 0 16px;"></div>
                 <p style="margin:0;color:#6A6A6A;font-size:11px;line-height:1.6;text-align:center;">
-                  This is an automated message from NOIR.<br />
+                  This is an automated message from PANTHER.<br />
                   If you have any questions, simply reply to this email.
                 </p>
               </td>
@@ -419,7 +419,7 @@ async function dispatch(opts: DispatchOpts): Promise<void> {
 
   try {
     await resend.emails.send({
-      from: process.env.EMAIL_FROM || 'NOIR <onboarding@resend.dev>',
+      from: process.env.EMAIL_FROM || 'PANTHER <onboarding@resend.dev>',
       to,
       subject,
       html,

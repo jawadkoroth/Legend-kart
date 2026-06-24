@@ -4,7 +4,7 @@ import { BRAND, CONTACT, SOCIAL } from '@/lib/seo/site';
 import styles from './Footer.module.css';
 
 /**
- * NOIR — global footer.
+ * PANTHER — global footer.
  *
  * Server-rendered. The only client island inside is the
  * <NewsletterField/>. Everything else is static and crawlable.

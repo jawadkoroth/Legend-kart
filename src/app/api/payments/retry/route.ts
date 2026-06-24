@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { apiSuccess, apiError } from '@/lib/api-response';
 import { getRazorpay } from '@/lib/razorpay';
+import { canAccessOrder } from '@/lib/orders/assertOrderAccess';
 
 export async function POST(req: NextRequest) {
   try {
@@ -23,6 +24,13 @@ export async function POST(req: NextRequest) {
       return apiError(404, 'Order not found');
     }
 
+    // IDOR gate: account orders are owner-only; guest orders stay
+    // accessible by UUID. This endpoint otherwise leaks customer PII and
+    // lets anyone churn Razorpay order creation for arbitrary order ids.
+    if (!(await canAccessOrder(order.user_id))) {
+      return apiError(404, 'Order not found');
+    }
+
     if (order.payment_method !== 'online') {
       return apiError(400, 'Not an online payment order');
     }
@@ -32,7 +40,10 @@ export async function POST(req: NextRequest) {
     if (order.order_status === 'cancelled') {
       return apiError(400, 'Order cancelled');
     }
-    if (order.retry_count >= 3) {
+    // Normalize once — legacy rows may have a null retry_count, where
+    // `null >= 3` is false and `null + 1` is 1, both misleading.
+    const retryCount = order.retry_count ?? 0;
+    if (retryCount >= 3) {
       return apiError(400, 'Maximum retries exceeded. Please contact support.');
     }
 
@@ -49,11 +60,11 @@ export async function POST(req: NextRequest) {
       .from('orders')
       .update({
         razorpay_order_id: rzpOrder.id,
-        retry_count: (order.retry_count || 0) + 1,
+        retry_count: retryCount + 1,
       })
       .eq('id', order_id);
 
-    console.log(`[PAYMENT_RETRY] ${order.order_number} attempt ${order.retry_count + 1}`);
+    console.log(`[PAYMENT_RETRY] ${order.order_number} attempt ${retryCount + 1}`);
 
     return apiSuccess({
       razorpay_order_id: rzpOrder.id,

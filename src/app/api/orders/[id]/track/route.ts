@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { apiSuccess, apiError } from '@/lib/api-response';
+import { canAccessOrder } from '@/lib/orders/assertOrderAccess';
 
 export async function GET(
   _req: NextRequest,
@@ -12,11 +13,18 @@ export async function GET(
 
     const { data: order, error } = await supabase
       .from('orders')
-      .select('id, order_number, subtotal_paise, discount_paise, shipping_paise, cod_fee_paise, total_paise, payment_method, payment_status, order_status, customer, shipping_address, tracking_id, shipping_provider, created_at, updated_at, retry_count')
+      .select('id, user_id, order_number, subtotal_paise, discount_paise, shipping_paise, cod_fee_paise, total_paise, payment_method, payment_status, order_status, customer, shipping_address, tracking_id, shipping_provider, created_at, updated_at, retry_count')
       .eq('id', id)
       .single();
 
     if (error || !order) {
+      return apiError(404, 'Order not found');
+    }
+
+    // IDOR gate: account orders are owner-only; guest orders stay
+    // accessible by UUID. Respond 404 (not 403) so we never confirm the
+    // existence of an order the caller may not see.
+    if (!(await canAccessOrder(order.user_id))) {
       return apiError(404, 'Order not found');
     }
 
@@ -32,9 +40,14 @@ export async function GET(
     const items = itemRows ?? [];
     const head = items[0];
 
+    // Strip user_id from the wire response — it's an internal ownership
+    // key, not something the tracking UI needs.
+    const orderPublic: Record<string, unknown> = { ...order };
+    delete orderPublic.user_id;
+
     return apiSuccess({
       order: {
-        ...order,
+        ...orderPublic,
         items,
         // Legacy display fallbacks — the existing /order/[id] UI
         // reads these for the (single-line) hero row. Multi-line

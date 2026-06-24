@@ -56,6 +56,9 @@ export async function POST(
       payment: {
         method: (order.payment_method === 'cod' ? 'cod' : 'prepaid') as 'cod' | 'prepaid',
         cod_amount_paise: order.payment_method === 'cod' ? order.total_paise : undefined,
+        // Order value for ALL methods — Shiprocket needs a non-zero sub_total
+        // for prepaid orders too (serviceability/insurance/reconciliation).
+        order_amount_paise: order.total_paise,
       },
     };
 

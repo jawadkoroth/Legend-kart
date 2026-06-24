@@ -1,5 +1,5 @@
 /**
- * NOIR — GET /api/admin/shipping/diagnostics
+ * PANTHER — GET /api/admin/shipping/diagnostics
  *
  * Returns comprehensive operational health metrics for the shipping system.
  * Includes provider health, webhook status, shipment pipeline, and recent events.
@@ -27,7 +27,7 @@ export interface ShippingDiagnostics {
       received: number;
       processed: number;
       failed: number;
-      duplicate: number;
+      pending: number;
     };
     last_received_at: string | null;
     last_failed_at: string | null;
@@ -132,20 +132,27 @@ export async function GET(): Promise<NextResponse> {
     // ─────────────────────────────────────────────────────────────────
     const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
 
+    // Real columns (migration 023): processed_at (NULL = pending),
+    // error (last processing error). There is no `status` column —
+    // querying it returned undefined for every row, so the old counts
+    // were always 0. Order by received_at so first/last are meaningful.
     const { data: webhookStats } = await supabase
       .from('shipping_webhook_events')
-      .select('status, processed_at, received_at')
-      .gte('received_at', since24h);
+      .select('processed_at, received_at, error')
+      .gte('received_at', since24h)
+      .order('received_at', { ascending: true });
 
+    const rows = webhookStats ?? [];
+    const failedRows = rows.filter(w => w.error != null);
     const webhooks = {
       last_24h: {
-        received: webhookStats?.length ?? 0,
-        processed: webhookStats?.filter(w => w.status === 'processed').length ?? 0,
-        failed: webhookStats?.filter(w => w.status === 'failed').length ?? 0,
-        duplicate: webhookStats?.filter(w => w.status === 'duplicate').length ?? 0,
+        received: rows.length,
+        processed: rows.filter(w => w.processed_at != null && w.error == null).length,
+        failed: failedRows.length,
+        pending: rows.filter(w => w.processed_at == null).length,
       },
-      last_received_at: webhookStats?.[webhookStats.length - 1]?.received_at ?? null,
-      last_failed_at: webhookStats?.filter(w => w.status === 'failed').pop()?.received_at ?? null,
+      last_received_at: rows[rows.length - 1]?.received_at ?? null,
+      last_failed_at: failedRows[failedRows.length - 1]?.received_at ?? null,
       signature_failures_24h: 0, // Would need separate tracking
     };
 
@@ -161,10 +168,13 @@ export async function GET(): Promise<NextResponse> {
       .select('*', { count: 'exact', head: true })
       .eq('status', 'pending');
 
+    // Canonical in-flight statuses (see CanonicalShipmentStatus). The old
+    // list used 'shipped' (not a canonical value) and omitted
+    // 'shipment_created' / 'picked_up', undercounting active shipments.
     const { count: inTransitShipments } = await supabase
       .from('shipments')
       .select('*', { count: 'exact', head: true })
-      .in('status', ['shipped', 'in_transit', 'out_for_delivery']);
+      .in('status', ['shipment_created', 'picked_up', 'in_transit', 'out_for_delivery']);
 
     const { count: deliveredShipments } = await supabase
       .from('shipments')
@@ -262,7 +272,11 @@ export async function GET(): Promise<NextResponse> {
     const database = {
       orphaned_shipments: orphaned ?? 0,
       shipments_without_history: shipmentsWithoutHistory?.length ?? 0,
-      duplicate_webhook_attempts: webhooks.last_24h.duplicate,
+      // The events table has no `status` column, so the old
+      // `duplicate` count was always 0. Report unprocessed (pending)
+      // events instead — a real, schema-backed health signal. Field
+      // name kept stable to avoid breaking the admin UI contract.
+      duplicate_webhook_attempts: webhooks.last_24h.pending,
       invalid_state_transitions_24h: invalidTransitions ?? 0,
     };
 

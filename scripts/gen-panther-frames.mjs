@@ -1,5 +1,5 @@
 /**
- * NOIR — Cinematic Frame Sequence Generator
+ * PANTHER — Cinematic Frame Sequence Generator
  * ==========================================
  * Generates 60 luxury editorial PNG frames (800×1000) in pure Node.js.
  * No npm dependencies. Uses only built-in `zlib` and `fs`.
@@ -15,7 +15,7 @@
  * Output: public/sequences/linen-shirt/frame_0001.webp (PNG bytes, .webp ext)
  * Hot-swap: drop real AI/3D renders over these files — engine unchanged.
  *
- * Run: node scripts/gen-noir-frames.mjs
+ * Run: node scripts/gen-panther-frames.mjs
  */
 
 import fs from 'fs';
@@ -394,8 +394,8 @@ function renderFrame(frameIndex) {
 /* ─────────────────────────────────────────────────────────────────────
    MAIN: render all 60 frames
    ───────────────────────────────────────────────────────────────────── */
-console.log(`[NOIR] Generating ${FRAMES} cinematic frames at ${W}×${H}…`);
-console.log(`[NOIR] Output: ${OUT_DIR}`);
+console.log(`[PANTHER] Generating ${FRAMES} cinematic frames at ${W}×${H}…`);
+console.log(`[PANTHER] Output: ${OUT_DIR}`);
 console.log('');
 
 const startTime = Date.now();
@@ -404,7 +404,7 @@ for (let i = 0; i < FRAMES; i++) {
   const frameNum = String(i + 1).padStart(4, '0');
   const filePath = path.join(OUT_DIR, `frame_${frameNum}.webp`);
 
-  process.stdout.write(`\r[NOIR] Rendering frame ${i + 1}/${FRAMES}…`);
+  process.stdout.write(`\r[PANTHER] Rendering frame ${i + 1}/${FRAMES}…`);
 
   const pixels = renderFrame(i);
   const png = encodePNG(pixels, W, H);
@@ -412,5 +412,5 @@ for (let i = 0; i < FRAMES; i++) {
 }
 
 const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-console.log(`\n[NOIR] Done. ${FRAMES} frames written in ${elapsed}s.`);
-console.log('[NOIR] Hot-swap: replace files with real renders at any time.');
+console.log(`\n[PANTHER] Done. ${FRAMES} frames written in ${elapsed}s.`);
+console.log('[PANTHER] Hot-swap: replace files with real renders at any time.');

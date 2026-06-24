@@ -1,5 +1,5 @@
 -- =============================================
--- NOIR Ecommerce — 020 Perf indexes (targeted, not premature)
+-- PANTHER Ecommerce — 020 Perf indexes (targeted, not premature)
 --
 -- Two surgical index additions backed by concrete query patterns
 -- already in production code. No speculative indexes — every entry

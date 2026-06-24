@@ -15,7 +15,7 @@ import { mapDelhiveryStatus } from './state';
 import { logEvent } from '@/lib/log';
 
 /**
- * NOIR — Delhivery Error Forensics
+ * PANTHER — Delhivery Error Forensics
  * Parses Delhivery API errors into actionable diagnostics.
  */
 function parseDelhiveryError(status: number, data: Record<string, unknown>, context?: string): ParsedProviderError {
@@ -100,7 +100,7 @@ function parseDelhiveryError(status: number, data: Record<string, unknown>, cont
         ...base,
         message: 'Pickup location invalid',
         meaning: 'The configured pickup address does not exist in Delhivery One.',
-        suggested_fix: 'Delhivery One → Settings → Pickup Locations → Create warehouse using same address + phone as NOIR admin.',
+        suggested_fix: 'Delhivery One → Settings → Pickup Locations → Create warehouse using same address + phone as PANTHER admin.',
         severity: 'high',
         operational_category: 'pickup_not_registered',
       };
@@ -320,7 +320,18 @@ export class DelhiveryProvider implements ShippingProvider {
   }
 
   async createShipment(req: ShipmentRequest): Promise<ShipmentResponse> {
-    // NOIR: Delhivery shipment payload — field names are Delhivery One API spec
+    const contactName = this.pickupName === 'noir' ? 'jawad' : (this.pickupName || 'jawad');
+    const facilityName = this.pickupName === 'jawad' ? 'noir' : (this.pickupName || 'noir');
+    const payloadPickupLocation = { name: facilityName };
+
+    console.log(
+      `[DEHLIVERY_PICKUP_LOCATION]\n` +
+      `facilityName: ${facilityName}\n` +
+      `contactName: ${contactName}\n` +
+      `payloadPickupLocation: ${JSON.stringify(payloadPickupLocation)}`
+    );
+
+    // PANTHER: Delhivery shipment payload — field names are Delhivery One API spec
     const shipmentPayload = {
       shipments: [{
         name: req.customer.name,
@@ -344,23 +355,22 @@ export class DelhiveryProvider implements ShippingProvider {
         product_desc: req.product.name,
         quantity: req.product.quantity ?? 1,
       }],
-      pickup_location: { name: this.pickupName },
+      pickup_location: payloadPickupLocation,
     };
 
     const endpoint = `${this.apiUrl}/api/cmu/create.json`;
     const payloadDataStr = JSON.stringify(shipmentPayload);
 
-    // NOIR: Delhivery requires multipart/form-data with:
+    // PANTHER: Delhivery requires multipart/form-data with:
     //   format=json
     //   data=<JSON string>
     // NOT application/json raw body — this is the "format key missing in POST" root cause.
-    const formData = new FormData();
-    formData.append('format', 'json');
-    formData.append('data', payloadDataStr);
+    const params = new URLSearchParams();
+    params.append('format', 'json');
+    params.append('data', payloadDataStr);
 
     const requestHeaders: Record<string, string> = {
       ...this.authHeader(),
-      // Note: Don't set Content-Type for FormData - browser sets it with boundary
     };
 
     try {
@@ -379,7 +389,9 @@ export class DelhiveryProvider implements ShippingProvider {
       const response = await fetch(endpoint, {
         method: 'POST',
         headers: requestHeaders,
-        body: formData.toString(),
+        // Use URLSearchParams (application/x-www-form-urlencoded) instead of FormData.
+        // Delhivery expects form-urlencoded parameters format=json and data=<JSON string>.
+        body: params,
       });
 
       const latencyMs = Date.now() - t0;
@@ -424,20 +436,29 @@ export class DelhiveryProvider implements ShippingProvider {
         };
       }
 
-      // Also handle Delhivery's "upload" style success with cod/pre_count
+      // Delhivery's "upload" style response carries cod/pre_count but,
+      // in this branch, no usable waybill (the waybill-bearing path above
+      // already returned). Returning success here with an undefined
+      // tracking_id marks the order shipped with NO trackable AWB — the
+      // customer can never be tracked and webhook lookup-by-waybill can
+      // never match. Treat a missing waybill as a failure so the admin
+      // sees it and can retry, rather than a silent half-shipment.
       if (response.ok && (data.cod_count !== undefined || data.pre_count !== undefined)) {
-        // Partial success — may have created some AWBs
         const uploadPkgs = data.package_count as number | undefined;
-        logEvent('shipping.delhivery.awb_created', {
+        logEvent('shipping.delhivery.create_shipment_no_waybill', {
           order_number: req.order_number,
-          waybill: 'pending_upload_response',
           package_count: uploadPkgs,
           latency_ms: latencyMs,
-        }, { source: 'api' });
+          response_preview: rawText.substring(0, 500),
+        }, { source: 'api', severity: 'error' });
+        const parsedError = parseDelhiveryError(response.status, data, 'createShipment');
         return {
-          success: true,
-          tracking_id: waybill,
+          success: false,
+          error:
+            'Delhivery accepted the request but returned no waybill. The shipment may be partially created — verify in the Delhivery dashboard before retrying.',
+          parsed_error: parsedError,
           raw_response: data,
+          retry_safe: false,
           latency_ms: latencyMs,
         };
       }
@@ -517,14 +538,14 @@ export class DelhiveryProvider implements ShippingProvider {
   async cancelShipment(tracking_id: string): Promise<{ success: boolean }> {
     try {
       // Delhivery cancel also uses form-encoded body
-      const formData = new FormData();
-      formData.append('waybill', tracking_id);
-      formData.append('cancellation', 'true');
+      const params = new URLSearchParams();
+      params.append('waybill', tracking_id);
+      params.append('cancellation', 'true');
 
       const response = await fetch(`${this.apiUrl}/api/p/edit`, {
         method: 'POST',
-        headers: { ...this.authHeader() }, // Don't set Content-Type for FormData
-        body: formData,
+        headers: this.authHeader(),
+        body: params,
       });
       const rawText = await response.text();
       let data: Record<string, unknown> = {};
@@ -564,6 +585,14 @@ export class DelhiveryProvider implements ShippingProvider {
     rawBody: string,
   ): boolean {
     if (!this.webhookSecret) {
+      // No secret configured. Failing OPEN here lets anyone POST a forged
+      // tracking/status update for a known waybill and drive an order to
+      // delivered/cancelled/returned. Allow the unsigned path only outside
+      // production; in production we fail closed.
+      if (process.env.NODE_ENV === 'production') {
+        logEvent('shipping.delhivery.webhook_rejected_no_secret', {}, { source: 'api' });
+        return false;
+      }
       return true;
     }
     const signature = headers['x-delhivery-signature'] ?? headers['x-webhook-signature'];
@@ -573,7 +602,16 @@ export class DelhiveryProvider implements ShippingProvider {
       .createHmac('sha256', this.webhookSecret)
       .update(rawBody)
       .digest('hex');
-    return crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected));
+    // timingSafeEqual throws RangeError when the buffers differ in length,
+    // and the attacker controls the incoming signature length — guard it.
+    const expectedBuf = Buffer.from(expected);
+    const sigBuf = Buffer.from(sig);
+    if (expectedBuf.length !== sigBuf.length) return false;
+    try {
+      return crypto.timingSafeEqual(sigBuf, expectedBuf);
+    } catch {
+      return false;
+    }
   }
 
   parseWebhook(body: unknown): NormalisedShipmentEvent | null {

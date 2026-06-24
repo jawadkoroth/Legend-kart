@@ -1,5 +1,5 @@
 -- =============================================
--- NOIR Ecommerce — Media Storage Setup
+-- PANTHER Ecommerce — Media Storage Setup
 -- Phase 1: Product image uploads via Supabase Storage
 -- =============================================
 

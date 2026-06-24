@@ -1,5 +1,5 @@
 -- =============================================
--- NOIR Ecommerce — 005 Order + Payment Hardening
+-- PANTHER Ecommerce — 005 Order + Payment Hardening
 -- Additive only; no destructive changes.
 -- Run this in Supabase SQL Editor after 004.
 -- =============================================

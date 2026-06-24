@@ -1,5 +1,5 @@
 -- =============================================
--- NOIR Ecommerce — 026 Shipping Error Forensics
+-- PANTHER Ecommerce — 026 Shipping Error Forensics
 --
 -- Add columns to shipments table for storing
 -- parsed provider error details and operational
@@ -25,12 +25,12 @@ CREATE INDEX IF NOT EXISTS idx_shipments_retry_safe
   ON shipments(retry_safe, last_error_at)
   WHERE retry_safe = TRUE AND status = 'failed';
 
-COMMENT ON COLUMN shipments.parsed_error IS 'NOIR: Parsed provider error with message, meaning, suggested_fix';
-COMMENT ON COLUMN shipments.retry_safe IS 'NOIR: Whether this failure is safe to retry (timeouts, rate limits, server errors)';
-COMMENT ON COLUMN shipments.latency_ms IS 'NOIR: Request latency in milliseconds';
-COMMENT ON COLUMN shipments.last_error_at IS 'NOIR: When the last error occurred';
-COMMENT ON COLUMN shipments.operational_category IS 'NOIR: Categorized error type (auth_failure, pickup_not_registered, etc.)';
-COMMENT ON COLUMN shipments.error_severity IS 'NOIR: Error severity level (critical, high, medium, low, info)';
+COMMENT ON COLUMN shipments.parsed_error IS 'PANTHER: Parsed provider error with message, meaning, suggested_fix';
+COMMENT ON COLUMN shipments.retry_safe IS 'PANTHER: Whether this failure is safe to retry (timeouts, rate limits, server errors)';
+COMMENT ON COLUMN shipments.latency_ms IS 'PANTHER: Request latency in milliseconds';
+COMMENT ON COLUMN shipments.last_error_at IS 'PANTHER: When the last error occurred';
+COMMENT ON COLUMN shipments.operational_category IS 'PANTHER: Categorized error type (auth_failure, pickup_not_registered, etc.)';
+COMMENT ON COLUMN shipments.error_severity IS 'PANTHER: Error severity level (critical, high, medium, low, info)';
 
 -- Update the upsert_shipment_idempotent function to include new fields
 CREATE OR REPLACE FUNCTION upsert_shipment_idempotent(

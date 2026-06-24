@@ -18,7 +18,7 @@ import { BRAND, SITE_URL } from '@/lib/seo/site';
  * server component, so the client logic moves one layer down. No
  * UI behavior changes.
  *
- * The home page uses an absolute title (no `%s — NOIR` template
+ * The home page uses an absolute title (no `%s — PANTHER` template
  * applied) because the root layout's default already composes the
  * brand lockup correctly.
  */

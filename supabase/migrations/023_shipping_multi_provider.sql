@@ -1,5 +1,5 @@
 -- =============================================
--- NOIR Ecommerce — 023 Multi-provider shipping
+-- PANTHER Ecommerce — 023 Multi-provider shipping
 --
 -- Additive only. Zero destructive changes.
 -- Safe to re-run (all DDL uses IF NOT EXISTS /
@@ -13,8 +13,8 @@
 --   3. shipment_status_history — append-only audit trail of every
 --                                status transition
 --   4. shipping_webhook_events — raw inbound webhook dedup store
---   5. shipping_pricing_rules  — NOIR's pricing policy (singleton)
---   6. cod_rules               — NOIR's COD policy (singleton)
+--   5. shipping_pricing_rules  — PANTHER's pricing policy (singleton)
+--   6. cod_rules               — PANTHER's COD policy (singleton)
 --   7. activate_shipping_provider(UUID) RPC
 --   8. upsert_shipment_idempotent(...)  RPC
 --   9. Backfill from existing shipping_settings / orders

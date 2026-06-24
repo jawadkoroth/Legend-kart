@@ -37,7 +37,7 @@ export default function Navbar() {
 
   return (
     <nav className={styles.navbar}>
-      <Link href="/" className={styles.logo}>NOIR</Link>
+      <Link href="/" className={styles.logo}>PANTHER</Link>
       <div className={styles.actions}>
         <Link
           href="/products"

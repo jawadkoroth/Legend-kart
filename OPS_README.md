@@ -1,6 +1,6 @@
-# NOIR — Operations Runbook
+# PANTHER — Operations Runbook
 
-Pragmatic, on-call-friendly reference for the production NOIR ecommerce
+Pragmatic, on-call-friendly reference for the production PANTHER ecommerce
 platform. Read once before launch; bookmark for incidents.
 
 This document assumes the codebase you are looking at, **not** generic
@@ -54,6 +54,10 @@ Optional:
 - `NEXT_PUBLIC_VAPID_PUBLIC_KEY` — only if your push prompt code
   reads it on the client. Most paths fetch from `/api/admin/push/vapid`
   instead.
+- `FIREBASE_SERVICE_ACCOUNT_JSON` — minified single-line JSON string of the Firebase
+  Admin SDK service account key, required to send native push notifications to Android
+  devices via FCM.
+
 
 ### 2.2 Database migrations
 

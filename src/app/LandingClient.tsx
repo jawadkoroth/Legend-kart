@@ -113,7 +113,7 @@ function HeroVideo() {
             zIndex: 2,
           }}
         >
-          <span>NOIR</span>
+          <span>PANTHER</span>
         </div>
       )}
     </>
@@ -389,18 +389,18 @@ export default function LandingClient() {
           <div className={styles.featuredImageWrap}>
             <img
               src="/product-1.png"
-              alt="The Noir Linen Shirt"
+              alt="The Panther Linen Shirt"
               className={styles.featuredImage}
             />
           </div>
           <div className={styles.featuredInfo}>
             <p className={styles.featuredLabel}>The Shirt</p>
-            <h2 className={styles.featuredTitle}>The Noir Linen&nbsp;Shirt</h2>
+            <h2 className={styles.featuredTitle}>The Panther Linen&nbsp;Shirt</h2>
             <p className={styles.featuredDesc}>
               Black linen, woven in long staple. A relaxed silhouette that
               softens with wear and holds its weight against the body.
             </p>
-            <Link href="/product/noir-linen-shirt" className={styles.featuredCta}>
+            <Link href="/product/panther-linen-shirt" className={styles.featuredCta}>
               View piece
             </Link>
           </div>

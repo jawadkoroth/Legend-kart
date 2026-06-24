@@ -59,6 +59,19 @@ export async function POST(req: NextRequest) {
       return apiSuccess({ message: 'Payment already verified' });
     }
 
+    // 2b. Guard: the order must actually be an online payment with a
+    // Razorpay order attached. Without this, a COD order (or one whose
+    // Razorpay-create failed and was cancelled) has a null
+    // razorpay_order_id, the HMAC would be computed over "null|<id>",
+    // and a stray request could flip an unrelated order to `failed`.
+    if (!order.razorpay_order_id) {
+      logEvent('payment.verify_no_razorpay_order', {
+        order_id: order.id,
+        order_number: order.order_number,
+      });
+      return apiError(400, 'Order is not an online payment');
+    }
+
     // 3. Verify the signature.
     const isValid = verifyPaymentSignature(
       order.razorpay_order_id,

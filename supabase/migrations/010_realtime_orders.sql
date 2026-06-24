@@ -1,5 +1,5 @@
 -- =============================================
--- NOIR Ecommerce — 010 Realtime publication for orders
+-- PANTHER Ecommerce — 010 Realtime publication for orders
 -- Required so admin clients receive INSERT payloads on the
 -- `orders` table via Supabase Realtime.
 -- =============================================

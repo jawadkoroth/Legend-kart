@@ -10,9 +10,10 @@ import {
   useRef,
   ReactNode,
 } from 'react';
+import { MAX_QTY_PER_LINE } from '@/lib/validators';
 
 /**
- * NOIR cart — local, client-side, localStorage-backed.
+ * PANTHER cart — local, client-side, localStorage-backed.
  *
  * Design notes:
  *
@@ -114,7 +115,7 @@ interface CartContextType {
 
 const CartContext = createContext<CartContextType | null>(null);
 
-const CART_KEY = 'noir_cart';
+const CART_KEY = 'panther_cart';
 
 function isCartItem(value: unknown): value is CartItem {
   if (!value || typeof value !== 'object') return false;
@@ -249,6 +250,9 @@ export function CartProvider({ children }: { children: ReactNode }) {
       // silently push a sold-out line into the cart.
       if (!item.maxStock || item.maxStock <= 0) return;
       const safeQty = Math.max(1, Math.floor(qty));
+      // Per-line cap = min(live stock, order schema's max). Exceeding the
+      // schema cap (5) would let the cart hold a line that checkout rejects.
+      const lineCap = Math.min(item.maxStock, MAX_QTY_PER_LINE);
 
       setItems(prev => {
         const idx = prev.findIndex(
@@ -261,7 +265,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
           const merged = {
             ...existing,
             ...item,
-            quantity: Math.min(existing.quantity + safeQty, item.maxStock),
+            quantity: Math.min(existing.quantity + safeQty, lineCap),
             maxStock: item.maxStock,
           };
           const next = [...prev];
@@ -270,7 +274,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
         }
         return [
           ...prev,
-          { ...item, quantity: Math.min(safeQty, item.maxStock) },
+          { ...item, quantity: Math.min(safeQty, lineCap) },
         ];
       });
       // Local mutation invalidates the validation snapshot.
@@ -302,7 +306,11 @@ export function CartProvider({ children }: { children: ReactNode }) {
               // rather than zero it out — revalidation will fix it.
               quantity:
                 i.maxStock > 0
-                  ? Math.min(Math.max(1, Math.floor(qty)), i.maxStock)
+                  ? Math.min(
+                      Math.max(1, Math.floor(qty)),
+                      i.maxStock,
+                      MAX_QTY_PER_LINE,
+                    )
                   : i.quantity,
             }
             : i,

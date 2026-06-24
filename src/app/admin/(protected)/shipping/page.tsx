@@ -372,8 +372,8 @@ function ProviderCard({
             <SectionRule label="Pickup Address" />
             <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
               <div className="input-row">
-                <Field label="Contact name" error={errors.pickup_name}>
-                  <input className={`input-field${errors.pickup_name ? ' input-error' : ''}`} placeholder="Warehouse manager" value={state.pickup_name} onChange={(e) => onStateChange({ pickup_name: e.target.value })} />
+                <Field label="Warehouse / Facility name" error={errors.pickup_name}>
+                  <input className={`input-field${errors.pickup_name ? ' input-error' : ''}`} placeholder="e.g. noir" value={state.pickup_name} onChange={(e) => onStateChange({ pickup_name: e.target.value })} />
                 </Field>
                 <Field label="Phone" error={errors.pickup_phone}>
                   <input className={`input-field${errors.pickup_phone ? ' input-error' : ''}`} placeholder="10-digit mobile" value={state.pickup_phone} onChange={(e) => onStateChange({ pickup_phone: e.target.value })} />
@@ -537,7 +537,7 @@ function PricingTab({
     <div>
       <div style={{ marginBottom: 24 }}>
         <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', margin: 0, lineHeight: 1.6 }}>
-          Global pricing rules applied to all orders. These are courier-agnostic — they govern NOIR's shipping policy, not the provider.
+          Global pricing rules applied to all orders. These are courier-agnostic — they govern PANTHER's shipping policy, not the provider.
         </p>
       </div>
 
@@ -1025,7 +1025,7 @@ export default function AdminShipping() {
     if (state.provider_enabled) {
       if (!state.api_url.trim()) e.api_url = 'API URL is required';
       if (!state.api_key_set && !newApiKey.trim()) e.api_key = 'API key is required';
-      if (!state.pickup_name.trim()) e.pickup_name = 'Contact name is required';
+      if (!state.pickup_name.trim()) e.pickup_name = 'Warehouse / Facility name is required';
       if (!state.pickup_address_line1.trim()) e.pickup_address_line1 = 'Address is required';
       if (!state.pickup_city.trim()) e.pickup_city = 'City is required';
       if (!state.pickup_state.trim()) e.pickup_state = 'State is required';
@@ -1095,7 +1095,7 @@ export default function AdminShipping() {
       {/* Page header */}
       <div style={{ marginBottom: 28 }}>
         <p style={{ fontSize: '0.625rem', fontWeight: 700, letterSpacing: '0.16em', textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: 4 }}>
-          NOIR · Shipping Console
+          PANTHER · Shipping Console
         </p>
         <h1 style={{ fontSize: '1.25rem', fontWeight: 700, letterSpacing: '0.01em', color: 'var(--text-primary)', margin: 0 }}>
           Shipping

@@ -1,5 +1,5 @@
 -- =============================================
--- NOIR Ecommerce — 009 Shipping + Order Pricing
+-- PANTHER Ecommerce — 009 Shipping + Order Pricing
 -- Additive only; no destructive changes.
 -- Run in Supabase SQL Editor after 008.
 -- =============================================

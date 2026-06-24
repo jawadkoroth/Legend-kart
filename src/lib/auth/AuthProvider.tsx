@@ -45,9 +45,37 @@ export function AuthProvider({
   useEffect(() => {
     const supabase = createClient();
 
+    console.log('[AUTH_RESTORE] Starting session recovery check...');
+
+    // Restore session on startup
+    supabase.auth.getSession().then(({ data: { session }, error }) => {
+      if (error) {
+        console.error('[AUTH_RESTORE] Error getting session:', error.message);
+        console.log('[AUTH_REFRESH_FAILED] Session recovery failed.');
+        return;
+      }
+      if (session) {
+        console.log(`[AUTH_SESSION_FOUND] Session restored for user: ${session.user.email}`);
+        setUser(session.user);
+        lastUserId.current = session.user.id;
+      } else {
+        console.log('[AUTH_SESSION_MISSING] No session found on startup.');
+      }
+    }).catch(err => {
+      console.error('[AUTH_RESTORE] Catch getSession error:', err);
+      console.log('[AUTH_REFRESH_FAILED] Session recovery threw an error.');
+    });
+
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
+    } = supabase.auth.onAuthStateChange((event, session) => {
+      console.log(`[AUTH_RESTORE] AuthStateChanged event: ${event}`);
+      if (event === 'TOKEN_REFRESHED') {
+        console.log('[AUTH_REFRESH_SUCCESS] Token refreshed.');
+      } else if (event === 'SIGNED_OUT') {
+        console.log('[AUTH_SESSION_MISSING] AuthStateChanged user signed out.');
+      }
+
       const nextUser = session?.user ?? null;
       const nextId = nextUser?.id ?? null;
       setUser(nextUser);

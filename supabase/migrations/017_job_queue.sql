@@ -1,5 +1,5 @@
 -- =============================================
--- NOIR Ecommerce — 017 Job queue (async reliability)
+-- PANTHER Ecommerce — 017 Job queue (async reliability)
 --
 -- Pragmatic Postgres-backed job queue. No Redis, no external broker.
 -- The existing Supabase instance is the source of truth; Vercel Cron

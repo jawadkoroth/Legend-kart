@@ -10,7 +10,7 @@ export function PWAInstallPrompt() {
 
   // Check localStorage for previous dismissal
   useEffect(() => {
-    const dismissed = localStorage.getItem('noir-install-dismissed');
+    const dismissed = localStorage.getItem('panther-install-dismissed');
     if (dismissed) {
       const date = new Date(dismissed);
       const now = new Date();
@@ -35,7 +35,7 @@ export function PWAInstallPrompt() {
   const handleDismiss = () => {
     setIsVisible(false);
     setIsDismissed(true);
-    localStorage.setItem('noir-install-dismissed', new Date().toISOString());
+    localStorage.setItem('panther-install-dismissed', new Date().toISOString());
     dismissInstall();
   };
 
@@ -74,7 +74,7 @@ export function PWAInstallPrompt() {
                 margin: '0 0 8px',
               }}
             >
-              Install NOIR Admin
+              Install PANTHER Admin
             </p>
             <p
               style={{
@@ -147,7 +147,7 @@ export function PWAInstallPrompt() {
               margin: '0 0 4px',
             }}
           >
-            NOIR ADMIN
+            PANTHER ADMIN
           </p>
           <p
             style={{

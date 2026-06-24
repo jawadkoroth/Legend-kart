@@ -3,7 +3,13 @@ export interface ShipmentRequest {
   customer: { name: string; phone: string; email?: string };
   address: { line1: string; line2?: string; city: string; state: string; pincode: string };
   product: { name: string; quantity: number; weight_grams: number };
-  payment: { method: 'cod' | 'prepaid'; cod_amount_paise?: number };
+  payment: {
+    method: 'cod' | 'prepaid';
+    /** COD collectible amount in paise. Only set for COD orders. */
+    cod_amount_paise?: number;
+    /** Total order value in paise. Set for ALL orders (COD and prepaid). */
+    order_amount_paise?: number;
+  };
 }
 
 export interface ShipmentResponse {
@@ -12,11 +18,11 @@ export interface ShipmentResponse {
   label_url?: string;
   error?: string;
   raw_response?: unknown;
-  /** NOIR: Parsed forensic error with actionable diagnostics */
+  /** PANTHER: Parsed forensic error with actionable diagnostics */
   parsed_error?: ParsedProviderError;
-  /** NOIR: Whether this failure is safe to retry */
+  /** PANTHER: Whether this failure is safe to retry */
   retry_safe?: boolean;
-  /** NOIR: Request latency in milliseconds */
+  /** PANTHER: Request latency in milliseconds */
   latency_ms?: number;
 }
 
@@ -105,7 +111,7 @@ export interface ConnectionTestResult {
 }
 
 /**
- * NOIR — Normalized provider error with forensic diagnostics.
+ * PANTHER — Normalized provider error with forensic diagnostics.
  * Every shipping failure produces actionable intelligence.
  */
 export interface ParsedProviderError {
@@ -174,7 +180,7 @@ export interface ShippingProvider {
   testConnection(): Promise<ConnectionTestResult>;
 
   /**
-   * NOIR: Pre-flight validation for shipment creation.
+   * PANTHER: Pre-flight validation for shipment creation.
    * Validates all prerequisites before calling provider API.
    * Returns null if valid, or ParsedProviderError with actionable diagnostics.
    */

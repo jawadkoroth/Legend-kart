@@ -401,11 +401,14 @@ async function handlePOST(req: NextRequest) {
         lineItems.length === 1
           ? `${firstLine.product_name} · ${firstLine.size} × ${firstLine.quantity}`
           : `${lineItems.length} items`;
+      console.log(`[ORDER_PUSH_START] Triggering order push notification for order ID: ${orderId}`);
       await notifyAdminsBestEffort(supabase, {
         title: `New order ${finalOrderNumber}`,
         body: `${lineSummary} — ₹${(total / 100).toLocaleString('en-IN')}`,
         tag: `order-${orderId}`,
         url: `/admin/orders/${orderId}`,
+        orderId,
+        type: 'new_order',
       });
     }
 
