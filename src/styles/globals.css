@@ -723,6 +723,41 @@ img {
   box-shadow: var(--admin-glass-shadow);
 }
 
+.admin-header-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border-radius: var(--radius-md, 8px);
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  position: relative;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  -webkit-tap-highlight-color: transparent;
+}
+
+.admin-header-btn:hover {
+  background: var(--hover-wash, rgba(255, 255, 255, 0.05));
+  border-color: var(--admin-glass-border, rgba(255, 255, 255, 0.05));
+  color: var(--text-primary);
+  transform: translateY(-1px);
+}
+
+.admin-header-btn:active {
+  transform: translateY(0);
+}
+
+.admin-header-btn svg {
+  width: 20px;
+  height: 20px;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  transition: stroke 0.2s ease;
+}
+
 .admin-content {
   flex: 1;
   padding: var(--space-8) var(--space-5);
