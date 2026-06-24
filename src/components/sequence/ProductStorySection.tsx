@@ -53,8 +53,8 @@ import styles from './ProductStorySection.module.css';
    ───────────────────────────────────────────────────────────────────── */
 const SEQUENCE_CONFIG: SequenceConfig = {
   framePrefix: '/sequences/linen-shirt/frame_',
-  frameExt: 'webp',
-  frameCount: 60,
+  frameExt: 'jpg',
+  frameCount: 70,
   framePad: 4,
   mobileStride: 2,
 };
@@ -87,7 +87,7 @@ const ANNOTATIONS: AnnotationDef[] = [
   {
     id: 'fabric',
     frameStart: 5,
-    frameEnd: 18,
+    frameEnd: 20,
     dotX: 58,
     dotY: 38,
     cardSide: 'right',
@@ -99,8 +99,8 @@ const ANNOTATIONS: AnnotationDef[] = [
   },
   {
     id: 'fit',
-    frameStart: 18,
-    frameEnd: 32,
+    frameStart: 21,
+    frameEnd: 38,
     dotX: 44,
     dotY: 55,
     cardSide: 'left',
@@ -112,8 +112,8 @@ const ANNOTATIONS: AnnotationDef[] = [
   },
   {
     id: 'stitch',
-    frameStart: 32,
-    frameEnd: 46,
+    frameStart: 39,
+    frameEnd: 54,
     dotX: 62,
     dotY: 66,
     cardSide: 'right',
@@ -125,8 +125,8 @@ const ANNOTATIONS: AnnotationDef[] = [
   },
   {
     id: 'collar',
-    frameStart: 46,
-    frameEnd: 59,
+    frameStart: 55,
+    frameEnd: 69,
     dotX: 50,
     dotY: 22,
     cardSide: 'right',
