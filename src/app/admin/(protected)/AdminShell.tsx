@@ -1,12 +1,13 @@
 'use client';
 
-import { useState } from 'react';
-import { usePathname } from 'next/navigation';
+import { useState, useEffect } from 'react';
+import { usePathname, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import AdminFeedbackDrawer from '@/components/AdminFeedbackDrawer';
 import AdminRealtimeProvider from '@/components/admin/AdminRealtimeProvider';
 import AdminPushPrompt from '@/components/admin/AdminPushPrompt';
 import AdminReturnsBadge from '@/components/admin/AdminReturnsBadge';
+import { useAuth } from '@/lib/auth/AuthProvider';
 
 const NAV_ITEMS = [
   { href: '/admin/dashboard', label: 'Home', icon: '📊' },
@@ -25,8 +26,36 @@ export default function AdminShell({
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
+  const router = useRouter();
+  const { user, loading } = useAuth();
   const [unreadCount, setUnreadCount] = useState(initialUnreadCount);
   const [isFeedbackOpen, setIsFeedbackOpen] = useState(false);
+
+  useEffect(() => {
+    const isMobileApp = typeof navigator !== 'undefined' && navigator.userAgent.includes('PANTHER_MOBILE');
+    if (isMobileApp && !loading && !user) {
+      router.replace('/admin');
+    }
+  }, [user, loading, router]);
+
+  const isMobileApp = typeof navigator !== 'undefined' && navigator.userAgent.includes('PANTHER_MOBILE');
+  if (isMobileApp && loading) {
+    return (
+      <div style={{
+        display: 'flex',
+        height: '100vh',
+        alignItems: 'center',
+        justifyContent: 'center',
+        background: '#0B0B0B',
+        color: '#8A8A8A',
+        fontFamily: 'monospace',
+        fontSize: '0.8rem',
+        letterSpacing: '0.1em'
+      }}>
+        RESTORING SESSION...
+      </div>
+    );
+  }
 
   return (
     <div className="admin-layout">

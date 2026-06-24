@@ -1,4 +1,5 @@
 import { redirect } from 'next/navigation';
+import { headers } from 'next/headers';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import AdminShell from './AdminShell';
 
@@ -18,6 +19,10 @@ export default async function ProtectedAdminLayout({
 }: {
   children: React.ReactNode;
 }) {
+  const headersList = await headers();
+  const userAgent = headersList.get('user-agent') || '';
+  const isMobileApp = userAgent.includes('PANTHER_MOBILE');
+
   const supabase = await createServerSupabaseClient();
 
   const {
@@ -25,6 +30,9 @@ export default async function ProtectedAdminLayout({
   } = await supabase.auth.getUser();
 
   if (!user) {
+    if (isMobileApp) {
+      return <AdminShell initialUnreadCount={0}>{children}</AdminShell>;
+    }
     redirect('/admin');
   }
 
@@ -40,6 +48,9 @@ export default async function ProtectedAdminLayout({
     // adapter; the redirect to /admin is sufficient. The cookies are
     // still valid as a regular user — the admin gate just keeps
     // bouncing them on every protected request.
+    if (isMobileApp) {
+      return <AdminShell initialUnreadCount={0}>{children}</AdminShell>;
+    }
     redirect('/admin');
   }
 

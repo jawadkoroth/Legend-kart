@@ -14,9 +14,10 @@ import { createClient } from '@/lib/supabase/client';
 
 type AuthContextValue = {
   user: User | null;
+  loading: boolean;
 };
 
-const AuthContext = createContext<AuthContextValue>({ user: null });
+const AuthContext = createContext<AuthContextValue>({ user: null, loading: true });
 
 /**
  * Single client-side source of truth for the current user.
@@ -40,6 +41,7 @@ export function AuthProvider({
 }) {
   const router = useRouter();
   const [user, setUser] = useState<User | null>(initialUser);
+  const [loading, setLoading] = useState(true);
   const lastUserId = useRef<string | null>(initialUser?.id ?? null);
 
   useEffect(() => {
@@ -47,29 +49,64 @@ export function AuthProvider({
 
     console.log('[AUTH_RESTORE] Starting session recovery check...');
 
-    // Restore session on startup
-    supabase.auth.getSession().then(({ data: { session }, error }) => {
-      if (error) {
-        console.error('[AUTH_RESTORE] Error getting session:', error.message);
-        console.log('[AUTH_REFRESH_FAILED] Session recovery failed.');
-        return;
+    const restoreSession = async () => {
+      try {
+        const saved = localStorage.getItem('legend_kart_admin_session');
+        if (saved) {
+          console.log('[AUTH_RESTORE] Found saved session in localStorage.');
+          const { access_token, refresh_token } = JSON.parse(saved);
+          const { data, error } = await supabase.auth.setSession({
+            access_token,
+            refresh_token,
+          });
+          if (error) {
+            console.error('[AUTH_RESTORE] Failed to setSession:', error.message);
+          } else if (data.session) {
+            console.log('[AUTH_RESTORE] Successfully restored session via setSession.');
+            setUser(data.session.user);
+            lastUserId.current = data.session.user.id;
+            setLoading(false);
+            return;
+          }
+        }
+      } catch (err) {
+        console.error('[AUTH_RESTORE] Error reading/setting saved session:', err);
       }
-      if (session) {
-        console.log(`[AUTH_SESSION_FOUND] Session restored for user: ${session.user.email}`);
-        setUser(session.user);
-        lastUserId.current = session.user.id;
-      } else {
-        console.log('[AUTH_SESSION_MISSING] No session found on startup.');
+
+      // Fallback to default getSession
+      try {
+        const { data: { session }, error } = await supabase.auth.getSession();
+        if (error) {
+          console.error('[AUTH_RESTORE] Error getting session:', error.message);
+        } else if (session) {
+          console.log(`[AUTH_SESSION_FOUND] Session restored for user: ${session.user.email}`);
+          setUser(session.user);
+          lastUserId.current = session.user.id;
+        } else {
+          console.log('[AUTH_SESSION_MISSING] No session found on startup.');
+        }
+      } catch (err) {
+        console.error('[AUTH_RESTORE] Catch getSession error:', err);
+      } finally {
+        setLoading(false);
       }
-    }).catch(err => {
-      console.error('[AUTH_RESTORE] Catch getSession error:', err);
-      console.log('[AUTH_REFRESH_FAILED] Session recovery threw an error.');
-    });
+    };
+
+    restoreSession();
 
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((event, session) => {
       console.log(`[AUTH_RESTORE] AuthStateChanged event: ${event}`);
+      if (session) {
+        localStorage.setItem('legend_kart_admin_session', JSON.stringify({
+          access_token: session.access_token,
+          refresh_token: session.refresh_token,
+        }));
+      } else if (event === 'SIGNED_OUT') {
+        localStorage.removeItem('legend_kart_admin_session');
+      }
+
       if (event === 'TOKEN_REFRESHED') {
         console.log('[AUTH_REFRESH_SUCCESS] Token refreshed.');
       } else if (event === 'SIGNED_OUT') {
@@ -79,6 +116,7 @@ export function AuthProvider({
       const nextUser = session?.user ?? null;
       const nextId = nextUser?.id ?? null;
       setUser(nextUser);
+      setLoading(false);
 
       // Only ask the router to revalidate RSC trees when identity
       // actually changes — avoids thrashing on background
@@ -94,7 +132,7 @@ export function AuthProvider({
     };
   }, [router]);
 
-  const value = useMemo<AuthContextValue>(() => ({ user }), [user]);
+  const value = useMemo<AuthContextValue>(() => ({ user, loading }), [user, loading]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

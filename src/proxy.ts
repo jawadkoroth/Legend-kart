@@ -93,8 +93,9 @@ export async function proxy(request: NextRequest) {
 
   // Admin protected sub-tree (the /admin login page itself is public).
   const requiresAdmin = pathname.startsWith('/admin/');
+  const isMobileApp = request.headers.get('user-agent')?.includes('PANTHER_MOBILE');
 
-  if ((requiresUser || requiresAdmin) && !user) {
+  if ((requiresUser || requiresAdmin) && !user && !isMobileApp) {
     const redirectUrl = request.nextUrl.clone();
     if (requiresAdmin) {
       redirectUrl.pathname = '/admin';

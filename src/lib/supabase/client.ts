@@ -11,19 +11,8 @@ import { createBrowserClient } from '@supabase/ssr';
  * that breaks SSR auth and mobile Safari.
  */
 export function createClient() {
-  const isCapacitor = typeof window !== 'undefined' && !!(window as any).Capacitor;
-  const options: any = {};
-  if (isCapacitor) {
-    options.auth = {
-      persistSession: true,
-      autoRefreshToken: true,
-      storage: window.localStorage,
-      detectSessionInUrl: false,
-    };
-  }
   return createBrowserClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    options
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
   );
 }
