@@ -71,3 +71,113 @@
     gap: var(--space-3, 12px);
   }
 }
+
+/* Controls, Search, Categories, Pagination */
+.controls {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4, 16px);
+  margin-bottom: var(--space-6, 32px);
+  width: 100%;
+}
+
+.searchAndSort {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-4, 16px);
+  flex-wrap: wrap;
+  width: 100%;
+}
+
+.searchInput {
+  background: var(--bg-secondary, #0F0F11);
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
+  padding: 8px 16px;
+  border-radius: 999px;
+  font-size: 0.8125rem;
+  width: 100%;
+  max-width: 280px;
+  outline: none;
+  transition: border-color 0.15s ease;
+}
+
+.searchInput:focus {
+  border-color: var(--accent-gold, #c9a86a);
+}
+
+.categories {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: var(--space-2, 8px);
+}
+
+.catPill {
+  font-size: 0.6875rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 6px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--border-color);
+  color: var(--text-muted);
+  background: transparent;
+  text-decoration: none;
+  transition: all 0.15s ease;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.catPill:hover {
+  border-color: var(--accent-gold, #c9a86a);
+  color: var(--text-primary);
+}
+
+.catPillActive {
+  border-color: var(--accent-gold, #c9a86a);
+  color: var(--accent-gold, #c9a86a);
+  background: rgba(201, 168, 106, 0.08);
+}
+
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: var(--space-7, 56px);
+  gap: var(--space-2, 8px);
+}
+
+.pageBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 16px;
+  border: 1px solid var(--border-color);
+  border-radius: 999px;
+  color: var(--text-primary);
+  text-decoration: none;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  transition: all 0.15s ease;
+  background: transparent;
+  cursor: pointer;
+}
+
+.pageBtn:hover:not(.pageBtnDisabled) {
+  border-color: var(--accent-gold, #c9a86a);
+  color: var(--accent-gold, #c9a86a);
+}
+
+.pageBtnDisabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  border-color: var(--border-color);
+  color: var(--text-muted);
+}
+
+.pageInfo {
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+}
+

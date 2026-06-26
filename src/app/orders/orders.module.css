@@ -601,3 +601,45 @@
     padding: 16px;
   }
 }
+
+/* Pagination */
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: var(--space-6, 32px);
+  gap: var(--space-2, 8px);
+}
+
+.pageBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 16px;
+  border: 1px solid var(--orders-border);
+  border-radius: 999px;
+  color: var(--orders-text);
+  text-decoration: none;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  transition: border-color var(--orders-dur-fast) var(--orders-ease), color var(--orders-dur-fast) var(--orders-ease);
+  background: transparent;
+  cursor: pointer;
+}
+
+.pageBtn:hover:not(.pageBtnDisabled) {
+  border-color: var(--orders-accent);
+  color: var(--orders-accent);
+}
+
+.pageBtnDisabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  border-color: var(--orders-border);
+  color: var(--orders-text-muted);
+}
+
+.pageInfo {
+  font-size: 0.8125rem;
+  color: var(--orders-text-muted);
+}

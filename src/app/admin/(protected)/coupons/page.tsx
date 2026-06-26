@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { createClient } from '@/lib/supabase/client';
 
 /**
@@ -114,21 +114,31 @@ export default function AdminCoupons() {
   const [deletePending, setDeletePending] = useState(false);
   const [deleteError, setDeleteError] = useState('');
 
-  useEffect(() => {
-    fetchCoupons();
-  }, []);
+  // Pagination states
+  const [page, setPage] = useState(1);
+  const [totalCount, setTotalCount] = useState(0);
+  const pageSize = 10;
 
-  async function fetchCoupons() {
+  const fetchCoupons = useCallback(async (currentPage: number) => {
+    setLoading(true);
     const supabase = createClient();
-    const { data } = await supabase
+    const offset = (currentPage - 1) * pageSize;
+    const { data, count } = await supabase
       .from('coupons')
       .select(
         'id, code, discount_percent, is_active, new_users_only, show_on_homepage, homepage_text, homepage_accent, min_cart_paise, max_discount_paise, starts_at, expires_at, per_user_limit, usage_limit, created_at',
+        { count: 'exact' }
       )
-      .order('created_at', { ascending: false });
+      .order('created_at', { ascending: false })
+      .range(offset, offset + pageSize - 1);
     setCoupons((data as Coupon[]) ?? []);
+    setTotalCount(count ?? 0);
     setLoading(false);
-  }
+  }, [pageSize]);
+
+  useEffect(() => {
+    fetchCoupons(page);
+  }, [fetchCoupons, page]);
 
   function resetDraft() {
     setDraft(EMPTY_DRAFT);
@@ -231,13 +241,21 @@ export default function AdminCoupons() {
     setShowForm(false);
     resetDraft();
     setSaving(false);
-    fetchCoupons();
+    if (editingId) {
+      fetchCoupons(page);
+    } else {
+      if (page === 1) {
+        fetchCoupons(1);
+      } else {
+        setPage(1);
+      }
+    }
   }
 
   async function toggleActive(id: string, isActive: boolean) {
     const supabase = createClient();
     await supabase.from('coupons').update({ is_active: !isActive }).eq('id', id);
-    fetchCoupons();
+    fetchCoupons(page);
   }
 
   async function confirmDelete() {
@@ -256,7 +274,13 @@ export default function AdminCoupons() {
       }
       setDeleting(null);
       setDeletePending(false);
-      await fetchCoupons();
+      const nextTotal = totalCount - 1;
+      const nextTotalPages = Math.max(1, Math.ceil(nextTotal / pageSize));
+      if (page > nextTotalPages) {
+        setPage(nextTotalPages);
+      } else {
+        await fetchCoupons(page);
+      }
     } catch (err) {
       console.error('[COUPON_DELETE]', err);
       setDeleteError('Network error. Please try again.');
@@ -264,13 +288,7 @@ export default function AdminCoupons() {
     }
   }
 
-  if (loading) {
-    return (
-      <div className="animate-pulse text-muted" style={{ textAlign: 'center', padding: 'var(--space-8)' }}>
-        Loading...
-      </div>
-    );
-  }
+
 
   return (
     <div>
@@ -512,71 +530,150 @@ export default function AdminCoupons() {
       )}
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
-        {coupons.map((coupon) => (
-          <div
-            key={coupon.id}
-            className="card"
-            style={{
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 'var(--space-2)',
-            }}
-          >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div>
-                <span style={{ fontWeight: 600, fontFamily: 'monospace', fontSize: '1rem' }}>{coupon.code}</span>
-                <span className="text-sm text-muted" style={{ marginLeft: 'var(--space-3)' }}>
-                  {coupon.discount_percent}% off
-                </span>
-              </div>
-              <button
-                className={`btn btn-sm ${coupon.is_active ? 'btn-success' : 'btn-secondary'}`}
-                onClick={() => toggleActive(coupon.id, coupon.is_active)}
-              >
-                {coupon.is_active ? 'Active' : 'Off'}
-              </button>
-            </div>
-
-            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-              {coupon.new_users_only && (
-                <span className="badge badge-confirmed">First-order only</span>
-              )}
-              {coupon.show_on_homepage && (
-                <span className="badge badge-paid">On homepage</span>
-              )}
-            </div>
-
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 'var(--space-2)' }}>
-              <button
-                type="button"
-                onClick={() => startEdit(coupon)}
-                className="btn btn-ghost btn-sm"
-                style={{ width: 'auto' }}
-              >
-                Edit
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setDeleting(coupon);
-                  setDeleteError('');
-                }}
-                className="btn btn-ghost btn-sm"
-                style={{ width: 'auto', color: 'var(--error)' }}
-                aria-label={`Delete coupon ${coupon.code}`}
-              >
-                Delete
-              </button>
-            </div>
-          </div>
-        ))}
-
-        {coupons.length === 0 && (
+        {loading ? (
+          Array.from({ length: 3 }).map((_, i) => (
+            <div
+              key={i}
+              className="card animate-pulse"
+              style={{
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 'var(--space-2)',
+                height: '110px',
+                background: 'var(--bg-secondary)',
+                opacity: 0.5,
+              }}
+            />
+          ))
+        ) : coupons.length === 0 ? (
           <p className="text-muted" style={{ textAlign: 'center', padding: 'var(--space-8) 0' }}>
             No coupons yet
           </p>
+        ) : (
+          coupons.map((coupon) => (
+            <div
+              key={coupon.id}
+              className="card"
+              style={{
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 'var(--space-2)',
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div>
+                  <span style={{ fontWeight: 600, fontFamily: 'monospace', fontSize: '1rem' }}>{coupon.code}</span>
+                  <span className="text-sm text-muted" style={{ marginLeft: 'var(--space-3)' }}>
+                    {coupon.discount_percent}% off
+                  </span>
+                </div>
+                <button
+                  className={`btn btn-sm ${coupon.is_active ? 'btn-success' : 'btn-secondary'}`}
+                  onClick={() => toggleActive(coupon.id, coupon.is_active)}
+                >
+                  {coupon.is_active ? 'Active' : 'Off'}
+                </button>
+              </div>
+
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                {coupon.new_users_only && (
+                  <span className="badge badge-confirmed">First-order only</span>
+                )}
+                {coupon.show_on_homepage && (
+                  <span className="badge badge-paid">On homepage</span>
+                )}
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 'var(--space-2)' }}>
+                <button
+                  type="button"
+                  onClick={() => startEdit(coupon)}
+                  className="btn btn-ghost btn-sm"
+                  style={{ width: 'auto' }}
+                >
+                  Edit
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDeleting(coupon);
+                    setDeleteError('');
+                  }}
+                  className="btn btn-ghost btn-sm"
+                  style={{ width: 'auto', color: 'var(--error)' }}
+                  aria-label={`Delete coupon ${coupon.code}`}
+                >
+                  Delete
+                </button>
+              </div>
+            </div>
+          ))
         )}
       </div>
+
+      {/* Pagination Navigation */}
+      {!loading && (
+        (() => {
+          const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
+          return totalPages > 1 ? (
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                marginTop: 'var(--space-5, 24px)',
+                padding: '16px 24px',
+                background: 'var(--bg-secondary)',
+                border: '1px solid var(--border-color)',
+                borderRadius: 'var(--radius-lg, 12px)',
+                gap: 'var(--space-2)'
+              }}
+            >
+              {page > 1 ? (
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  style={{ width: 'auto' }}
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                >
+                  ← Prev
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  style={{ width: 'auto', opacity: 0.4, cursor: 'not-allowed' }}
+                  disabled
+                >
+                  ← Prev
+                </button>
+              )}
+              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                Page {page} of {totalPages}
+              </span>
+              {page < totalPages ? (
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  style={{ width: 'auto' }}
+                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                >
+                  Next →
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  style={{ width: 'auto', opacity: 0.4, cursor: 'not-allowed' }}
+                  disabled
+                >
+                  Next →
+                </button>
+              )}
+            </div>
+          ) : null;
+        })()
+      )}
 
       {deleting && (
         <div

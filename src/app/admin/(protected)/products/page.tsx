@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useCallback } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { useSearchParams } from 'next/navigation';
@@ -63,40 +63,82 @@ export default function AdminProducts() {
   const { toast, showToast } = useToast();
   const searchParams = useSearchParams();
 
-  // Archived rows must be fetched whenever the filter could include
-  // them. Re-fetching on every filter change keeps the data model
-  // simple; the cost is one query per toggle.
+  // Pagination states
+  const [page, setPage] = useState(1);
+  const [totalCount, setTotalCount] = useState(0);
+  const pageSize = 15;
+  const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
+
+  // Debounced search query
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(search);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [search]);
+
+  // Reset page to 1 on filter/search/sort change
+  useEffect(() => {
+    setPage(1);
+  }, [status, debouncedSearch, sort]);
+
   const includeArchivedInFetch = status === 'all' || status === 'archived';
 
-  useEffect(() => {
-    fetchProducts(includeArchivedInFetch);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [includeArchivedInFetch]);
-
-  useEffect(() => {
-    if (searchParams.get('saved') === '1') {
-      showToast('Product saved', 'success');
-      window.history.replaceState({}, '', '/admin/products');
-    }
-  }, [searchParams, showToast]);
-
-  async function fetchProducts(includeArchived: boolean) {
+  const fetchProducts = useCallback(async (includeArchived: boolean, currentPage: number, searchQuery: string, currentSort: SortKey) => {
     setLoading(true);
     const supabase = createClient();
     let query = supabase
       .from('products')
       .select(
         'id, name, slug, price_paise, sale_price_paise, is_active, archived_at, category, images, created_at',
-      )
-      .order('created_at', { ascending: false });
-    if (!includeArchived) query = query.is('archived_at', null);
+        { count: 'exact' }
+      );
 
-    const { data } = await query;
+    // Status filtering on server
+    if (status === 'live') {
+      query = query.is('archived_at', null).eq('is_active', true);
+    } else if (status === 'inactive') {
+      query = query.is('archived_at', null).eq('is_active', false);
+    } else if (status === 'archived') {
+      query = query.not('archived_at', 'is', null);
+    } else {
+      if (!includeArchived) query = query.is('archived_at', null);
+    }
+
+    // Search filtering on server
+    const trimmed = searchQuery.trim();
+    if (trimmed) {
+      query = query.or(
+        `name.ilike.%${trimmed}%,slug.ilike.%${trimmed}%,category.ilike.%${trimmed}%`
+      );
+    }
+
+    // Sorting on server
+    if (currentSort === 'oldest') {
+      query = query.order('created_at', { ascending: true });
+    } else if (currentSort === 'price_asc') {
+      query = query.order('price_paise', { ascending: true });
+    } else if (currentSort === 'price_desc') {
+      query = query.order('price_paise', { ascending: false });
+    } else {
+      // newest and stock_desc fallback (we sort stock_desc in memory after fetch)
+      query = query.order('created_at', { ascending: false });
+    }
+
+    // Range pagination
+    const offset = (currentPage - 1) * pageSize;
+    query = query.range(offset, offset + pageSize - 1);
+
+    const { data, count } = await query;
     if (!data) {
       showToast('Failed to load products', 'error');
       setLoading(false);
       return;
     }
+
+    setTotalCount(count ?? 0);
 
     const ids = data.map((p) => p.id);
     let inv: { product_id: string; size: string; stock: number }[] = [];
@@ -108,60 +150,33 @@ export default function AdminProducts() {
       inv = invRows ?? [];
     }
 
-    const enriched: Product[] = data.map((p) => ({
+    let enriched: Product[] = data.map((p) => ({
       ...p,
       images: Array.isArray(p.images) ? (p.images as string[]) : null,
       inventory: inv
         .filter((i) => i.product_id === p.id)
         .sort((a, b) => a.size.localeCompare(b.size)),
     }));
+
+    if (currentSort === 'stock_desc') {
+      const totalStock = (p: Product) => (p.inventory ?? []).reduce((s, i) => s + i.stock, 0);
+      enriched = enriched.sort((a, b) => totalStock(b) - totalStock(a));
+    }
+
     setProducts(enriched);
     setLoading(false);
-  }
+  }, [status, pageSize, showToast]);
 
-  // -------- Filtering + sorting (client side) --------------------
-  const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    let rows = products.slice();
+  useEffect(() => {
+    fetchProducts(includeArchivedInFetch, page, debouncedSearch, sort);
+  }, [fetchProducts, includeArchivedInFetch, page, debouncedSearch, sort]);
 
-    if (status === 'live') {
-      rows = rows.filter((p) => p.archived_at === null && p.is_active);
-    } else if (status === 'inactive') {
-      rows = rows.filter((p) => p.archived_at === null && !p.is_active);
-    } else if (status === 'archived') {
-      rows = rows.filter((p) => p.archived_at !== null);
+  useEffect(() => {
+    if (searchParams.get('saved') === '1') {
+      showToast('Product saved', 'success');
+      window.history.replaceState({}, '', '/admin/products');
     }
-
-    if (q) {
-      rows = rows.filter(
-        (p) =>
-          p.name.toLowerCase().includes(q) ||
-          p.slug.toLowerCase().includes(q) ||
-          (p.category ?? '').toLowerCase().includes(q),
-      );
-    }
-
-    const totalStock = (p: Product) =>
-      (p.inventory ?? []).reduce((s, i) => s + i.stock, 0);
-    const livePrice = (p: Product) => p.sale_price_paise ?? p.price_paise;
-
-    rows.sort((a, b) => {
-      switch (sort) {
-        case 'oldest':
-          return a.created_at.localeCompare(b.created_at);
-        case 'price_asc':
-          return livePrice(a) - livePrice(b);
-        case 'price_desc':
-          return livePrice(b) - livePrice(a);
-        case 'stock_desc':
-          return totalStock(b) - totalStock(a);
-        case 'newest':
-        default:
-          return b.created_at.localeCompare(a.created_at);
-      }
-    });
-    return rows;
-  }, [products, status, search, sort]);
+  }, [searchParams, showToast]);
 
   // -------- Actions ----------------------------------------------
   async function confirmArchive() {
@@ -181,7 +196,7 @@ export default function AdminProducts() {
       setArchiving(null);
       setArchivePending(false);
       showToast('Product archived', 'success');
-      await fetchProducts(includeArchivedInFetch);
+      await fetchProducts(includeArchivedInFetch, page, debouncedSearch, sort);
     } catch (err) {
       console.error('[PRODUCT_ARCHIVE]', err);
       setArchiveError('Network error. Please try again.');
@@ -202,7 +217,7 @@ export default function AdminProducts() {
         return;
       }
       showToast('Product restored', 'success');
-      await fetchProducts(includeArchivedInFetch);
+      await fetchProducts(includeArchivedInFetch, page, debouncedSearch, sort);
     } catch (err) {
       console.error('[PRODUCT_RESTORE]', err);
       showToast('Network error', 'error');
@@ -220,8 +235,6 @@ export default function AdminProducts() {
       return;
     }
     showToast(`Product ${!isActive ? 'activated' : 'deactivated'}`, 'success');
-    // Optimistic local update — avoids a full re-fetch and keeps
-    // the row's expand state intact.
     setProducts((prev) =>
       prev.map((p) => (p.id === id ? { ...p, is_active: !isActive } : p)),
     );
@@ -270,6 +283,7 @@ export default function AdminProducts() {
   const stockClass = (n: number) =>
     n === 0 ? styles.stockOut : n <= 10 ? styles.stockLow : styles.stockHigh;
 
+
   // -------- Render -----------------------------------------------
   return (
     <div className={styles.page}>
@@ -277,7 +291,7 @@ export default function AdminProducts() {
         <div className={styles.titleBlock}>
           <h1 className={styles.title}>Products</h1>
           <span className={styles.count}>
-            {filtered.length} {filtered.length === 1 ? 'item' : 'items'}
+            {totalCount} {totalCount === 1 ? 'item' : 'items'}
           </span>
         </div>
         <Link href="/admin/products/new" className={`btn btn-primary btn-sm ${styles.addCta}`}>
@@ -354,7 +368,7 @@ export default function AdminProducts() {
             <div key={i} className={styles.skeleton} />
           ))}
         </div>
-      ) : filtered.length === 0 ? (
+      ) : products.length === 0 ? (
         <div className={styles.empty}>
           <p className={styles.emptyTitle}>
             {search
@@ -379,198 +393,259 @@ export default function AdminProducts() {
           )}
         </div>
       ) : (
-        <div className={styles.list}>
-          {filtered.map((product) => {
-            const isOpen = expanded.has(product.id);
-            const stock = totalStock(product.inventory);
-            const firstImage =
-              product.images && product.images.length > 0
-                ? product.images[0]
-                : null;
-            const archived = product.archived_at !== null;
-            return (
-              <div
-                key={product.id}
-                className={`${styles.row} ${archived ? styles.rowArchived : ''}`}
-              >
-                {/* Thumb */}
-                <div className={styles.thumb}>
-                  {firstImage ? (
-                    <Image
-                      src={firstImage}
-                      alt={product.name}
-                      fill
-                      sizes="64px"
-                      style={{ objectFit: 'cover' }}
-                    />
-                  ) : (
-                    <div className={styles.thumbPlaceholder}>NO IMG</div>
-                  )}
-                </div>
-
-                {/* Identity */}
-                <div className={styles.identity}>
-                  <Link
-                    href={`/admin/products/${product.id}/edit`}
-                    className={styles.name}
-                  >
-                    {product.name}
-                  </Link>
-                  <div className={styles.metaLine}>
-                    <span className={styles.slug}>/{product.slug}</span>
-                    {product.category && (
-                      <span className={styles.category}>{product.category}</span>
+        <>
+          <div className={styles.list}>
+            {products.map((product) => {
+              const isOpen = expanded.has(product.id);
+              const stock = totalStock(product.inventory);
+              const firstImage =
+                product.images && product.images.length > 0
+                  ? product.images[0]
+                  : null;
+              const archived = product.archived_at !== null;
+              return (
+                <div
+                  key={product.id}
+                  className={`${styles.row} ${archived ? styles.rowArchived : ''}`}
+                >
+                  {/* Thumb */}
+                  <div className={styles.thumb}>
+                    {firstImage ? (
+                      <Image
+                        src={firstImage}
+                        alt={product.name}
+                        fill
+                        sizes="64px"
+                        style={{ objectFit: 'cover' }}
+                      />
+                    ) : (
+                      <div className={styles.thumbPlaceholder}>NO IMG</div>
                     )}
                   </div>
-                </div>
 
-                {/* Price */}
-                <div className={styles.priceBlock}>
-                  {product.sale_price_paise ? (
-                    <>
+                  {/* Identity */}
+                  <div className={styles.identity}>
+                    <Link
+                      href={`/admin/products/${product.id}/edit`}
+                      className={styles.name}
+                    >
+                      {product.name}
+                    </Link>
+                    <div className={styles.metaLine}>
+                      <span className={styles.slug}>/{product.slug}</span>
+                      {product.category && (
+                        <span className={styles.category}>{product.category}</span>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Price */}
+                  <div className={styles.priceBlock}>
+                    {product.sale_price_paise ? (
+                      <>
+                        <span className={styles.priceLive}>
+                          {formatPrice(product.sale_price_paise)}
+                        </span>
+                        <span className={styles.priceStrike}>
+                          {formatPrice(product.price_paise)}
+                        </span>
+                        <span className={styles.priceSaleHint}>On sale</span>
+                      </>
+                    ) : (
                       <span className={styles.priceLive}>
-                        {formatPrice(product.sale_price_paise)}
-                      </span>
-                      <span className={styles.priceStrike}>
                         {formatPrice(product.price_paise)}
                       </span>
-                      <span className={styles.priceSaleHint}>On sale</span>
-                    </>
-                  ) : (
-                    <span className={styles.priceLive}>
-                      {formatPrice(product.price_paise)}
-                    </span>
-                  )}
-                </div>
-
-                {/* Stock chip */}
-                <span className={`${styles.stockChip} ${stockClass(stock)}`}>
-                  <span className={styles.stockDot} />
-                  {stock} in stock
-                </span>
-
-                {/* Status pill */}
-                <span
-                  className={`${styles.statusPill} ${
-                    archived
-                      ? styles.statusArchived
-                      : product.is_active
-                        ? styles.statusActive
-                        : styles.statusInactive
-                  }`}
-                >
-                  {archived ? 'Archived' : product.is_active ? 'Live' : 'Inactive'}
-                </span>
-
-                {/* Actions */}
-                <div className={styles.actions}>
-                  {archived ? (
-                    <button
-                      type="button"
-                      onClick={() => restoreProduct(product)}
-                      className={styles.iconBtn}
-                    >
-                      Restore
-                    </button>
-                  ) : (
-                    <>
-                      <label
-                        className={styles.toggle}
-                        title={product.is_active ? 'Deactivate' : 'Activate'}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={product.is_active}
-                          onChange={() =>
-                            toggleActive(product.id, product.is_active)
-                          }
-                          aria-label={`Toggle active for ${product.name}`}
-                        />
-                      </label>
-                      <Link
-                        href={`/admin/products/${product.id}/edit`}
-                        className={styles.iconBtn}
-                      >
-                        Edit
-                      </Link>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setArchiving(product);
-                          setArchiveError('');
-                        }}
-                        className={`${styles.iconBtn} ${styles.iconBtnDanger}`}
-                        aria-label={`Archive ${product.name}`}
-                      >
-                        Archive
-                      </button>
-                    </>
-                  )}
-                  <button
-                    type="button"
-                    className={`${styles.expandBtn} ${
-                      isOpen ? styles.expandBtnOpen : ''
-                    }`}
-                    onClick={() => toggleExpand(product.id)}
-                    aria-expanded={isOpen}
-                    aria-label={
-                      isOpen ? 'Collapse stock detail' : 'Expand stock detail'
-                    }
-                  >
-                    ⌄
-                  </button>
-                </div>
-
-                {/* Expanded stock grid */}
-                {isOpen && (
-                  <div className={styles.expand}>
-                    {(product.inventory ?? []).length === 0 ? (
-                      <p className="text-xs text-muted">
-                        No size inventory rows. Add sizes in the edit screen.
-                      </p>
-                    ) : (
-                      (product.inventory ?? []).map((inv) => (
-                        <div key={inv.size} className={styles.sizeCell}>
-                          <span className={styles.sizeLabel}>{inv.size}</span>
-                          <div className={styles.stepper}>
-                            <button
-                              type="button"
-                              className={styles.stepperBtn}
-                              onClick={() =>
-                                updateStock(product.id, inv.size, inv.stock - 1)
-                              }
-                              aria-label={`Decrease ${inv.size} stock`}
-                              disabled={inv.stock === 0}
-                            >
-                              −
-                            </button>
-                            <span
-                              className={`${styles.stepperVal} ${
-                                inv.stock === 0 ? styles.stepperValZero : ''
-                              }`}
-                            >
-                              {inv.stock}
-                            </span>
-                            <button
-                              type="button"
-                              className={styles.stepperBtn}
-                              onClick={() =>
-                                updateStock(product.id, inv.size, inv.stock + 1)
-                              }
-                              aria-label={`Increase ${inv.size} stock`}
-                            >
-                              +
-                            </button>
-                          </div>
-                        </div>
-                      ))
                     )}
                   </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
+
+                  {/* Stock chip */}
+                  <span className={`${styles.stockChip} ${stockClass(stock)}`}>
+                    <span className={styles.stockDot} />
+                    {stock} in stock
+                  </span>
+
+                  {/* Status pill */}
+                  <span
+                    className={`${styles.statusPill} ${
+                      archived
+                        ? styles.statusArchived
+                        : product.is_active
+                          ? styles.statusActive
+                          : styles.statusInactive
+                    }`}
+                  >
+                    {archived ? 'Archived' : product.is_active ? 'Live' : 'Inactive'}
+                  </span>
+
+                  {/* Actions */}
+                  <div className={styles.actions}>
+                    {archived ? (
+                      <button
+                        type="button"
+                        onClick={() => restoreProduct(product)}
+                        className={styles.iconBtn}
+                      >
+                        Restore
+                      </button>
+                    ) : (
+                      <>
+                        <label
+                          className={styles.toggle}
+                          title={product.is_active ? 'Deactivate' : 'Activate'}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={product.is_active}
+                            onChange={() =>
+                              toggleActive(product.id, product.is_active)
+                            }
+                            aria-label={`Toggle active for ${product.name}`}
+                          />
+                        </label>
+                        <Link
+                          href={`/admin/products/${product.id}/edit`}
+                          className={styles.iconBtn}
+                        >
+                          Edit
+                        </Link>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setArchiving(product);
+                            setArchiveError('');
+                          }}
+                          className={`${styles.iconBtn} ${styles.iconBtnDanger}`}
+                          aria-label={`Archive ${product.name}`}
+                        >
+                          Archive
+                        </button>
+                      </>
+                    )}
+                    <button
+                      type="button"
+                      className={`${styles.expandBtn} ${
+                        isOpen ? styles.expandBtnOpen : ''
+                      }`}
+                      onClick={() => toggleExpand(product.id)}
+                      aria-expanded={isOpen}
+                      aria-label={
+                        isOpen ? 'Collapse stock detail' : 'Expand stock detail'
+                      }
+                    >
+                      ⌄
+                    </button>
+                  </div>
+
+                  {/* Expanded stock grid */}
+                  {isOpen && (
+                    <div className={styles.expand}>
+                      {(product.inventory ?? []).length === 0 ? (
+                        <p className="text-xs text-muted">
+                          No size inventory rows. Add sizes in the edit screen.
+                        </p>
+                      ) : (
+                        (product.inventory ?? []).map((inv) => (
+                          <div key={inv.size} className={styles.sizeCell}>
+                            <span className={styles.sizeLabel}>{inv.size}</span>
+                            <div className={styles.stepper}>
+                              <button
+                                type="button"
+                                className={styles.stepperBtn}
+                                onClick={() =>
+                                  updateStock(product.id, inv.size, inv.stock - 1)
+                                }
+                                aria-label={`Decrease ${inv.size} stock`}
+                                disabled={inv.stock === 0}
+                              >
+                                −
+                              </button>
+                              <span
+                                className={`${styles.stepperVal} ${
+                                  inv.stock === 0 ? styles.stepperValZero : ''
+                                }`}
+                              >
+                                {inv.stock}
+                              </span>
+                              <button
+                                type="button"
+                                className={styles.stepperBtn}
+                                onClick={() =>
+                                  updateStock(product.id, inv.size, inv.stock + 1)
+                                }
+                                aria-label={`Increase ${inv.size} stock`}
+                              >
+                                +
+                              </button>
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Pagination Navigation */}
+          {totalPages > 1 && (
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                marginTop: 'var(--space-5, 24px)',
+                padding: '16px 24px',
+                background: 'var(--bg-secondary)',
+                border: '1px solid var(--border-color)',
+                borderRadius: 'var(--radius-lg, 12px)',
+                gap: 'var(--space-2)'
+              }}
+            >
+              {page > 1 ? (
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  style={{ width: 'auto' }}
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                >
+                  ← Prev
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  style={{ width: 'auto', opacity: 0.4, cursor: 'not-allowed' }}
+                  disabled
+                >
+                  ← Prev
+                </button>
+              )}
+              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                Page {page} of {totalPages}
+              </span>
+              {page < totalPages ? (
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  style={{ width: 'auto' }}
+                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                >
+                  Next →
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  style={{ width: 'auto', opacity: 0.4, cursor: 'not-allowed' }}
+                  disabled
+                >
+                  Next →
+                </button>
+              )}
+            </div>
+          )}
+        </>
       )}
 
       {archiving && (

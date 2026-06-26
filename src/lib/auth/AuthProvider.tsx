@@ -11,6 +11,8 @@ import {
 import { useRouter } from 'next/navigation';
 import type { User } from '@supabase/supabase-js';
 import { createClient } from '@/lib/supabase/client';
+import { Capacitor } from '@capacitor/core';
+import { App } from '@capacitor/app';
 
 type AuthContextValue = {
   user: User | null;
@@ -94,6 +96,48 @@ export function AuthProvider({
 
     restoreSession();
 
+    // Background session verification on app focus, reconnect, and resume
+    const triggerBackgroundCheck = async () => {
+      console.log('[AUTH_RESILIENCE] Triggering background session verification check...');
+      setLoading(true);
+      try {
+        const { data: { session }, error } = await supabase.auth.getSession();
+        if (error) {
+          console.error('[AUTH_RESILIENCE] Background session check error:', error.message);
+        } else if (session) {
+          console.log('[AUTH_RESILIENCE] Background session check active for:', session.user.email);
+          setUser(session.user);
+          lastUserId.current = session.user.id;
+        } else {
+          console.log('[AUTH_RESILIENCE] Background session check: no session found.');
+          setUser(null);
+        }
+      } catch (err) {
+        console.error('[AUTH_RESILIENCE] Background session check failed:', err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    // Attach native/browser listeners
+    const handleFocus = () => triggerBackgroundCheck();
+    const handleOnline = () => triggerBackgroundCheck();
+
+    window.addEventListener('focus', handleFocus);
+    window.addEventListener('online', handleOnline);
+
+    let appStateListener: any = null;
+    if (typeof window !== 'undefined' && Capacitor.isNativePlatform()) {
+      App.addListener('appStateChange', (state) => {
+        console.log('[AUTH_RESILIENCE] Capacitor state changed. Active:', state.isActive);
+        if (state.isActive) {
+          triggerBackgroundCheck();
+        }
+      }).then((listener) => {
+        appStateListener = listener;
+      });
+    }
+
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((event, session) => {
@@ -129,6 +173,11 @@ export function AuthProvider({
 
     return () => {
       subscription.unsubscribe();
+      window.removeEventListener('focus', handleFocus);
+      window.removeEventListener('online', handleOnline);
+      if (appStateListener) {
+        appStateListener.remove();
+      }
     };
   }, [router]);
 

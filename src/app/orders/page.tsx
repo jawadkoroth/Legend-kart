@@ -49,7 +49,16 @@ const formatDate = (d: string) =>
     year: 'numeric',
   });
 
-export default async function OrdersPage() {
+export default async function OrdersPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ page?: string }>;
+}) {
+  const params = await searchParams;
+  const page = Math.max(1, parseInt(params.page ?? '1', 10) || 1);
+  const pageSize = 10;
+  const offset = (page - 1) * pageSize;
+
   const supabase = await createServerSupabaseClient();
   const {
     data: { user },
@@ -59,59 +68,95 @@ export default async function OrdersPage() {
     redirect('/auth?next=/orders');
   }
 
-  const { data, error } = await supabase
+  const { data, count, error } = await supabase
     .from('orders')
     .select(
       'id, order_number, total_paise, order_status, payment_status, payment_method, created_at',
+      { count: 'exact' }
     )
     .eq('user_id', user.id)
-    .order('created_at', { ascending: false });
+    .order('created_at', { ascending: false })
+    .range(offset, offset + pageSize - 1);
 
   const orders: OrderRow[] = error || !data ? [] : (data as OrderRow[]);
+  const total = count ?? 0;
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
   return (
     <div className={styles.page}>
       <header className={styles.header}>
         <h1 className={styles.title}>Your orders</h1>
         <p className={styles.subtitle}>
-          {orders.length === 0
+          {total === 0
             ? 'You haven’t placed any orders yet.'
-            : `${orders.length} order${orders.length === 1 ? '' : 's'}`}
+            : `${total} order${total === 1 ? '' : 's'}`}
         </p>
       </header>
 
       {orders.length === 0 ? (
         <div className={styles.empty}>
           <p className={styles.emptyText}>
-            When you place an order, it will appear here.
+            {page > 1
+              ? 'No orders found on this page.'
+              : 'When you place an order, it will appear here.'}
           </p>
-          <Link href="/" className={styles.emptyLink}>
-            Continue shopping
+          <Link href={page > 1 ? '/orders' : '/'} className={styles.emptyLink}>
+            {page > 1 ? 'Go to first page' : 'Continue shopping'}
           </Link>
         </div>
       ) : (
-        <div className={styles.list}>
-          {orders.map((order) => (
-            <Link
-              key={order.id}
-              href={`/orders/${order.id}`}
-              className={styles.card}
-            >
-              <div className={styles.cardHeader}>
-                <span className={styles.orderNumber}>{order.order_number}</span>
-                <span className={badgeClass(order.order_status)}>
-                  {order.order_status}
+        <>
+          <div className={styles.list}>
+            {orders.map((order) => (
+              <Link
+                key={order.id}
+                href={`/orders/${order.id}`}
+                className={styles.card}
+              >
+                <div className={styles.cardHeader}>
+                  <span className={styles.orderNumber}>{order.order_number}</span>
+                  <span className={badgeClass(order.order_status)}>
+                    {order.order_status}
+                  </span>
+                </div>
+                <div className={styles.cardMeta}>
+                  <span>{formatDate(order.created_at)}</span>
+                  <span className={styles.cardTotal}>
+                    {formatPrice(order.total_paise)}
+                  </span>
+                </div>
+              </Link>
+            ))}
+          </div>
+
+          {totalPages > 1 && (
+            <div className={styles.pagination}>
+              {page > 1 ? (
+                <Link href={`/orders?page=${page - 1}`} className={styles.pageBtn}>
+                  ← Previous
+                </Link>
+              ) : (
+                <span className={`${styles.pageBtn} ${styles.pageBtnDisabled}`}>
+                  ← Previous
                 </span>
-              </div>
-              <div className={styles.cardMeta}>
-                <span>{formatDate(order.created_at)}</span>
-                <span className={styles.cardTotal}>
-                  {formatPrice(order.total_paise)}
+              )}
+
+              <span className={styles.pageInfo}>
+                Page {page} of {totalPages}
+              </span>
+
+              {page < totalPages ? (
+                <Link href={`/orders?page=${page + 1}`} className={styles.pageBtn}>
+                  Next →
+                </Link>
+              ) : (
+                <span className={`${styles.pageBtn} ${styles.pageBtnDisabled}`}>
+                  Next →
                 </span>
-              </div>
-            </Link>
-          ))}
-        </div>
+              )}
+            </div>
+          )}
+        </>
       )}
     </div>
   );

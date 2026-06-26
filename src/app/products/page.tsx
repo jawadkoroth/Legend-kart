@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import Link from 'next/link';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import ProductCard, { type ProductCardData } from '@/components/ProductCard';
 import SortSelect, { type SortValue } from '@/components/SortSelect';
@@ -40,6 +41,7 @@ interface ProductRow {
   sale_price_paise: number | null;
   images: unknown;
   is_active: boolean;
+  category: string | null;
   created_at: string;
 }
 
@@ -61,45 +63,61 @@ interface InventoryRow {
 export default async function ProductsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ sort?: string }>;
+  searchParams: Promise<{ sort?: string; page?: string; q?: string; category?: string }>;
 }) {
   const params = await searchParams;
   const sort: SortValue = VALID_SORTS.includes(params.sort as SortValue)
     ? (params.sort as SortValue)
     : 'latest';
+  const page = Math.max(1, parseInt(params.page ?? '1', 10) || 1);
+  const q = params.q?.trim() ?? '';
+  const category = params.category?.trim() ?? '';
+
+  const pageSize = 12;
+  const offset = (page - 1) * pageSize;
 
   const supabase = await createServerSupabaseClient();
 
-  // 1. Pull all active products with the ordering the user picked.
-  // For 'latest' we let Postgres ORDER BY created_at (fast, index-backed).
-  // For price sorts we fetch unordered then sort in the server component
-  // using EFFECTIVE price = sale_price_paise ?? price_paise. The Supabase
-  // JS client cannot express COALESCE() in .order(), and a DB-generated
-  // column would require a migration. Since all active products are fetched
-  // in a single query (no cursor pagination today), the server-side sort is
-  // correct and O(n log n) on a small catalogue.
+  // 1. Pull unique active categories dynamically
+  const { data: allCatRows } = await supabase
+    .from('products')
+    .select('category')
+    .eq('is_active', true);
+
+  const categories = Array.from(
+    new Set((allCatRows ?? []).map(r => r.category).filter((c): c is string => typeof c === 'string' && c.trim().length > 0))
+  ).sort();
+
+  // 2. Pull paged active products with filters and ordering.
   let productsQuery = supabase
     .from('products')
-    .select('id, slug, name, price_paise, sale_price_paise, images, is_active, created_at')
+    .select('id, slug, name, price_paise, sale_price_paise, images, is_active, category, created_at', { count: 'exact' })
     .eq('is_active', true);
+
+  if (category) {
+    productsQuery = productsQuery.eq('category', category);
+  }
+
+  if (q) {
+    productsQuery = productsQuery.ilike('name', `%${q}%`);
+  }
 
   if (sort === 'latest') {
     productsQuery = productsQuery.order('created_at', { ascending: false });
-  }
-  // price-asc / price-desc: fetch without DB ordering, sort below.
-
-  const { data: productRows } = await productsQuery;
-  let products = (productRows ?? []) as ProductRow[];
-
-  const effectivePrice = (p: ProductRow) => p.sale_price_paise ?? p.price_paise;
-
-  if (sort === 'price-asc') {
-    products = products.slice().sort((a, b) => effectivePrice(a) - effectivePrice(b));
+  } else if (sort === 'price-asc') {
+    productsQuery = productsQuery.order('price_paise', { ascending: true });
   } else if (sort === 'price-desc') {
-    products = products.slice().sort((a, b) => effectivePrice(b) - effectivePrice(a));
+    productsQuery = productsQuery.order('price_paise', { ascending: false });
   }
 
-  // 2. Pull inventory for those product ids and aggregate explicitly.
+  productsQuery = productsQuery.range(offset, offset + pageSize - 1);
+
+  const { data: productRows, count } = await productsQuery;
+  const products = (productRows ?? []) as ProductRow[];
+  const total = count ?? 0;
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+
+  // 3. Pull inventory for those product ids and aggregate explicitly.
   const ids = products.map(p => p.id);
   let stockByProduct = new Map<string, number>();
 
@@ -117,7 +135,7 @@ export default async function ProductsPage({
     }
   }
 
-  // 3. Shape into card data. Coerce JSONB images defensively.
+  // 4. Shape into card data. Coerce JSONB images defensively.
   const cards: ProductCardData[] = products.map(p => ({
     id: p.id,
     slug: p.slug,
@@ -133,6 +151,16 @@ export default async function ProductsPage({
     name: c.name,
     url: absoluteUrl(`/product/${c.slug}`),
   }));
+
+  function buildFilterUrl(cat: string | null, searchQuery: string, sortVal: string, pageVal?: number) {
+    const p = new URLSearchParams();
+    if (cat) p.set('category', cat);
+    if (searchQuery) p.set('q', searchQuery);
+    if (sortVal && sortVal !== 'latest') p.set('sort', sortVal);
+    if (pageVal && pageVal > 1) p.set('page', String(pageVal));
+    const qs = p.toString();
+    return qs ? `/products?${qs}` : '/products';
+  }
 
   return (
     <div className={styles.page}>
@@ -156,23 +184,98 @@ export default async function ProductsPage({
           <p className={styles.eyebrow}>The Collection</p>
           <h1 className={styles.title}>All Products</h1>
         </div>
-        {cards.length > 0 && <SortSelect current={sort} />}
+        {total > 0 && <SortSelect current={sort} />}
       </header>
 
-      {cards.length === 0 ? (
+      <div className={styles.controls}>
+        <div className={styles.searchAndSort}>
+          <form action="/products" method="GET" style={{ width: '100%' }}>
+            <input
+              type="search"
+              name="q"
+              defaultValue={q}
+              placeholder="Search pieces..."
+              className={styles.searchInput}
+              aria-label="Search products"
+            />
+            {category && <input type="hidden" name="category" value={category} />}
+            {sort !== 'latest' && <input type="hidden" name="sort" value={sort} />}
+          </form>
+        </div>
+
+        {categories.length > 0 && (
+          <div className={styles.categories}>
+            <Link
+              href={buildFilterUrl(null, q, sort)}
+              className={`${styles.catPill} ${!category ? styles.catPillActive : ''}`}
+            >
+              All
+            </Link>
+            {categories.map(cat => (
+              <Link
+                key={cat}
+                href={buildFilterUrl(cat, q, sort)}
+                className={`${styles.catPill} ${category === cat ? styles.catPillActive : ''}`}
+              >
+                {cat}
+              </Link>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {products.length === 0 ? (
         <div className={styles.emptyState}>
           <p className={styles.emptyTitle}>Nothing here yet</p>
           <p className={styles.emptyBody}>
-            New pieces are being prepared. Please check back soon.
+            {q || category
+              ? 'No products match your search or filter.'
+              : 'New pieces are being prepared. Please check back soon.'}
           </p>
+          {(q || category) && (
+            <Link href="/products" className={styles.catPill} style={{ display: 'inline-block', marginTop: 16 }}>
+              Clear Filters
+            </Link>
+          )}
         </div>
       ) : (
-        <div className={styles.grid}>
-          {cards.map(p => (
-            <ProductCard key={p.id} product={p} />
-          ))}
-        </div>
+        <>
+          <div className={styles.grid}>
+            {cards.map(p => (
+              <ProductCard key={p.id} product={p} />
+            ))}
+          </div>
+
+          {totalPages > 1 && (
+            <div className={styles.pagination}>
+              {page > 1 ? (
+                <Link href={buildFilterUrl(category || null, q, sort, page - 1)} className={styles.pageBtn}>
+                  ← Previous
+                </Link>
+              ) : (
+                <span className={`${styles.pageBtn} ${styles.pageBtnDisabled}`}>
+                  ← Previous
+                </span>
+              )}
+
+              <span className={styles.pageInfo}>
+                Page {page} of {totalPages}
+              </span>
+
+              {page < totalPages ? (
+                <Link href={buildFilterUrl(category || null, q, sort, page + 1)} className={styles.pageBtn}>
+                  Next →
+                </Link>
+              ) : (
+                <span className={`${styles.pageBtn} ${styles.pageBtnDisabled}`}>
+                  Next →
+                </span>
+              )}
+            </div>
+          )}
+        </>
       )}
     </div>
   );
 }
+
