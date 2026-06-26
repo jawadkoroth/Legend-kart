@@ -1,5 +1,6 @@
 import { createAdminClient } from '@/lib/supabase/admin';
 import { getRequestContext } from '@/lib/observability/context';
+import { enhanceLogPayload } from '@/lib/diagnostics/errorWrapper';
 
 /**
  * Structured logger for server-side events — PANTHER observability spine.
@@ -83,6 +84,8 @@ export function logEvent(
   const entityType = opts?.entityType ?? null;
   const entityId = opts?.entityId ?? null;
 
+  const enhancedData = enhanceLogPayload(data);
+
   // ---- stdout sink ------------------------------------------------
   try {
     // eslint-disable-next-line no-console
@@ -96,7 +99,7 @@ export function logEvent(
         actor_id: actorId ?? undefined,
         entity_type: entityType ?? undefined,
         entity_id: entityId ?? undefined,
-        ...(data ?? {}),
+        ...(enhancedData ?? {}),
       }),
     );
   } catch {
@@ -120,7 +123,7 @@ export function logEvent(
       actorId,
       entityType,
       entityId,
-      metadata: safeMetadata(data),
+      metadata: safeMetadata(enhancedData),
     });
   }
 }

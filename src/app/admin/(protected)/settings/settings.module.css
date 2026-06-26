@@ -1,0 +1,76 @@
+.container {
+  max-width: 600px;
+  margin: 0 auto;
+  padding: var(--space-8) var(--space-5);
+}
+
+.title {
+  font-family: var(--font-serif);
+  font-size: 2rem;
+  margin-bottom: var(--space-2);
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.subtitle {
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  margin-bottom: var(--space-8);
+}
+
+.sectionHeader {
+  border-bottom: 1px solid var(--border-color);
+  padding-bottom: var(--space-2);
+  margin-bottom: var(--space-4);
+}
+
+.sectionTitle {
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  letter-spacing: 0.1em;
+}
+
+.card {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: var(--space-6);
+  cursor: pointer;
+  transition: all var(--duration-fast) var(--ease-out);
+}
+
+.card:hover {
+  border-color: var(--accent-gold);
+  box-shadow: 0 0 15px rgba(201, 168, 106, 0.08);
+  transform: translateY(-1px);
+}
+
+.cardHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-2);
+}
+
+.cardTitle {
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.arrow {
+  color: var(--accent-gold);
+  transition: transform var(--duration-fast) var(--ease-out);
+}
+
+.card:hover .arrow {
+  transform: translateX(3px);
+}
+
+.cardDesc {
+  color: var(--text-secondary);
+  font-size: 0.875rem;
+  line-height: 1.5;
+}

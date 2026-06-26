@@ -1,8 +1,13 @@
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
+import { runPantherSchemaCheck } from '@/lib/diagnostics/schemaCheck';
 
 export async function createServerSupabaseClient() {
   const cookieStore = await cookies();
+
+  if (process.env.NODE_ENV === 'development') {
+    void runPantherSchemaCheck();
+  }
 
   return createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -25,3 +30,4 @@ export async function createServerSupabaseClient() {
     }
   );
 }
+

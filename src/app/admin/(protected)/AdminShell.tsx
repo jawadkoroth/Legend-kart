@@ -17,6 +17,7 @@ const NAV_ITEMS = [
   { href: '/admin/coupons', label: 'Coupons', icon: '🏷️' },
   { href: '/admin/shipping', label: 'Shipping', icon: '🚚' },
   { href: '/admin/diagnostics', label: 'Diag', icon: '🩺' },
+  { href: '/admin/settings', label: 'Settings', icon: '⚙️' },
 ];
 
 export default function AdminShell({
