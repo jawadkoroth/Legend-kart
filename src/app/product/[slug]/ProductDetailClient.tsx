@@ -8,6 +8,27 @@ import { formatPaise } from '@/lib/format';
 import { getPublicUrl } from '@/lib/media';
 import styles from './page.module.css';
 
+interface CouponPromoted {
+  id: string;
+  code: string;
+  discount_percent: number;
+  min_cart_paise: number | null;
+  max_discount_paise: number | null;
+}
+
+interface StorySection {
+  id?: string;
+  title: string;
+  subtitle?: string | null;
+  description: string;
+  image_url: string;
+  button_text?: string | null;
+  button_url?: string | null;
+  layout: 'left' | 'right';
+  background: 'black' | 'dark-grey' | 'gold-accent';
+  image_ratio: 'portrait' | 'landscape' | 'square';
+}
+
 export interface ProductDetail {
   id: string;
   name: string;
@@ -33,10 +54,16 @@ export default function ProductDetailClient({
   product,
   inventory,
   totalStock,
+  media = [],
+  coupons = [],
+  stories = [],
 }: {
   product: ProductDetail;
   inventory: InventoryItem[];
   totalStock: number;
+  media?: { url: string; type: 'image' | 'video' }[];
+  coupons?: CouponPromoted[];
+  stories?: StorySection[];
 }) {
   const router = useRouter();
   const { addItem } = useCart();
@@ -47,6 +74,10 @@ export default function ProductDetailClient({
   const [couponApplied, setCouponApplied] = useState(false);
   const [showCoupon, setShowCoupon] = useState(false);
   const [addedToCart, setAddedToCart] = useState(false);
+
+  // Fullscreen view state
+  const [fullscreenMedia, setFullscreenMedia] = useState<string | null>(null);
+  const [fullscreenType, setFullscreenType] = useState<'image' | 'video' | null>(null);
 
   const isSoldOut = totalStock <= 0;
 
@@ -64,6 +95,30 @@ export default function ProductDetailClient({
     emblaApi.on('select', onSelect);
     onSelect();
   }, [emblaApi, onSelect]);
+
+  // Story scroll reveal triggers
+  useEffect(() => {
+    if (stories.length === 0 || typeof window === 'undefined' || !('IntersectionObserver' in window)) return;
+    
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            entry.target.classList.add(styles.revealed);
+            observer.unobserve(entry.target);
+          }
+        });
+      },
+      { threshold: 0.1 }
+    );
+
+    const elements = document.querySelectorAll(`.${styles.revealItem}`);
+    elements.forEach((el) => observer.observe(el));
+
+    return () => {
+      elements.forEach((el) => observer.unobserve(el));
+    };
+  }, [stories]);
 
   const getStock = useCallback((size: string) => {
     return inventory.find(i => i.size === size)?.stock ?? 0;
@@ -101,6 +156,19 @@ export default function ProductDetailClient({
     }
   }
 
+  // Resolve media array and fall back to legacy images if empty
+  const resolvedMedia = media.length > 0
+    ? media
+    : product.images.length > 0
+      ? product.images.map(img => ({ url: img, type: 'image' as const }))
+      : [
+          { url: '/product-1.png', type: 'image' as const },
+          { url: '/product-2.png', type: 'image' as const },
+          { url: '/product-3.png', type: 'image' as const },
+        ];
+
+  const firstImageUrl = resolvedMedia.find(m => m.type === 'image')?.url || '/product-1.png';
+
   function handleAddToCart() {
     if (!selectedSize || isSoldOut) return;
     const sizeStock = getStock(selectedSize);
@@ -108,14 +176,13 @@ export default function ProductDetailClient({
     // individual stock is 0, but never let a sold-out size sneak into
     // the cart even if state somehow desyncs.
     if (sizeStock <= 0) return;
-    const images = getImages();
     addItem({
       product_id: product.id,
       name: product.name,
       slug: product.slug,
       size: selectedSize,
       price_paise: finalPrice,
-      image: images[0],
+      image: getPublicUrl(firstImageUrl),
       maxStock: sizeStock,
     });
     setAddedToCart(true);
@@ -127,22 +194,13 @@ export default function ProductDetailClient({
     const sizeStock = getStock(selectedSize);
     if (sizeStock <= 0) return;
 
-    // Buy Now MUST hydrate the cart before routing — otherwise the
-    // checkout snapshot diverges from the cart state and any later
-    // navigation back to /cart loses the line. We re-use the existing
-    // cart system rather than spinning up a parallel "buy now" path:
-    // single source of truth, single localStorage key, single
-    // validation pipeline. The checkout page's URL contract is
-    // unchanged (product_id + size + optional coupon), so deep links
-    // and back-navigation continue to behave.
-    const images = getImages();
     addItem({
       product_id: product.id,
       name: product.name,
       slug: product.slug,
       size: selectedSize,
       price_paise: finalPrice,
-      image: images[0],
+      image: getPublicUrl(firstImageUrl),
       maxStock: sizeStock,
     });
 
@@ -154,32 +212,47 @@ export default function ProductDetailClient({
     router.push(`/checkout?${params.toString()}`);
   }
 
-  function getImages() {
-    const hasImages = product.images && product.images.length > 0 && product.images[0] !== '';
-    return hasImages
-      ? product.images.map((img) => getPublicUrl(img))
-      : ['/product-1.png', '/product-2.png', '/product-3.png'];
-  }
-
-  const images = getImages();
-
   return (
     <div className={styles.page}>
       <div className={styles.desktopLayout}>
-        {/* Embla Image Carousel — swipeable */}
+        {/* Embla Image & Video Carousel — swipeable */}
         <div className={styles.galleryWrap}>
           <div className={styles.emblaViewport} ref={emblaRef}>
             <div className={styles.emblaContainer}>
-              {images.map((img, idx) => (
+              {resolvedMedia.map((m, idx) => (
                 <div key={idx} className={styles.emblaSlide}>
-                  <img src={img} alt={`${product.name} - ${idx + 1}`} />
+                  {m.type === 'video' ? (
+                    <div className={styles.galleryVideoWrapper}>
+                      <video
+                        src={getPublicUrl(m.url)}
+                        className={styles.galleryVideo}
+                        controls
+                        playsInline
+                        loop
+                        muted
+                      />
+                    </div>
+                  ) : (
+                    <img src={getPublicUrl(m.url)} alt={`${product.name} - ${idx + 1}`} />
+                  )}
+                  <button
+                    type="button"
+                    className={styles.zoomBtn}
+                    onClick={() => {
+                      setFullscreenMedia(getPublicUrl(m.url));
+                      setFullscreenType(m.type);
+                    }}
+                    aria-label="Zoom media"
+                  >
+                    🔍
+                  </button>
                 </div>
               ))}
             </div>
           </div>
-          {images.length > 1 && (
+          {resolvedMedia.length > 1 && (
             <div className={styles.dots}>
-              {images.map((_, idx) => (
+              {resolvedMedia.map((_, idx) => (
                 <button
                   key={idx}
                   className={`${styles.dot} ${idx === selectedSlide ? styles.dotActive : ''}`}
@@ -191,13 +264,20 @@ export default function ProductDetailClient({
 
           {/* Desktop thumbnails */}
           <div className={styles.thumbnails}>
-            {images.map((img, idx) => (
+            {resolvedMedia.map((m, idx) => (
               <button
                 key={idx}
                 className={`${styles.thumb} ${idx === selectedSlide ? styles.thumbActive : ''}`}
                 onClick={() => emblaApi?.scrollTo(idx)}
               >
-                <img src={img} alt={`Thumb ${idx + 1}`} />
+                {m.type === 'video' ? (
+                  <div className={styles.thumbVideoWrapper}>
+                    <video src={getPublicUrl(m.url)} className={styles.thumbVideo} preload="metadata" muted />
+                    <div className={styles.thumbPlayOverlay}>▶</div>
+                  </div>
+                ) : (
+                  <img src={getPublicUrl(m.url)} alt={`Thumb ${idx + 1}`} />
+                )}
               </button>
             ))}
           </div>
@@ -288,6 +368,36 @@ export default function ProductDetailClient({
               <span>↩️ Easy Returns</span>
             </div>
 
+            {/* Promoted Coupons Carousel/Row */}
+            {coupons && coupons.length > 0 && (
+              <div className={styles.couponPromoContainer}>
+                <span className={styles.couponPromoLabel}>🏷️ PRODUCT PROMOTIONS</span>
+                <div className={styles.couponPromoList}>
+                  {coupons.map((c) => (
+                    <div
+                      key={c.id}
+                      className={styles.couponPromoCard}
+                      onClick={() => {
+                        setCouponCode(c.code);
+                        setCouponApplied(false);
+                        setShowCoupon(true);
+                      }}
+                      title={`Click to apply ${c.code}`}
+                    >
+                      <div className={styles.couponPromoGlow} />
+                      <div className={styles.couponPromoHeader}>
+                        <span className={styles.couponPercent}>{c.discount_percent}% OFF</span>
+                      </div>
+                      <div className={styles.couponPromoBody}>
+                        <span className={styles.couponCodeText}>Use Code: <strong className={styles.goldCode}>{c.code}</strong></span>
+                        <span className={styles.couponValidHint}>Valid on this product</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {/* Desktop CTAs */}
             <div className={styles.desktopCta}>
               <button
@@ -314,6 +424,51 @@ export default function ProductDetailClient({
         </div>
       </div>
 
+      {/* Story Sections */}
+      {stories && stories.length > 0 && (
+        <div className={styles.storyContainer}>
+          {stories.map((story, idx) => {
+            const isLeft = idx % 2 === 0;
+            
+            let bgClass = styles.bgBlack;
+            if (story.background === 'dark-grey') bgClass = styles.bgDarkGrey;
+            else if (story.background === 'gold-accent') bgClass = styles.bgGoldAccent;
+
+            let ratioClass = styles.ratioPortrait;
+            if (story.image_ratio === 'landscape') ratioClass = styles.ratioLandscape;
+            else if (story.image_ratio === 'square') ratioClass = styles.ratioSquare;
+
+            return (
+              <section
+                key={story.id || idx}
+                className={`${styles.storySection} ${bgClass}`}
+              >
+                <div className={`${styles.storyInner} ${isLeft ? styles.layoutLeft : styles.layoutRight}`}>
+                  <div className={`${styles.storyImageFrame} ${ratioClass} ${styles.revealItem}`}>
+                    <img
+                      src={getPublicUrl(story.image_url)}
+                      alt={story.title}
+                      loading="lazy"
+                      className={styles.storyImg}
+                    />
+                  </div>
+                  <div className={`${styles.storyContent} ${styles.revealItem}`}>
+                    {story.subtitle && <span className={styles.storySubtitle}>{story.subtitle}</span>}
+                    <h2 className={styles.storyTitle}>{story.title}</h2>
+                    <p className={styles.storyDesc}>{story.description}</p>
+                    {story.button_text && story.button_url && (
+                      <a href={story.button_url} className={styles.storyBtn}>
+                        {story.button_text}
+                      </a>
+                    )}
+                  </div>
+                </div>
+              </section>
+            );
+          })}
+        </div>
+      )}
+
       {/* Mobile Sticky CTAs */}
       <div className={styles.mobileCta}>
         <div className={styles.mobileBtnRow}>
@@ -339,6 +494,35 @@ export default function ProductDetailClient({
         </div>
       </div>
       <div className={styles.mobileCtaSpacer} />
+
+      {/* Fullscreen Zoom Lightbox Modal */}
+      {fullscreenMedia && (
+        <div
+          className={styles.fullscreenOverlay}
+          onClick={() => {
+            setFullscreenMedia(null);
+            setFullscreenType(null);
+          }}
+        >
+          <button
+            type="button"
+            className={styles.closeFullscreen}
+            onClick={() => {
+              setFullscreenMedia(null);
+              setFullscreenType(null);
+            }}
+          >
+            ✕
+          </button>
+          <div className={styles.fullscreenContent} onClick={(e) => e.stopPropagation()}>
+            {fullscreenType === 'video' ? (
+              <video src={fullscreenMedia} controls autoPlay playsInline loop className={styles.fullscreenVideo} />
+            ) : (
+              <img src={fullscreenMedia} alt="Fullscreen view" className={styles.fullscreenImage} />
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

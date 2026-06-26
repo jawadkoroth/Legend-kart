@@ -21,6 +21,7 @@ interface ProductRow {
   sale_price_paise: number | null;
   images: unknown;
   sizes: unknown;
+  media: unknown;
   is_active: boolean;
 }
 
@@ -133,7 +134,7 @@ export default async function ProductDetailPage({
 
   const { data: productRow } = await supabase
     .from('products')
-    .select('id, name, slug, description, price_paise, sale_price_paise, images, sizes, is_active')
+    .select('id, name, slug, description, price_paise, sale_price_paise, images, sizes, media, is_active')
     .eq('slug', slug)
     .eq('is_active', true)
     .maybeSingle<ProductRow>();
@@ -150,6 +151,25 @@ export default async function ProductDetailPage({
   const inventory: InventoryItem[] = (inventoryRows ?? []) as InventoryRow[];
   const totalStock = inventory.reduce((sum, row) => sum + (row.stock ?? 0), 0);
 
+  // Fetch active promotions for this product
+  const { data: couponsData } = await supabase
+    .from('product_coupons')
+    .select('show_on_product_page, coupons(*)')
+    .eq('product_id', productRow.id)
+    .eq('show_on_product_page', true);
+
+  const coupons = (couponsData || [])
+    .map((pc: any) => pc.coupons)
+    .filter((c: any) => c && c.is_active);
+
+  // Fetch enabled story sections for this product
+  const { data: storySections } = await supabase
+    .from('product_story_sections')
+    .select('*')
+    .eq('product_id', productRow.id)
+    .eq('enabled', true)
+    .order('display_order', { ascending: true });
+
   // Coerce JSONB defensively so the client never has to.
   const product: ProductDetail = {
     id: productRow.id,
@@ -161,6 +181,15 @@ export default async function ProductDetailPage({
     images: Array.isArray(productRow.images) ? (productRow.images as string[]) : [],
     sizes: Array.isArray(productRow.sizes) ? (productRow.sizes as string[]) : [],
   };
+
+  // Coerce media JSONB
+  const rawMedia = productRow.media;
+  let media: any[] = [];
+  if (Array.isArray(rawMedia) && rawMedia.length > 0) {
+    media = rawMedia;
+  } else if (product.images.length > 0) {
+    media = product.images.map(img => ({ url: img, type: 'image' }));
+  }
 
   const productUrl = canonicalUrl(`/product/${slug}`);
   const imageUrls = product.images
@@ -202,6 +231,9 @@ export default async function ProductDetailPage({
         product={product}
         inventory={inventory}
         totalStock={totalStock}
+        media={media}
+        coupons={coupons}
+        stories={storySections || []}
       />
     </>
   );

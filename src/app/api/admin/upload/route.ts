@@ -24,6 +24,9 @@ const ALLOWED_TYPES = new Set([
   'image/jpg',
   'image/png',
   'image/webp',
+  'video/mp4',
+  'video/quicktime',
+  'video/webm',
 ]);
 
 // Vercel's serverless functions enforce ~4.5 MB request body cap on
@@ -38,6 +41,9 @@ function getExtension(mimeType: string): string {
     'image/jpg': 'jpg',
     'image/png': 'png',
     'image/webp': 'webp',
+    'video/mp4': 'mp4',
+    'video/quicktime': 'mov',
+    'video/webm': 'webm',
   };
   return map[mimeType] || 'jpg';
 }
@@ -98,7 +104,7 @@ export async function POST(req: NextRequest) {
 
     // 3. Validate file type
     if (!ALLOWED_TYPES.has(file.type)) {
-      return apiError(400, `Invalid file type: ${file.type}. Allowed: jpg, jpeg, png, webp`);
+      return apiError(400, `Invalid file type: ${file.type}. Allowed: jpg, jpeg, png, webp, mp4, mov, webm`);
     }
 
     // 4. Validate file size

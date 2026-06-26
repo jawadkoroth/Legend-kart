@@ -1,0 +1,272 @@
+.uploader {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+/* ------------------------------------------------------------------ */
+/* Drop zone                                                           */
+/* ------------------------------------------------------------------ */
+
+.dropZone {
+  border: 2px dashed var(--subtle-border-strong);
+  border-radius: 10px;
+  padding: var(--space-6) var(--space-4);
+  text-align: center;
+  cursor: pointer;
+  transition: border-color 0.2s ease, background 0.2s ease;
+  background: var(--surface-tint);
+}
+
+.dropZone:hover {
+  border-color: rgba(201, 168, 106, 0.4);
+  background: rgba(201, 168, 106, 0.04);
+}
+
+.dropZoneActive {
+  border-color: var(--gold, #C9A86A);
+  background: rgba(201, 168, 106, 0.08);
+}
+
+.dropZoneDisabled {
+  opacity: 0.5;
+  pointer-events: none;
+  cursor: not-allowed;
+}
+
+.dropIcon {
+  font-size: 2rem;
+  margin-bottom: var(--space-2);
+  opacity: 0.6;
+}
+
+.dropText {
+  font-size: 0.875rem;
+  color: var(--text-muted, #9A9A9A);
+  margin: 0;
+}
+
+.dropHint {
+  font-size: 0.75rem;
+  color: var(--text-muted, #9A9A9A);
+  opacity: 0.6;
+  margin: var(--space-1) 0 0;
+}
+
+.fileInput {
+  display: none;
+}
+
+/* ------------------------------------------------------------------ */
+/* Media grid                                                          */
+/* ------------------------------------------------------------------ */
+
+.mediaGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  gap: var(--space-3);
+}
+
+/* ------------------------------------------------------------------ */
+/* Media card                                                          */
+/* ------------------------------------------------------------------ */
+
+.mediaCard {
+  position: relative;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid var(--subtle-border);
+  background: var(--surface-tint);
+  transition: border-color 0.2s ease, transform 0.2s ease;
+  cursor: grab;
+  user-select: none;
+}
+
+.mediaCard:active {
+  cursor: grabbing;
+}
+
+.mediaCardHover {
+  border-color: var(--gold, #C9A86A);
+  transform: scale(1.02);
+}
+
+.mediaCard:first-child {
+  border-color: rgba(201, 168, 106, 0.5);
+}
+
+.mediaCard:first-child::after {
+  content: 'HERO';
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: #0B0B0B;
+  background: var(--gold, #C9A86A);
+  padding: 2px 6px;
+  border-radius: 4px;
+  z-index: 5;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.4);
+}
+
+.mediaPreview {
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  object-fit: cover;
+  display: block;
+  background: #0F0F11;
+}
+
+/* Video specific overlays */
+.videoContainer {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  background: #0F0F11;
+}
+
+.playIconOverlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.2);
+  z-index: 2;
+  pointer-events: none;
+}
+
+.playIcon {
+  font-size: 1.75rem;
+  color: rgba(255, 255, 255, 0.9);
+  text-shadow: 0 2px 6px rgba(0, 0, 0, 0.6);
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.5));
+}
+
+.mediaTypeBadge {
+  position: absolute;
+  bottom: 36px;
+  right: 6px;
+  font-size: 8px;
+  font-weight: 700;
+  color: #8A8A8A;
+  background: rgba(11, 11, 11, 0.75);
+  padding: 1px 4px;
+  border-radius: 2px;
+  z-index: 2;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+/* ------------------------------------------------------------------ */
+/* Uploading overlay & progress                                        */
+/* ------------------------------------------------------------------ */
+
+.uploadingOverlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: rgba(11, 11, 11, 0.85);
+  z-index: 3;
+  padding: 8px;
+}
+
+.spinner {
+  width: 20px;
+  height: 20px;
+  border: 2px solid var(--subtle-border-strong);
+  border-top-color: var(--gold, #C9A86A);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+  margin-bottom: var(--space-2);
+}
+
+.progressBarContainer {
+  width: 80%;
+  height: 4px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 2px;
+  overflow: hidden;
+  margin-top: 4px;
+}
+
+.progressBar {
+  height: 100%;
+  background: var(--gold, #C9A86A);
+  transition: width 0.1s ease;
+}
+
+.progressText {
+  font-size: 8px;
+  color: var(--text-muted, #9A9A9A);
+  margin: 0;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* Card actions                                                        */
+/* ------------------------------------------------------------------ */
+
+.cardActions {
+  display: flex;
+  gap: 2px;
+  padding: 4px;
+  background: rgba(11, 11, 11, 0.9);
+  z-index: 4;
+  position: relative;
+}
+
+.actionBtn {
+  flex: 1;
+  background: none;
+  border: none;
+  color: var(--text-muted, #9A9A9A);
+  cursor: pointer;
+  font-size: 0.7rem;
+  padding: 4px 2px;
+  border-radius: 4px;
+  transition: color 0.15s ease, background 0.15s ease;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.actionBtn:hover {
+  color: var(--text-primary);
+  background: var(--hover-wash-strong);
+}
+
+.actionBtnRemove:hover {
+  color: var(--error, #E53935);
+  background: rgba(229, 57, 53, 0.12);
+}
+
+.actionBtn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+/* ------------------------------------------------------------------ */
+/* Error                                                               */
+/* ------------------------------------------------------------------ */
+
+.error {
+  font-size: 0.8rem;
+  color: var(--error, #E53935);
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  background: rgba(229, 57, 53, 0.1);
+  border: 1px solid rgba(229, 57, 53, 0.25);
+  border-radius: 6px;
+}

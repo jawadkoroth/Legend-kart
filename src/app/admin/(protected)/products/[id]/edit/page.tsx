@@ -3,7 +3,8 @@
 import { useState, useEffect, use } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
-import MediaUploader from '@/components/admin/MediaUploader';
+import ProductMediaManager, { type ProductMedia } from '@/components/admin/ProductMediaManager';
+import ProductStoryBuilder, { type StorySection } from '@/components/admin/ProductStoryBuilder';
 
 const ALL_SIZES = ['XS', 'S', 'M', 'L', 'XL', 'XXL'];
 
@@ -34,7 +35,9 @@ export default function AdminEditProduct({ params }: { params: Promise<{ id: str
   const [price, setPrice] = useState('');
   const [salePrice, setSalePrice] = useState('');
   const [sizes, setSizes] = useState<string[]>([]);
-  const [images, setImages] = useState<string[]>([]);
+  const [media, setMedia] = useState<ProductMedia[]>([]);
+  const [coupons, setCoupons] = useState<{ id: string; code: string; checked: boolean; showOnProduct: boolean }[]>([]);
+  const [stories, setStories] = useState<StorySection[]>([]);
   const [isActive, setIsActive] = useState(true);
   const [inventory, setInventory] = useState<{ size: string; stock: number }[]>([]);
 
@@ -51,8 +54,38 @@ export default function AdminEditProduct({ params }: { params: Promise<{ id: str
       setPrice((p.price_paise / 100).toString());
       setSalePrice(p.sale_price_paise ? (p.sale_price_paise / 100).toString() : '');
       setSizes(p.sizes || []);
-      setImages(Array.isArray(p.images) ? p.images : []);
       setIsActive(p.is_active);
+
+      // Load media
+      let initialMedia: ProductMedia[] = [];
+      if (Array.isArray(p.media) && p.media.length > 0) {
+        initialMedia = p.media;
+      } else if (Array.isArray(p.images)) {
+        initialMedia = p.images.map((img: string) => ({ url: img, type: 'image' }));
+      }
+      setMedia(initialMedia);
+
+      // Load coupons
+      const { data: allC } = await supabase.from('coupons').select('id, code, is_active').eq('is_active', true);
+      const { data: linkedC } = await supabase.from('product_coupons').select('coupon_id, show_on_product_page').eq('product_id', id);
+      const formattedCoupons = (allC || []).map((c: any) => {
+        const link = (linkedC || []).find((l: any) => l.coupon_id === c.id);
+        return {
+          id: c.id,
+          code: c.code,
+          checked: !!link,
+          showOnProduct: link ? link.show_on_product_page : true,
+        };
+      });
+      setCoupons(formattedCoupons);
+
+      // Load stories
+      const { data: storyRows } = await supabase
+        .from('product_story_sections')
+        .select('*')
+        .eq('product_id', id)
+        .order('display_order', { ascending: true });
+      setStories((storyRows as StorySection[]) || []);
 
       const { data: inv } = await supabase
         .from('inventory')
@@ -90,6 +123,8 @@ export default function AdminEditProduct({ params }: { params: Promise<{ id: str
     const priceVal = Math.round(parseFloat(price) * 100);
     const salePriceVal = salePrice ? Math.round(parseFloat(salePrice) * 100) : null;
 
+    // Sync images field for backward compatibility (images only)
+    const imagesVal = media.filter(m => m.type === 'image').map(m => m.url);
 
     // Update product
     const { error: prodErr } = await supabase
@@ -101,7 +136,8 @@ export default function AdminEditProduct({ params }: { params: Promise<{ id: str
         price_paise: priceVal,
         sale_price_paise: salePriceVal,
         sizes,
-        images,
+        images: imagesVal,
+        media: media,
         is_active: isActive,
       })
       .eq('id', id);
@@ -110,6 +146,44 @@ export default function AdminEditProduct({ params }: { params: Promise<{ id: str
       setError(prodErr.message);
       setSaving(false);
       return;
+    }
+
+    // Update coupons
+    const { error: delCouponsErr } = await supabase.from('product_coupons').delete().eq('product_id', id);
+    if (delCouponsErr) console.error('[COUPONS_SYNC_DEL_ERR]', delCouponsErr);
+    
+    const checkedCoupons = coupons.filter(c => c.checked);
+    if (checkedCoupons.length > 0) {
+      const couponInserts = checkedCoupons.map(c => ({
+        product_id: id,
+        coupon_id: c.id,
+        show_on_product_page: c.showOnProduct,
+      }));
+      const { error: insCouponsErr } = await supabase.from('product_coupons').insert(couponInserts);
+      if (insCouponsErr) console.error('[COUPONS_SYNC_INS_ERR]', insCouponsErr);
+    }
+
+    // Update stories
+    const { error: delStoriesErr } = await supabase.from('product_story_sections').delete().eq('product_id', id);
+    if (delStoriesErr) console.error('[STORIES_SYNC_DEL_ERR]', delStoriesErr);
+
+    if (stories.length > 0) {
+      const storyInserts = stories.map((s, idx) => ({
+        product_id: id,
+        title: s.title,
+        subtitle: s.subtitle || null,
+        description: s.description,
+        image_url: s.image_url,
+        button_text: s.button_text || null,
+        button_url: s.button_url || null,
+        layout: s.layout,
+        background: s.background,
+        image_ratio: s.image_ratio,
+        display_order: idx,
+        enabled: s.enabled,
+      }));
+      const { error: insStoriesErr } = await supabase.from('product_story_sections').insert(storyInserts);
+      if (insStoriesErr) console.error('[STORIES_SYNC_INS_ERR]', insStoriesErr);
     }
 
     // Update inventory — upsert each size
@@ -200,12 +274,75 @@ export default function AdminEditProduct({ params }: { params: Promise<{ id: str
           </div>
         </div>
 
-        <div className="card" style={{ marginBottom: 'var(--space-5)' }}>
-          <label className="input-label" style={{ marginBottom: 'var(--space-3)' }}>Product Images</label>
-          <MediaUploader
-            value={images}
-            onChange={setImages}
+        <div className="card" style={{ marginBottom: 'var(--space-4)' }}>
+          <label className="input-label" style={{ marginBottom: 'var(--space-3)' }}>Product Promotions (Coupons)</label>
+          <p className="text-xs text-muted" style={{ marginBottom: 'var(--space-3)' }}>
+            Select existing active coupons to promote directly on this product's detail page.
+          </p>
+          {coupons.length === 0 ? (
+            <p className="text-xs text-muted">No active coupons available. Go to Coupons page to create one.</p>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
+              {coupons.map((c, idx) => (
+                <div
+                  key={c.id}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    padding: '8px 12px',
+                    border: '1px solid var(--border-color)',
+                    borderRadius: '6px',
+                    background: 'var(--bg-tertiary)',
+                  }}
+                >
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '0.85rem' }}>
+                    <input
+                      type="checkbox"
+                      checked={c.checked}
+                      onChange={(e) => {
+                        const next = [...coupons];
+                        next[idx].checked = e.target.checked;
+                        setCoupons(next);
+                      }}
+                    />
+                    <span style={{ fontFamily: 'monospace', fontWeight: 600 }}>{c.code}</span>
+                  </label>
+                  
+                  {c.checked && (
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                      <input
+                        type="checkbox"
+                        checked={c.showOnProduct}
+                        onChange={(e) => {
+                          const next = [...coupons];
+                          next[idx].showOnProduct = e.target.checked;
+                          setCoupons(next);
+                        }}
+                      />
+                      Show on Product Page
+                    </label>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="card" style={{ marginBottom: 'var(--space-4)' }}>
+          <label className="input-label" style={{ marginBottom: 'var(--space-3)' }}>Product Media (Images & Videos)</label>
+          <ProductMediaManager
+            value={media}
+            onChange={setMedia}
             folder="products"
+          />
+        </div>
+
+        <div className="card" style={{ marginBottom: 'var(--space-5)' }}>
+          <label className="input-label" style={{ marginBottom: 'var(--space-3)' }}>Product Story Builder</label>
+          <ProductStoryBuilder
+            value={stories}
+            onChange={setStories}
           />
         </div>
 

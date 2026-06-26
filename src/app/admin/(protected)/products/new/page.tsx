@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
-import MediaUploader from '@/components/admin/MediaUploader';
+import ProductMediaManager, { type ProductMedia } from '@/components/admin/ProductMediaManager';
 
 const ALL_SIZES = ['XS', 'S', 'M', 'L', 'XL', 'XXL'];
 
@@ -16,7 +16,7 @@ export default function AdminNewProduct() {
   const [salePricePaise, setSalePricePaise] = useState('');
   const [sizes, setSizes] = useState<string[]>(['S', 'M', 'L', 'XL']);
   const [stock, setStock] = useState<Record<string, string>>({});
-  const [images, setImages] = useState<string[]>([]);
+  const [media, setMedia] = useState<ProductMedia[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
@@ -40,6 +40,9 @@ export default function AdminNewProduct() {
     const price = Math.round(parseFloat(pricePaise) * 100);
     const salePrice = salePricePaise ? Math.round(parseFloat(salePricePaise) * 100) : null;
 
+    // Sync images field for backward compatibility (images only)
+    const imagesVal = media.filter(m => m.type === 'image').map(m => m.url);
+
     // 1. Insert product
     const { data: product, error: prodErr } = await supabase
       .from('products')
@@ -50,7 +53,8 @@ export default function AdminNewProduct() {
         price_paise: price,
         sale_price_paise: salePrice,
         sizes,
-        images,
+        images: imagesVal,
+        media: media,
         is_active: true,
       })
       .select('id')
@@ -147,10 +151,10 @@ export default function AdminNewProduct() {
         </div>
 
         <div className="card" style={{ marginBottom: 'var(--space-5)' }}>
-          <label className="input-label" style={{ marginBottom: 'var(--space-3)' }}>Product Images</label>
-          <MediaUploader
-            value={images}
-            onChange={setImages}
+          <label className="input-label" style={{ marginBottom: 'var(--space-3)' }}>Product Media (Images & Videos)</label>
+          <ProductMediaManager
+            value={media}
+            onChange={setMedia}
             folder="products"
           />
         </div>
