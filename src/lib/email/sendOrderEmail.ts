@@ -396,11 +396,11 @@ interface DispatchOpts {
   subject: string;
   html: string;
   /** Order number for log context. */
-  orderNumber: string;
+  orderNumber?: string;
 }
 
 async function dispatch(opts: DispatchOpts): Promise<void> {
-  const { kind, to, subject, html, orderNumber } = opts;
+  const { kind, to, subject, html, orderNumber = 'N/A' } = opts;
 
   if (!to) {
     console.log(
@@ -671,3 +671,88 @@ export async function sendOrderStatusEmail(
  * code should import the explicit name.
  */
 export const sendOrderConfirmation = sendOrderCreatedEmail;
+
+/* ------------------------------------------------------------------ */
+/* Phase 2 New Email Templates                                         */
+/* ------------------------------------------------------------------ */
+
+export async function sendWelcomeEmail(email: string, name: string): Promise<void> {
+  const html = renderEmail({
+    eyebrow: 'Welcome to PANTHER',
+    heading: 'Welcome to the Inner Circle',
+    intro: `Dear ${name || 'Patron'}, thank you for joining PANTHER. Your account has been successfully configured. Discover our tailored monochrome catalog, earn points, and enjoy exclusive early access to drops.`,
+    summary: [],
+    outro: 'We are delighted to have you with us.',
+    cta: { label: 'Explore Catalogue', href: `${siteUrl()}/products` },
+  });
+
+  await dispatch({
+    kind: 'user.welcome',
+    to: email,
+    subject: 'Welcome to PANTHER',
+    html,
+  });
+}
+
+export async function sendPasswordResetEmail(email: string, tokenLink: string): Promise<void> {
+  const html = renderEmail({
+    eyebrow: 'Account Security',
+    heading: 'Reset Your Password',
+    intro: 'You requested a password reset for your PANTHER account. Click the button below to specify your new credentials securely.',
+    summary: [],
+    outro: 'If you did not request this change, you can safely ignore this mail. The link will expire in 24 hours.',
+    cta: { label: 'Reset Password', href: tokenLink },
+  });
+
+  await dispatch({
+    kind: 'user.password_reset',
+    to: email,
+    subject: 'Reset your PANTHER Password',
+    html,
+  });
+}
+
+export async function sendReturnEmail(order: OrderEmailData, reason: string): Promise<void> {
+  const html = renderEmail({
+    eyebrow: 'Return Initiated',
+    heading: 'Return Request Received',
+    intro: `We have received your return request for order ${order.order_number}. Reason for return: "${reason}". Our courier partner Delhivery will contact you shortly to execute pickup.`,
+    item: itemForEmail(order),
+    items: order.items,
+    summary: commonSummary(order),
+    address: addressLines(order.shipping_address),
+    outro: 'Once the pickup item is received and inspected at our hub, a full refund will be processed.',
+    cta: { label: 'View Order details', href: viewOrderHref(order.id) },
+  });
+
+  await dispatch({
+    kind: 'order.return_requested',
+    to: order.customer.email,
+    subject: `Return Requested — ${order.order_number}`,
+    html,
+    orderNumber: order.order_number,
+  });
+}
+
+export async function sendExchangeEmail(order: OrderEmailData, sizeWanted: string): Promise<void> {
+  const html = renderEmail({
+    eyebrow: 'Exchange Initiated',
+    heading: 'Exchange Request Received',
+    intro: `We have received your exchange request for order ${order.order_number} to swap for size: ${sizeWanted}. Our delivery team will schedule a pickup-and-replacement run.`,
+    item: itemForEmail(order),
+    items: order.items,
+    summary: commonSummary(order),
+    address: addressLines(order.shipping_address),
+    outro: 'Once Delhivery processes the pickup, the replacement item will be shipped out to you.',
+    cta: { label: 'View Order details', href: viewOrderHref(order.id) },
+  });
+
+  await dispatch({
+    kind: 'order.exchange_requested',
+    to: order.customer.email,
+    subject: `Exchange Requested — ${order.order_number}`,
+    html,
+    orderNumber: order.order_number,
+  });
+}
+

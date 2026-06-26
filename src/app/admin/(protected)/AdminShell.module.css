@@ -1,0 +1,197 @@
+.adminLayout {
+  display: flex;
+  flex-direction: column;
+  min-height: 100dvh;
+  background: var(--bg-primary);
+}
+
+/* Sidebar for desktop */
+.sidebar {
+  display: none;
+  background: var(--bg-secondary);
+  border-right: 1px solid var(--border-color);
+  width: 240px;
+  height: 100vh;
+  position: fixed;
+  top: 0;
+  left: 0;
+  flex-direction: column;
+  z-index: 100;
+  transition: width var(--duration-normal) var(--ease-out);
+  overflow-x: hidden;
+}
+
+.sidebarCollapsed {
+  width: 72px;
+}
+
+.sidebarHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-4) var(--space-5);
+  height: 64px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.logoArea {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  white-space: nowrap;
+}
+
+.brandText {
+  font-family: var(--font-serif);
+  font-size: 1.25rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  color: var(--text-primary);
+  transition: opacity var(--duration-fast) var(--ease-out);
+}
+
+.sidebarCollapsed .brandText {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.brandSub {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  letter-spacing: 0.15em;
+  transition: opacity var(--duration-fast) var(--ease-out);
+}
+
+.sidebarCollapsed .brandSub {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.toggleBtn {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 1.125rem;
+  cursor: pointer;
+  padding: var(--space-1);
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all var(--duration-fast) var(--ease-out);
+}
+
+.toggleBtn:hover {
+  background: var(--hover-wash);
+  color: var(--text-primary);
+}
+
+.sidebarNav {
+  display: flex;
+  flex-direction: column;
+  padding: var(--space-4) var(--space-2);
+  gap: var(--space-1);
+  flex: 1;
+}
+
+.navLink {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-md);
+  color: var(--text-muted);
+  font-size: 0.875rem;
+  font-weight: 500;
+  transition: all var(--duration-fast) var(--ease-out);
+  white-space: nowrap;
+  text-decoration: none;
+}
+
+.navLink:hover {
+  background: var(--hover-wash);
+  color: var(--text-primary);
+}
+
+.navLinkActive {
+  background: var(--hover-wash-strong);
+  color: var(--text-primary);
+  border-left: 3px solid var(--accent-gold);
+}
+
+.navIcon {
+  font-size: 1.25rem;
+  width: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.navText {
+  transition: opacity var(--duration-fast) var(--ease-out);
+}
+
+.sidebarCollapsed .navText {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.mainContent {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  transition: padding-left var(--duration-normal) var(--ease-out);
+  padding-bottom: 80px; /* Spacer for mobile bottom nav fallback */
+}
+
+/* Bottom Nav for Mobile viewports */
+.bottomNav {
+  display: flex;
+  border-top: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 50;
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+.bottomNavItem {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-3) var(--space-2);
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  text-decoration: none;
+  transition: all var(--duration-fast) var(--ease-out);
+}
+
+.bottomNavItemActive {
+  color: var(--text-primary);
+}
+
+@media (min-width: 1024px) {
+  .sidebar {
+    display: flex;
+  }
+  
+  .bottomNav {
+    display: none;
+  }
+  
+  .mainContent {
+    padding-left: 240px;
+    padding-bottom: 0;
+  }
+  
+  .mainContentCollapsed {
+    padding-left: 72px;
+  }
+}

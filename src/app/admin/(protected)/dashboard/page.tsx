@@ -256,6 +256,20 @@ export default function AdminDashboard() {
           loading={loading}
         />
         <MetricCard
+          label="Visitors"
+          value={loading || !data ? '—' : String((data as any).visitors || 0)}
+          loading={loading}
+        />
+        <MetricCard
+          label="Conversion"
+          value={loading || !data ? '—' : `${(data as any).conversion || 0}%`}
+          loading={loading}
+        />
+      </div>
+
+      {/* Status row */}
+      <div className="stats-grid" style={{ marginBottom: 'var(--space-5)' }}>
+        <MetricCard
           label="AOV"
           value={loading || !data ? '—' : formatPrice(data.aov)}
           loading={loading}
@@ -265,10 +279,6 @@ export default function AdminDashboard() {
           value={loading || !data ? '—' : String(data.repeatCustomers)}
           loading={loading}
         />
-      </div>
-
-      {/* Status row */}
-      <div className="stats-grid" style={{ marginBottom: 'var(--space-5)' }}>
         <MetricCard
           label="Pending"
           value={data ? String(data.orders.pending) : '—'}
@@ -281,6 +291,10 @@ export default function AdminDashboard() {
           accent="info"
           loading={loading}
         />
+      </div>
+
+      {/* Fulfillment metrics */}
+      <div className="stats-grid" style={{ marginBottom: 'var(--space-5)' }}>
         <MetricCard
           label="Shipped"
           value={data ? String(data.orders.shipped) : '—'}
@@ -290,6 +304,11 @@ export default function AdminDashboard() {
           label="Delivered"
           value={data ? String(data.orders.delivered) : '—'}
           accent="success"
+          loading={loading}
+        />
+        <MetricCard
+          label="Cancelled"
+          value={data ? String(data.orders.cancelled) : '—'}
           loading={loading}
         />
       </div>
@@ -491,6 +510,66 @@ export default function AdminDashboard() {
                     </span>
                   </span>
                   <span className="text-muted">{formatRelative(c.last_order_at)}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </SectionCard>
+      </div>
+
+      {/* Top Categories + Coupon Usage */}
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
+          gap: 'var(--space-3)',
+          marginBottom: 'var(--space-5)',
+        }}
+      >
+        <SectionCard
+          title="Top categories"
+          empty={data && (!(data as any).topCategories || (data as any).topCategories.length === 0) ? 'No sales yet' : null}
+        >
+          {data && (data as any).topCategories && (data as any).topCategories.length > 0 && (
+            <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {(data as any).topCategories.map((c: any, i: number) => (
+                <li
+                  key={`${c.name}-${i}`}
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    fontSize: '0.8125rem',
+                    gap: 12,
+                  }}
+                >
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
+                    {c.name}
+                  </span>
+                  <span className="text-muted">×{c.qty}</span>
+                  <span style={{ fontWeight: 600 }}>{formatPrice(c.revenue)}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </SectionCard>
+
+        <SectionCard
+          title="Coupon usage"
+          empty={data && (!(data as any).couponUsage || Object.keys((data as any).couponUsage).length === 0) ? 'No coupon usage yet' : null}
+        >
+          {data && (data as any).couponUsage && Object.keys((data as any).couponUsage).length > 0 && (
+            <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {Object.entries((data as any).couponUsage).map(([code, count]: any, i: number) => (
+                <li
+                  key={`${code}-${i}`}
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    fontSize: '0.8125rem',
+                  }}
+                >
+                  <span style={{ fontWeight: 600 }}>{code}</span>
+                  <span className="text-muted">{count} use{count > 1 ? 's' : ''}</span>
                 </li>
               ))}
             </ul>

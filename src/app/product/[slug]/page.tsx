@@ -170,6 +170,21 @@ export default async function ProductDetailPage({
     .eq('enabled', true)
     .order('display_order', { ascending: true });
 
+  // Fetch approved reviews for SEO Review Schema
+  const { data: dbReviews } = await supabase
+    .from('product_reviews')
+    .select('rating, content, created_at, profiles(email)')
+    .eq('product_id', productRow.id)
+    .eq('is_approved', true);
+
+  // Fetch approved QAs for SEO FAQ Schema
+  const { data: dbQas } = await supabase
+    .from('product_qas')
+    .select('question, answer')
+    .eq('product_id', productRow.id)
+    .eq('is_approved', true)
+    .not('answer', 'is', null);
+
   // Coerce JSONB defensively so the client never has to.
   const product: ProductDetail = {
     id: productRow.id,
@@ -203,6 +218,30 @@ export default async function ProductDetailPage({
   const availability: 'InStock' | 'OutOfStock' =
     totalStock > 0 ? 'InStock' : 'OutOfStock';
 
+  const reviewCount = dbReviews?.length ?? 0;
+  const avgRating = reviewCount > 0 ? (dbReviews!.reduce((sum, r) => sum + r.rating, 0) / reviewCount).toFixed(1) : undefined;
+  const aggregateRating = avgRating ? { ratingValue: avgRating, reviewCount } : undefined;
+  
+  const reviewsSchema = dbReviews ? dbReviews.map((r: any) => ({
+    author: r.profiles?.email ? r.profiles.email.split('@')[0] : 'Verified Buyer',
+    datePublished: r.created_at,
+    reviewBody: r.content,
+    reviewRating: r.rating
+  })) : undefined;
+
+  const faqSchema = dbQas && dbQas.length > 0 ? {
+    '@context': 'https://schema.org',
+    '@type': 'FAQPage',
+    'mainEntity': dbQas.map(qa => ({
+      '@type': 'Question',
+      'name': qa.question,
+      'acceptedAnswer': {
+        '@type': 'Answer',
+        'text': qa.answer || ''
+      }
+    }))
+  } : null;
+
   return (
     <>
       <JsonLd
@@ -225,8 +264,11 @@ export default async function ProductDetailPage({
           url: productUrl,
           sku: product.id,
           sizes: product.sizes,
+          aggregateRating,
+          reviews: reviewsSchema,
         })}
       />
+      {faqSchema && <JsonLd data={faqSchema} />}
       <ProductDetailClient
         product={product}
         inventory={inventory}

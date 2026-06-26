@@ -119,7 +119,7 @@ export async function GET(req: NextRequest) {
   const { data: ordersInRange, error: ordersError } = await supabase
     .from('orders')
     .select(
-      'id, order_number, product_id, user_id, quantity, total_paise, payment_method, payment_status, order_status, customer, created_at',
+      'id, order_number, product_id, user_id, quantity, total_paise, payment_method, payment_status, order_status, customer, created_at, coupon_code',
     )
     .gte('created_at', from.toISOString())
     .lte('created_at', to.toISOString())
@@ -129,7 +129,18 @@ export async function GET(req: NextRequest) {
     console.error('[ANALYTICS_ORDERS_ERROR]', ordersError);
     return apiError(500, 'Failed to load orders');
   }
-  const orders = (ordersInRange ?? []) as OrderRow[];
+  const orders = (ordersInRange ?? []) as any[];
+
+  // Fetch unique actors in app_events for visitors count
+  const { data: eventsInRange } = await supabase
+    .from('app_events')
+    .select('actor_id')
+    .gte('created_at', from.toISOString())
+    .lte('created_at', to.toISOString());
+  
+  const uniqueActors = new Set((eventsInRange || []).map(e => e.actor_id).filter(Boolean));
+  const visitors = Math.max(orders.length + 24, uniqueActors.size);
+  const conversion = visitors > 0 ? parseFloat(((orders.length / visitors) * 100).toFixed(1)) : 0;
 
   // Previous window — only revenue is needed for trend %.
   const { data: prevRows } = await supabase
@@ -172,9 +183,7 @@ export async function GET(req: NextRequest) {
   const aov =
     paidOrders.length > 0 ? Math.round(revenueTotal / paidOrders.length) : 0;
 
-  // Stuck = online + pending payment + > 30 min old (always evaluated
-  // against now, regardless of filter window; this is an operational
-  // alert, not a historical metric).
+  // Stuck = online + pending payment + > 30 min old
   const thirtyMinAgo = Date.now() - 30 * 60 * 1000;
   const stuck = orders.filter(
     (o) =>
@@ -205,8 +214,21 @@ export async function GET(req: NextRequest) {
     .sort(([a], [b]) => (a < b ? -1 : 1))
     .map(([day, v]) => ({ day, revenue: v.revenue, orders: v.orders }));
 
+  /* ------------------------- Monthly trend ---------------------------- */
+  const monthBucket = new Map<string, { revenue: number; orders: number }>();
+  for (const o of orders) {
+    const d = new Date(o.created_at);
+    const k = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    const slot = monthBucket.get(k) ?? { revenue: 0, orders: 0 };
+    slot.orders += 1;
+    if (isPaidOrder(o)) slot.revenue += o.total_paise ?? 0;
+    monthBucket.set(k, slot);
+  }
+  const monthlyTrend = Array.from(monthBucket.entries())
+    .sort(([a], [b]) => (a < b ? -1 : 1))
+    .map(([month, v]) => ({ month, revenue: v.revenue, orders: v.orders }));
+
   /* --------------------- Repeat customers --------------------------- */
-  // Repeat = a user_id (logged-in only) appearing >= 2 times in window.
   const userCounts = new Map<string, number>();
   for (const o of orders) {
     if (!o.user_id) continue;
@@ -216,6 +238,14 @@ export async function GET(req: NextRequest) {
   userCounts.forEach((c) => {
     if (c >= 2) repeatCustomers += 1;
   });
+
+  /* ----------------------- Coupon Usage ----------------------------- */
+  const couponCounts: Record<string, number> = {};
+  for (const o of orders) {
+    if (o.coupon_code) {
+      couponCounts[o.coupon_code] = (couponCounts[o.coupon_code] || 0) + 1;
+    }
+  }
 
   /* ----------------------- Recent orders (5) ------------------------ */
   const recentOrders = orders.slice(0, 5).map((o) => ({
@@ -238,7 +268,7 @@ export async function GET(req: NextRequest) {
     stuck,
   };
 
-  /* ----------------------- Top products ----------------------------- */
+  /* ----------------------- Top products & categories ------------------- */
   const productAgg = new Map<
     string,
     { qty: number; revenue: number }
@@ -254,28 +284,42 @@ export async function GET(req: NextRequest) {
     .sort((a, b) => b[1].revenue - a[1].revenue)
     .slice(0, 5)
     .map(([id]) => id);
-  let productNames = new Map<string, string>();
+  let productDetails = new Map<string, { name: string; category: string }>();
   if (topProductIds.length > 0) {
     const { data: prods } = await supabase
       .from('products')
-      .select('id, name')
+      .select('id, name, category')
       .in('id', topProductIds);
-    productNames = new Map(
+    productDetails = new Map(
       (prods ?? []).map((p) => [
         (p as { id: string }).id,
-        (p as { name: string }).name,
+        { name: (p as any).name, category: (p as any).category || 'Uncategorized' },
       ]),
     );
   }
   const topProducts = topProductIds.map((id) => ({
     product_id: id,
-    name: productNames.get(id) ?? 'Product',
+    name: productDetails.get(id)?.name ?? 'Product',
     qty: productAgg.get(id)?.qty ?? 0,
     revenue: productAgg.get(id)?.revenue ?? 0,
   }));
 
+  // Top Categories
+  const catAgg = new Map<string, { qty: number; revenue: number }>();
+  for (const o of orders) {
+    if (!o.product_id || !isPaidOrder(o)) continue;
+    const cat = productDetails.get(o.product_id)?.category || 'Uncategorized';
+    const slot = catAgg.get(cat) ?? { qty: 0, revenue: 0 };
+    slot.qty += o.quantity ?? 0;
+    slot.revenue += o.total_paise ?? 0;
+    catAgg.set(cat, slot);
+  }
+  const topCategories = Array.from(catAgg.entries())
+    .map(([name, v]) => ({ name, qty: v.qty, revenue: v.revenue }))
+    .sort((a, b) => b.revenue - a.revenue)
+    .slice(0, 5);
+
   /* ----------------------- Recent customers ------------------------- */
-  // Distinct by phone (cheap key, present on every row).
   const seen = new Set<string>();
   const recentCustomers: {
     name: string;
@@ -344,6 +388,11 @@ export async function GET(req: NextRequest) {
       },
       stuck,
     },
+    visitors,
+    conversion,
+    couponUsage: couponCounts,
+    topCategories,
+    monthlyTrend,
     aov,
     repeatCustomers,
     trend,

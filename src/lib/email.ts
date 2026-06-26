@@ -13,6 +13,10 @@ export {
   sendPaymentFailedEmail,
   sendOrderStatusEmail,
   sendOrderConfirmation,
+  sendWelcomeEmail,
+  sendPasswordResetEmail,
+  sendReturnEmail,
+  sendExchangeEmail,
 } from './email/sendOrderEmail';
 
 export type {

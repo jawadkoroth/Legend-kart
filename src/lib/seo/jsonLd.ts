@@ -155,6 +155,16 @@ export interface ProductLdInput {
   gtin?: string;
   /** Sizes offered — surfaced as variant annotations later; informational now. */
   sizes?: string[];
+  aggregateRating?: {
+    ratingValue: string;
+    reviewCount: number;
+  };
+  reviews?: Array<{
+    author: string;
+    datePublished: string;
+    reviewBody: string;
+    reviewRating: number;
+  }>;
 }
 
 export function productLd(p: ProductLdInput) {
@@ -189,6 +199,28 @@ export function productLd(p: ProductLdInput) {
       name: BRAND.name,
     },
     offers: offer,
+    aggregateRating: p.aggregateRating
+      ? {
+          '@type': 'AggregateRating',
+          ratingValue: p.aggregateRating.ratingValue,
+          reviewCount: p.aggregateRating.reviewCount,
+        }
+      : undefined,
+    review: p.reviews
+      ? p.reviews.map(r => ({
+          '@type': 'Review',
+          author: {
+            '@type': 'Person',
+            name: r.author,
+          },
+          datePublished: r.datePublished,
+          reviewBody: r.reviewBody,
+          reviewRating: {
+            '@type': 'Rating',
+            ratingValue: r.reviewRating,
+          },
+        }))
+      : undefined,
   });
 }
 

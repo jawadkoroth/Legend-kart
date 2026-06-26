@@ -81,6 +81,8 @@ export const viewport: Viewport = {
   themeColor: '#0B0B0B',
 };
 
+import { WishlistProvider } from '@/lib/wishlist';
+
 export default async function RootLayout({
   children,
 }: {
@@ -120,16 +122,18 @@ export default async function RootLayout({
       <body>
         <PWAProvider>
           <AuthProvider initialUser={user}>
-            <CartProvider>
-              <Navbar />
-              {children}
-              <FooterGate>
-                <Footer />
-              </FooterGate>
-              <FeedbackButton />
-              <Analytics />
-              <SpeedInsights />
-            </CartProvider>
+            <WishlistProvider>
+              <CartProvider>
+                <Navbar />
+                {children}
+                <FooterGate>
+                  <Footer />
+                </FooterGate>
+                <FeedbackButton />
+                <Analytics />
+                <SpeedInsights />
+              </CartProvider>
+            </WishlistProvider>
           </AuthProvider>
         </PWAProvider>
       </body>

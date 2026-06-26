@@ -1,0 +1,156 @@
+.container {
+  max-width: 600px;
+  margin: 0 auto;
+  padding: var(--space-12) var(--space-4) var(--space-20);
+}
+
+.titleSection {
+  text-align: center;
+  margin-bottom: var(--space-8);
+}
+
+.title {
+  font-family: var(--font-serif);
+  font-size: 2.25rem;
+  font-weight: 500;
+  color: var(--text-primary);
+  letter-spacing: 0.05em;
+  margin-bottom: var(--space-2);
+}
+
+.subtitle {
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.cardGlow {
+  background: rgba(15, 15, 15, 0.6);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  padding: var(--space-8);
+  position: relative;
+  overflow: hidden;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+}
+
+.cardGlow::before {
+  content: '';
+  position: absolute;
+  top: -50%;
+  left: -50%;
+  width: 200%;
+  height: 200%;
+  background: radial-gradient(circle, rgba(201, 168, 106, 0.05) 0%, transparent 60%);
+  pointer-events: none;
+  z-index: 1;
+}
+
+.form {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+
+.formGroup {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.inputGroup {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.currencySymbol {
+  position: absolute;
+  left: var(--space-4);
+  color: var(--accent-gold);
+  font-weight: 600;
+  pointer-events: none;
+}
+
+.amountInput {
+  width: 100%;
+  padding: var(--space-3) var(--space-4) var(--space-3) var(--space-8);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: 1.125rem;
+  font-weight: 600;
+  outline: none;
+  transition: all var(--duration-fast);
+}
+
+.amountInput:focus {
+  border-color: var(--accent-gold);
+  box-shadow: 0 0 10px rgba(201, 168, 106, 0.15);
+}
+
+.balanceCheck {
+  margin-top: var(--space-8);
+  border-top: 1px solid var(--border-color);
+  padding-top: var(--space-8);
+}
+
+.balanceTitle {
+  font-family: var(--font-serif);
+  font-size: 1.25rem;
+  color: var(--text-primary);
+  margin-bottom: var(--space-4);
+  letter-spacing: 0.05em;
+}
+
+.balanceRow {
+  display: flex;
+  gap: var(--space-3);
+}
+
+.submitBtn {
+  width: 100%;
+  padding: var(--space-4);
+  background: var(--accent-gold);
+  color: var(--bg-primary);
+  border: none;
+  font-size: 0.875rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all var(--duration-fast);
+  margin-top: var(--space-2);
+}
+
+.submitBtn:hover {
+  filter: brightness(1.1);
+  box-shadow: 0 0 20px rgba(201, 168, 106, 0.25);
+}
+
+.balanceResult {
+  margin-top: var(--space-4);
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid var(--border-color);
+  padding: var(--space-4);
+  border-radius: var(--radius-sm);
+}
+
+.balanceLabel {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.balanceValue {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--accent-gold);
+  margin-top: 2px;
+}

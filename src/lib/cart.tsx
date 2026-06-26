@@ -11,6 +11,7 @@ import {
   ReactNode,
 } from 'react';
 import { MAX_QTY_PER_LINE } from '@/lib/validators';
+import { useAuth } from '@/lib/auth/AuthProvider';
 
 /**
  * PANTHER cart — local, client-side, localStorage-backed.
@@ -190,6 +191,20 @@ export function CartProvider({ children }: { children: ReactNode }) {
     lastSerializedRef.current = serialized;
     saveCart(items);
   }, [items, loaded]);
+
+  const { user } = useAuth();
+  useEffect(() => {
+    if (!user || items.length === 0) return;
+    const delayDebounceFn = setTimeout(() => {
+      fetch('/api/cart/recovery', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ items, contactEmail: user.email }),
+      }).catch(err => console.error('Failed to sync abandoned cart state', err));
+    }, 2000);
+
+    return () => clearTimeout(delayDebounceFn);
+  }, [items, user]);
 
   // Multi-tab sync: respond to writes in sibling tabs only.
   //

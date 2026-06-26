@@ -1,9 +1,12 @@
 'use client';
 
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import useEmblaCarousel from 'embla-carousel-react';
 import { useCart } from '@/lib/cart';
+import { useWishlist } from '@/lib/wishlist';
+import { useAuth } from '@/lib/auth/AuthProvider';
+import { createClient } from '@/lib/supabase/client';
 import { formatPaise } from '@/lib/format';
 import { getPublicUrl } from '@/lib/media';
 import styles from './page.module.css';
@@ -38,6 +41,8 @@ export interface ProductDetail {
   sale_price_paise: number | null;
   images: string[];
   sizes: string[];
+  category?: string;
+  tags?: string[];
 }
 
 export interface InventoryItem {
@@ -45,11 +50,25 @@ export interface InventoryItem {
   stock: number;
 }
 
-/**
- * Client-side detail UI. Receives all data via props from the server
- * page — no `useEffect` fetch, no `/api/products` round-trip, no
- * fallback-to-first-product behaviour.
- */
+interface Review {
+  id: string;
+  rating: number;
+  title: string | null;
+  content: string;
+  is_verified_purchase: boolean;
+  helpful_count: number;
+  is_pinned: boolean;
+  created_at: string;
+  reviewer_name?: string;
+}
+
+interface QA {
+  id: string;
+  question: string;
+  answer: string | null;
+  created_at: string;
+}
+
 export default function ProductDetailClient({
   product,
   inventory,
@@ -67,6 +86,9 @@ export default function ProductDetailClient({
 }) {
   const router = useRouter();
   const { addItem } = useCart();
+  const { isWishlisted, toggleWishlist } = useWishlist();
+  const { user } = useAuth();
+  
   const [selectedSize, setSelectedSize] = useState('');
   const [couponCode, setCouponCode] = useState('');
   const [couponDiscount, setCouponDiscount] = useState(0);
@@ -78,6 +100,33 @@ export default function ProductDetailClient({
   // Fullscreen view state
   const [fullscreenMedia, setFullscreenMedia] = useState<string | null>(null);
   const [fullscreenType, setFullscreenType] = useState<'image' | 'video' | null>(null);
+
+  // Tab State
+  const [activeTab, setActiveTab] = useState<'reviews' | 'qa'>('reviews');
+
+  // Customer reviews & QAs state
+  const [reviews, setReviews] = useState<Review[]>([]);
+  const [qas, setQas] = useState<QA[]>([]);
+  const [averageRating, setAverageRating] = useState(0);
+
+  // Form states
+  const [reviewRating, setReviewRating] = useState(5);
+  const [reviewTitle, setReviewTitle] = useState('');
+  const [reviewContent, setReviewContent] = useState('');
+  const [reviewSuccess, setReviewSuccess] = useState('');
+  const [reviewError, setReviewError] = useState('');
+
+  const [qaQuestion, setQaQuestion] = useState('');
+  const [qaSuccess, setQaSuccess] = useState('');
+  const [qaError, setQaError] = useState('');
+
+  // Recommendations and viewed states
+  const [recommendedProducts, setRecommendedProducts] = useState<ProductDetail[]>([]);
+  const [recentlyViewedProducts, setRecentlyViewedProducts] = useState<ProductDetail[]>([]);
+  const [frequentlyBoughtTogether, setFrequentlyBoughtTogether] = useState<ProductDetail[]>([]);
+
+  // Share tooltip
+  const [copiedLink, setCopiedLink] = useState(false);
 
   const isSoldOut = totalStock <= 0;
 
@@ -123,6 +172,217 @@ export default function ProductDetailClient({
   const getStock = useCallback((size: string) => {
     return inventory.find(i => i.size === size)?.stock ?? 0;
   }, [inventory]);
+
+  // Load reviews, Q&As, Recommendations & Recently Viewed
+  useEffect(() => {
+    const supabase = createClient();
+
+    async function loadProductData() {
+      // 1. Fetch reviews
+      const { data: dbReviews } = await supabase
+        .from('product_reviews')
+        .select('*, profiles(email)')
+        .eq('product_id', product.id)
+        .eq('is_approved', true)
+        .order('is_pinned', { ascending: false })
+        .order('created_at', { ascending: false });
+
+      if (dbReviews) {
+        const formattedReviews: Review[] = dbReviews.map((r: any) => ({
+          id: r.id,
+          rating: r.rating,
+          title: r.title,
+          content: r.content,
+          is_verified_purchase: r.is_verified_purchase,
+          helpful_count: r.helpful_count,
+          is_pinned: r.is_pinned,
+          created_at: r.created_at,
+          reviewer_name: r.profiles?.email ? r.profiles.email.split('@')[0] : 'Verified Buyer'
+        }));
+        setReviews(formattedReviews);
+        if (formattedReviews.length > 0) {
+          const avg = formattedReviews.reduce((sum, r) => sum + r.rating, 0) / formattedReviews.length;
+          setAverageRating(Math.round(avg * 10) / 10);
+        }
+      }
+
+      // 2. Fetch Q&As
+      const { data: dbQas } = await supabase
+        .from('product_qas')
+        .select('*')
+        .eq('product_id', product.id)
+        .eq('is_approved', true)
+        .order('created_at', { ascending: false });
+
+      if (dbQas) {
+        setQas(dbQas);
+      }
+
+      // 3. Fetch Recommendations (by category / tag)
+      const { data: dbRecs } = await supabase
+        .from('products')
+        .select('*')
+        .eq('is_active', true)
+        .neq('id', product.id)
+        .limit(4); // categories / tags filter if desired, or random best sellers
+      if (dbRecs) {
+        setRecommendedProducts(dbRecs);
+      }
+
+      // 4. Fetch Frequently Bought Together (FBT) links configured by Admin
+      const { data: dbFbt } = await supabase
+        .from('frequently_bought_together')
+        .select('product_id_a, product_id_b')
+        .or(`product_id_a.eq.${product.id},product_id_b.eq.${product.id}`);
+
+      if (dbFbt && dbFbt.length > 0) {
+        const relatedIds = dbFbt.map(row => 
+          row.product_id_a === product.id ? row.product_id_b : row.product_id_a
+        );
+        const { data: relatedProducts } = await supabase
+          .from('products')
+          .select('*')
+          .in('id', relatedIds)
+          .eq('is_active', true);
+        if (relatedProducts) {
+          setFrequentlyBoughtTogether(relatedProducts);
+        }
+      }
+    }
+
+    loadProductData();
+  }, [product.id]);
+
+  // Track Recently Viewed (LocalStorage and DB Sync)
+  useEffect(() => {
+    const supabase = createClient();
+    const storageKey = 'panther_recently_viewed';
+
+    async function trackView() {
+      // Fetch details from local storage
+      let viewedIds: string[] = [];
+      const raw = localStorage.getItem(storageKey);
+      if (raw) {
+        try {
+          viewedIds = JSON.parse(raw);
+        } catch {
+          viewedIds = [];
+        }
+      }
+
+      // Prepend and dedup
+      viewedIds = [product.id, ...viewedIds.filter(id => id !== product.id)].slice(0, 10);
+      localStorage.setItem(storageKey, JSON.stringify(viewedIds));
+
+      // Sync to database if user is logged in
+      if (user) {
+        try {
+          await supabase
+            .from('recently_viewed')
+            .upsert({ user_id: user.id, product_id: product.id }, { onConflict: 'user_id,product_id' });
+        } catch (err) {
+          console.error('Failed to sync recently viewed item to DB', err);
+        }
+      }
+
+      // Resolve product data for carousel preview
+      const { data: loadedViewed } = await supabase
+        .from('products')
+        .select('*')
+        .in('id', viewedIds.filter(id => id !== product.id))
+        .eq('is_active', true);
+      
+      if (loadedViewed) {
+        // Sort to match order of viewedIds
+        const sorted = loadedViewed.sort((a, b) => viewedIds.indexOf(a.id) - viewedIds.indexOf(b.id));
+        setRecentlyViewedProducts(sorted);
+      }
+    }
+
+    trackView();
+  }, [product.id, user]);
+
+  // Submit Review Handler
+  const handleReviewSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setReviewSuccess('');
+    setReviewError('');
+    if (!user) {
+      setReviewError('You must be logged in to submit a review.');
+      return;
+    }
+
+    const supabase = createClient();
+    const { error } = await supabase
+      .from('product_reviews')
+      .insert({
+        product_id: product.id,
+        user_id: user.id,
+        rating: reviewRating,
+        title: reviewTitle,
+        content: reviewContent,
+        is_approved: false // Moderation required
+      });
+
+    if (error) {
+      setReviewError(error.message);
+    } else {
+      setReviewSuccess('Thank you! Your review has been submitted for administration review.');
+      setReviewTitle('');
+      setReviewContent('');
+      setReviewRating(5);
+    }
+  };
+
+  // Submit Question Handler
+  const handleQuestionSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setQaSuccess('');
+    setQaError('');
+    if (!qaQuestion.trim()) return;
+
+    const supabase = createClient();
+    const { error } = await supabase
+      .from('product_qas')
+      .insert({
+        product_id: product.id,
+        user_id: user?.id || null,
+        question: qaQuestion,
+        is_approved: false // Moderation required
+      });
+
+    if (error) {
+      setQaError(error.message);
+    } else {
+      setQaSuccess('Your question has been submitted and will appear once answered by administrators.');
+      setQaQuestion('');
+    }
+  };
+
+  // Increment helpful review count
+  const handleHelpfulIncrement = async (reviewId: string) => {
+    const supabase = createClient();
+    // Fetch current count to increment safely
+    const target = reviews.find(r => r.id === reviewId);
+    if (!target) return;
+
+    const { error } = await supabase
+      .from('product_reviews')
+      .update({ helpful_count: target.helpful_count + 1 })
+      .eq('id', reviewId);
+
+    if (!error) {
+      setReviews(prev => prev.map(r => r.id === reviewId ? { ...r, helpful_count: r.helpful_count + 1 } : r));
+    }
+  };
+
+  // Share copy
+  const handleCopyLink = () => {
+    if (typeof window === 'undefined') return;
+    navigator.clipboard.writeText(window.location.href);
+    setCopiedLink(true);
+    setTimeout(() => setCopiedLink(false), 2000);
+  };
 
   // Pricing: sale price takes priority, coupon stacks on top
   const originalPrice = product.price_paise;
@@ -172,9 +432,6 @@ export default function ProductDetailClient({
   function handleAddToCart() {
     if (!selectedSize || isSoldOut) return;
     const sizeStock = getStock(selectedSize);
-    // Defence-in-depth: the size button is already disabled when its
-    // individual stock is 0, but never let a sold-out size sneak into
-    // the cart even if state somehow desyncs.
     if (sizeStock <= 0) return;
     addItem({
       product_id: product.id,
@@ -215,7 +472,7 @@ export default function ProductDetailClient({
   return (
     <div className={styles.page}>
       <div className={styles.desktopLayout}>
-        {/* Embla Image & Video Carousel — swipeable */}
+        {/* Embla Image & Video Carousel */}
         <div className={styles.galleryWrap}>
           <div className={styles.emblaViewport} ref={emblaRef}>
             <div className={styles.emblaContainer}>
@@ -285,12 +542,14 @@ export default function ProductDetailClient({
 
         {/* Product Info */}
         <div className={styles.content}>
-          <div className="animate-fade-in-up">
+          <div>
             <h1 className={styles.productName}>{product.name}</h1>
             <div className={styles.priceRow}>
               <span className={styles.price}>{formatPaise(finalPrice)}</span>
               {(hasSalePrice || discountAmount > 0) && (
-                <span className={styles.originalPrice}>{formatPaise(hasSalePrice && discountAmount > 0 ? originalPrice : (hasSalePrice ? originalPrice : basePrice))}</span>
+                <span className={styles.originalPrice}>
+                  {formatPaise(hasSalePrice && discountAmount > 0 ? originalPrice : (hasSalePrice ? originalPrice : basePrice))}
+                </span>
               )}
             </div>
 
@@ -321,8 +580,16 @@ export default function ProductDetailClient({
               )}
             </div>
 
+            {/* Size Prediction Placeholder Hook */}
+            <div className={styles.sizeRecommendationBox}>
+              <span>📏</span>
+              <span>
+                <strong>Predictive Size Recommender:</strong> Unsure about sizing? predicting your fit is coming in future upgrades!
+              </span>
+            </div>
+
             {/* Coupon */}
-            <div className={styles.section}>
+            <div className={styles.section} style={{ marginTop: 'var(--space-6)' }}>
               {!showCoupon ? (
                 <button className={styles.couponToggle} onClick={() => setShowCoupon(true)}>
                   Have a coupon code?
@@ -398,19 +665,31 @@ export default function ProductDetailClient({
               </div>
             )}
 
-            {/* Desktop CTAs */}
+            {/* Desktop CTAs & Wishlist integration */}
             <div className={styles.desktopCta}>
-              <button
-                className="btn btn-primary"
-                disabled={!selectedSize || isSoldOut}
-                onClick={handleBuyNow}
-              >
-                {isSoldOut
-                  ? 'OUT OF STOCK'
-                  : selectedSize
-                    ? `BUY NOW — ${formatPaise(finalPrice)}`
-                    : 'SELECT A SIZE'}
-              </button>
+              <div style={{ display: 'flex', gap: 'var(--space-3)' }}>
+                <button
+                  className="btn btn-primary"
+                  disabled={!selectedSize || isSoldOut}
+                  onClick={handleBuyNow}
+                  style={{ flex: 1 }}
+                >
+                  {isSoldOut
+                    ? 'OUT OF STOCK'
+                    : selectedSize
+                      ? `BUY NOW — ${formatPaise(finalPrice)}`
+                      : 'SELECT A SIZE'}
+                </button>
+                <button
+                  className={`${styles.wishlistBtn} ${isWishlisted(product.id) ? styles.wishlistBtnActive : ''}`}
+                  onClick={() => toggleWishlist(product.id)}
+                  aria-label="Wishlist"
+                >
+                  <svg width="22" height="22" viewBox="0 0 24 24" fill={isWishlisted(product.id) ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="1.8">
+                    <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
+                  </svg>
+                </button>
+              </div>
               <button
                 className={`btn btn-secondary ${addedToCart ? 'btn-success' : ''}`}
                 disabled={!selectedSize || isSoldOut}
@@ -419,6 +698,32 @@ export default function ProductDetailClient({
               >
                 {addedToCart ? '✓ ADDED TO CART' : 'ADD TO CART'}
               </button>
+            </div>
+
+            {/* Native Sharing Tools */}
+            <div className={styles.sharingContainer}>
+              <span className={styles.shareTitle}>Share this piece:</span>
+              <button className={styles.shareLink} onClick={handleCopyLink} title="Copy product URL">
+                {copiedLink ? '✓' : '🔗'}
+              </button>
+              <a
+                href={`https://api.whatsapp.com/send?text=${encodeURIComponent(`${product.name} - ${window.location.href}`)}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={styles.shareLink}
+                title="Share on WhatsApp"
+              >
+                💬
+              </a>
+              <a
+                href={`https://twitter.com/intent/tweet?url=${encodeURIComponent(window.location.href)}&text=${encodeURIComponent(product.name)}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={styles.shareLink}
+                title="Share on Twitter"
+              >
+                𝕏
+              </a>
             </div>
           </div>
         </div>
@@ -429,7 +734,6 @@ export default function ProductDetailClient({
         <div className={styles.storyContainer}>
           {stories.map((story, idx) => {
             const isLeft = idx % 2 === 0;
-            
             let bgClass = styles.bgBlack;
             if (story.background === 'dark-grey') bgClass = styles.bgDarkGrey;
             else if (story.background === 'gold-accent') bgClass = styles.bgGoldAccent;
@@ -439,18 +743,10 @@ export default function ProductDetailClient({
             else if (story.image_ratio === 'square') ratioClass = styles.ratioSquare;
 
             return (
-              <section
-                key={story.id || idx}
-                className={`${styles.storySection} ${bgClass}`}
-              >
+              <section key={story.id || idx} className={`${styles.storySection} ${bgClass}`}>
                 <div className={`${styles.storyInner} ${isLeft ? styles.layoutLeft : styles.layoutRight}`}>
                   <div className={`${styles.storyImageFrame} ${ratioClass} ${styles.revealItem}`}>
-                    <img
-                      src={getPublicUrl(story.image_url)}
-                      alt={story.title}
-                      loading="lazy"
-                      className={styles.storyImg}
-                    />
+                    <img src={getPublicUrl(story.image_url)} alt={story.title} loading="lazy" className={styles.storyImg} />
                   </div>
                   <div className={`${styles.storyContent} ${styles.revealItem}`}>
                     {story.subtitle && <span className={styles.storySubtitle}>{story.subtitle}</span>}
@@ -469,7 +765,217 @@ export default function ProductDetailClient({
         </div>
       )}
 
-      {/* Mobile Sticky CTAs */}
+      {/* Frequently Bought Together recommendation section */}
+      {frequentlyBoughtTogether.length > 0 && (
+        <section className={styles.carouselSection}>
+          <h2 className={styles.carouselTitle}>Frequently Bought Together</h2>
+          <div className={styles.recommendationsGrid}>
+            {frequentlyBoughtTogether.map(p => {
+              const cover = getPublicUrl(p.images?.[0]) || '/product-1.png';
+              return (
+                <a href={`/product/${p.slug}`} key={p.id} className={styles.shareLink} style={{ display: 'flex', flexDirection: 'column', width: 'auto', height: 'auto', borderRadius: 'var(--radius-md)', padding: 'var(--space-3)', textDecoration: 'none', border: '1px solid var(--border-color)', background: 'rgba(15,15,15,0.6)' }}>
+                  <img src={cover} alt={p.name} style={{ width: '100%', aspectRatio: '3/4', objectFit: 'cover', borderRadius: 'var(--radius-sm)' }} />
+                  <span style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--text-primary)', marginTop: 'var(--space-2)' }}>{p.name}</span>
+                  <span style={{ fontSize: '0.8125rem', color: 'var(--accent-gold)' }}>{formatPaise(p.price_paise)}</span>
+                </a>
+              );
+            })}
+          </div>
+        </section>
+      )}
+
+      {/* Recommendations matching tag or category */}
+      {recommendedProducts.length > 0 && (
+        <section className={styles.carouselSection}>
+          <h2 className={styles.carouselTitle}>Recommended Products</h2>
+          <div className={styles.recommendationsGrid}>
+            {recommendedProducts.map(p => {
+              const cover = getPublicUrl(p.images?.[0]) || '/product-1.png';
+              return (
+                <a href={`/product/${p.slug}`} key={p.id} style={{ display: 'flex', flexDirection: 'column', padding: 'var(--space-3)', textDecoration: 'none', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', background: 'rgba(15,15,15,0.6)', transition: 'all 0.2s' }}>
+                  <img src={cover} alt={p.name} style={{ width: '100%', aspectRatio: '3/4', objectFit: 'cover', borderRadius: 'var(--radius-sm)' }} />
+                  <span style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--text-primary)', marginTop: 'var(--space-2)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.name}</span>
+                  <span style={{ fontSize: '0.8125rem', color: 'var(--accent-gold)', marginTop: '2px' }}>{formatPaise(p.price_paise)}</span>
+                </a>
+              );
+            })}
+          </div>
+        </section>
+      )}
+
+      {/* Recently Viewed carousel */}
+      {recentlyViewedProducts.length > 0 && (
+        <section className={styles.carouselSection}>
+          <h2 className={styles.carouselTitle}>Recently Viewed</h2>
+          <div className={styles.horizontalScroll}>
+            {recentlyViewedProducts.map(p => {
+              const cover = getPublicUrl(p.images?.[0]) || '/product-1.png';
+              return (
+                <a href={`/product/${p.slug}`} key={p.id} style={{ flex: '0 0 180px', display: 'flex', flexDirection: 'column', padding: 'var(--space-3)', textDecoration: 'none', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', background: 'rgba(15,15,15,0.6)' }}>
+                  <img src={cover} alt={p.name} style={{ width: '100%', aspectRatio: '3/4', objectFit: 'cover', borderRadius: 'var(--radius-sm)' }} />
+                  <span style={{ fontSize: '0.8125rem', fontWeight: 500, color: 'var(--text-primary)', marginTop: 'var(--space-2)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
+                  <span style={{ fontSize: '0.75rem', color: 'var(--accent-gold)' }}>{formatPaise(p.price_paise)}</span>
+                </a>
+              );
+            })}
+          </div>
+        </section>
+      )}
+
+      {/* Reviews & Q&As Tab Area */}
+      <div className={styles.tabContainer}>
+        <div className={styles.tabHeader}>
+          <button
+            className={`${styles.tabBtn} ${activeTab === 'reviews' ? styles.tabBtnActive : ''}`}
+            onClick={() => setActiveTab('reviews')}
+          >
+            Reviews ({reviews.length})
+          </button>
+          <button
+            className={`${styles.tabBtn} ${activeTab === 'qa' ? styles.tabBtnActive : ''}`}
+            onClick={() => setActiveTab('qa')}
+          >
+            Questions & Answers ({qas.length})
+          </button>
+        </div>
+
+        {activeTab === 'reviews' ? (
+          <div>
+            <div className={styles.reviewSummaryCard}>
+              <div className={styles.ratingBig}>
+                <span className={styles.ratingBigNum}>{averageRating > 0 ? averageRating : '—'}</span>
+                <div className={styles.ratingStars}>
+                  {Array.from({ length: 5 }).map((_, i) => (
+                    <span key={i}>{i < Math.round(averageRating) ? '★' : '☆'}</span>
+                  ))}
+                </div>
+                <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Based on {reviews.length} reviews</span>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+                <p style={{ margin: 0, fontSize: '0.9375rem', color: 'var(--text-secondary)' }}>
+                  Verified reviews from our premium patrons. Every purchase guarantees unmatched craftsmanship.
+                </p>
+              </div>
+            </div>
+
+            {reviews.length > 0 ? (
+              <div className={styles.reviewsList}>
+                {reviews.map(r => (
+                  <div key={r.id} className={`${styles.reviewItem} ${r.is_pinned ? styles.reviewItemPinned : ''}`}>
+                    {r.is_pinned && <span className={styles.pinnedPill}>Pinned</span>}
+                    <div className={styles.reviewHeader}>
+                      <div className={styles.reviewerInfo}>
+                        <span className={styles.reviewerName}>
+                          {r.reviewer_name}
+                          {r.is_verified_purchase && <span className={styles.verifiedBadge}>Verified</span>}
+                        </span>
+                        <div className={styles.ratingStars} style={{ margin: '2px 0' }}>
+                          {Array.from({ length: 5 }).map((_, i) => (
+                            <span key={i} style={{ fontSize: '0.75rem' }}>{i < r.rating ? '★' : '☆'}</span>
+                          ))}
+                        </div>
+                      </div>
+                      <span className={styles.reviewDate}>{new Date(r.created_at).toLocaleDateString()}</span>
+                    </div>
+                    {r.title && <h4 className={styles.reviewTitle}>{r.title}</h4>}
+                    <p className={styles.reviewContent}>{r.content}</p>
+                    <div className={styles.reviewFooter}>
+                      <button className={styles.helpfulBtn} onClick={() => handleHelpfulIncrement(r.id)}>
+                        👍 Helpful ({r.helpful_count})
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p style={{ textAlign: 'center', color: 'var(--text-muted)', padding: 'var(--space-6) 0' }}>No reviews yet. Be the first to review this piece.</p>
+            )}
+
+            {/* Write a Review form */}
+            <div className={styles.formCard}>
+              <h3 className={styles.formTitle}>Write a Review</h3>
+              {reviewSuccess && <p className="input-success-text">{reviewSuccess}</p>}
+              {reviewError && <p className="input-error-text">{reviewError}</p>}
+              <form onSubmit={handleReviewSubmit} className={styles.formGrid}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
+                  <label className="input-label">Overall Rating</label>
+                  <div style={{ display: 'flex', gap: '8px', cursor: 'pointer', fontSize: '1.5rem', color: 'var(--accent-gold)' }}>
+                    {Array.from({ length: 5 }).map((_, idx) => (
+                      <span key={idx} onClick={() => setReviewRating(idx + 1)}>
+                        {idx < reviewRating ? '★' : '☆'}
+                      </span>
+                    ))}
+                  </div>
+
+                  <label className="input-label" style={{ marginTop: 'var(--space-2)' }}>Review Title</label>
+                  <input
+                    type="text"
+                    className="input-field"
+                    placeholder="e.g. Masterful craftsmanship"
+                    value={reviewTitle}
+                    onChange={e => setReviewTitle(e.target.value)}
+                  />
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
+                  <label className="input-label">Review Details</label>
+                  <textarea
+                    rows={4}
+                    className="input-field"
+                    placeholder="Tell us about the drape, the texture, and your experience..."
+                    value={reviewContent}
+                    onChange={e => setReviewContent(e.target.value)}
+                    required
+                    style={{ resize: 'vertical' }}
+                  />
+                  <button type="submit" className="btn btn-primary" style={{ marginTop: 'var(--space-2)' }}>
+                    Submit Review
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        ) : (
+          <div>
+            {qas.length > 0 ? (
+              <div className={styles.qaList}>
+                {qas.map(item => (
+                  <div key={item.id} className={styles.qaItem}>
+                    <h4 className={styles.qaQuestion}>Q: {item.question}</h4>
+                    <p className={styles.qaAnswer}>
+                      <strong>PANTHER Admin:</strong> {item.answer || 'We will update you with an answer shortly.'}
+                    </p>
+                    <span className={styles.qaMeta}>Asked on {new Date(item.created_at).toLocaleDateString()}</span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p style={{ textAlign: 'center', color: 'var(--text-muted)', padding: 'var(--space-6) 0' }}>No questions have been asked yet.</p>
+            )}
+
+            {/* Ask a Question form */}
+            <div className={styles.formCard}>
+              <h3 className={styles.formTitle}>Ask a Question</h3>
+              {qaSuccess && <p className="input-success-text">{qaSuccess}</p>}
+              {qaError && <p className="input-error-text">{qaError}</p>}
+              <form onSubmit={handleQuestionSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+                <textarea
+                  rows={3}
+                  className="input-field"
+                  placeholder="Ask us anything about materials, dimensions, or styling..."
+                  value={qaQuestion}
+                  onChange={e => setQaQuestion(e.target.value)}
+                  required
+                />
+                <button type="submit" className="btn btn-primary" style={{ width: 'fit-content' }}>
+                  Submit Question
+                </button>
+              </form>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Mobile Sticky CTAs & Wishlist integration */}
       <div className={styles.mobileCta}>
         <div className={styles.mobileBtnRow}>
           <button
@@ -491,11 +997,21 @@ export default function ProductDetailClient({
                 ? `BUY NOW — ${formatPaise(finalPrice)}`
                 : 'SELECT A SIZE'}
           </button>
+          <button
+            className={`${styles.wishlistBtn} ${isWishlisted(product.id) ? styles.wishlistBtnActive : ''}`}
+            onClick={() => toggleWishlist(product.id)}
+            aria-label="Wishlist"
+            style={{ width: '48px', height: '48px', margin: 0 }}
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill={isWishlisted(product.id) ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="1.8">
+              <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
+            </svg>
+          </button>
         </div>
       </div>
       <div className={styles.mobileCtaSpacer} />
 
-      {/* Fullscreen Zoom Lightbox Modal */}
+      {/* Fullscreen Zoom Modal */}
       {fullscreenMedia && (
         <div
           className={styles.fullscreenOverlay}

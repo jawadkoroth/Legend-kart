@@ -9,6 +9,7 @@ import AdminPushPrompt from '@/components/admin/AdminPushPrompt';
 import AdminReturnsBadge from '@/components/admin/AdminReturnsBadge';
 import { useAuth } from '@/lib/auth/AuthProvider';
 import { createClient } from '@/lib/supabase/client';
+import styles from './AdminShell.module.css';
 
 const NAV_ITEMS = [
   { href: '/admin/dashboard', label: 'Home', icon: '📊' },
@@ -32,6 +33,22 @@ export default function AdminShell({
   const { user, loading } = useAuth();
   const [unreadCount, setUnreadCount] = useState(initialUnreadCount);
   const [isFeedbackOpen, setIsFeedbackOpen] = useState(false);
+  const [isCollapsed, setIsCollapsed] = useState(false);
+
+  useEffect(() => {
+    const saved = localStorage.getItem('admin_sidebar_collapsed');
+    if (saved === 'true') {
+      setIsCollapsed(true);
+    }
+  }, []);
+
+  const toggleSidebar = () => {
+    setIsCollapsed((prev) => {
+      const next = !prev;
+      localStorage.setItem('admin_sidebar_collapsed', String(next));
+      return next;
+    });
+  };
 
   const handleLogout = async () => {
     if (confirm('Are you sure you want to log out?')) {
@@ -49,6 +66,7 @@ export default function AdminShell({
   }, [user, loading, router]);
 
   const isMobileApp = typeof navigator !== 'undefined' && navigator.userAgent.includes('PANTHER_MOBILE');
+
   if (isMobileApp && loading) {
     return (
       <div style={{
@@ -68,47 +86,94 @@ export default function AdminShell({
   }
 
   return (
-    <div className="admin-layout">
-      <div className="admin-header">
-        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
-          <span style={{ fontFamily: 'var(--font-serif)', fontSize: '1.25rem', fontWeight: 600, letterSpacing: '0.1em' }}>NOIR</span>
-          <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)', letterSpacing: '0.15em' }}>ADMIN</span>
+    <div className={styles.adminLayout}>
+      {/* 1. Left Collapsible Sidebar (Desktop) */}
+      <aside className={`${styles.sidebar} ${isCollapsed ? styles.sidebarCollapsed : ''}`}>
+        <div className={styles.sidebarHeader}>
+          <div className={styles.logoArea}>
+            <span className={styles.brandText}>NOIR</span>
+            <span className={styles.brandSub}>ADMIN</span>
+          </div>
+          <button onClick={toggleSidebar} className={styles.toggleBtn} aria-label="Toggle Sidebar">
+            {isCollapsed ? '⮕' : '⬅'}
+          </button>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
-          <AdminReturnsBadge />
-          <AdminPushPrompt />
-          <button
-            onClick={() => setIsFeedbackOpen(true)}
-            className="admin-header-btn"
-            title="Feedback & Support"
-          >
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" />
-            </svg>
-            {unreadCount > 0 && (
-              <span style={{ position: 'absolute', top: '2px', right: '2px', background: 'var(--error)', color: 'white', fontSize: '9px', fontWeight: 'bold', padding: '1px 5px', borderRadius: '10px', boxShadow: '0 2px 6px rgba(0,0,0,0.3)' }}>
-                {unreadCount}
-              </span>
-            )}
+        <nav className={styles.sidebarNav}>
+          {NAV_ITEMS.map((item) => {
+            const isActive = pathname === item.href || pathname.startsWith(item.href + '/');
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                className={`${styles.navLink} ${isActive ? styles.navLinkActive : ''}`}
+                title={item.label}
+              >
+                <span className={styles.navIcon}>{item.icon}</span>
+                <span className={styles.navText}>{item.label}</span>
+              </Link>
+            );
+          })}
+        </nav>
+
+        <div className={styles.sidebarFooter}>
+          <button onClick={() => setIsFeedbackOpen(true)} className={styles.navLink} title="Feedback">
+            <span className={styles.navIcon}>💬</span>
+            <span className={styles.navText}>Feedback</span>
           </button>
-          <button
-            onClick={handleLogout}
-            className="admin-header-btn"
-            title="Logout"
-          >
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
-              <polyline points="16 17 21 12 16 7" />
-              <line x1="21" y1="12" x2="9" y2="12" />
-            </svg>
+          <button onClick={handleLogout} className={styles.navLink} title="Logout">
+            <span className={styles.navIcon}>🚪</span>
+            <span className={styles.navText}>Logout</span>
           </button>
         </div>
+      </aside>
+
+      {/* 2. Main Page Layout */}
+      <div className={`${styles.mainContent} ${isCollapsed ? styles.mainContentCollapsed : ''}`}>
+        <div className="admin-header">
+          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
+            {/* Show simple brand details if sidebar is not present (mobile/webview layout fallback) */}
+            <div className="lg:hidden" style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
+              <span style={{ fontFamily: 'var(--font-serif)', fontSize: '1.25rem', fontWeight: 600, letterSpacing: '0.1em' }}>NOIR</span>
+              <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)', letterSpacing: '0.15em' }}>ADMIN</span>
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
+            <AdminReturnsBadge />
+            <AdminPushPrompt />
+            <button
+              onClick={() => setIsFeedbackOpen(true)}
+              className="admin-header-btn"
+              title="Feedback & Support"
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" />
+              </svg>
+              {unreadCount > 0 && (
+                <span style={{ position: 'absolute', top: '2px', right: '2px', background: 'var(--error)', color: 'white', fontSize: '9px', fontWeight: 'bold', padding: '1px 5px', borderRadius: '10px', boxShadow: '0 2px 6px rgba(0,0,0,0.3)' }}>
+                  {unreadCount}
+                </span>
+              )}
+            </button>
+            <button
+              onClick={handleLogout}
+              className="admin-header-btn"
+              title="Logout"
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+                <polyline points="16 17 21 12 16 7" />
+                <line x1="21" y1="12" x2="9" y2="12" />
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        <AdminRealtimeProvider />
+
+        <div className="admin-content">{children}</div>
       </div>
-
-      <AdminRealtimeProvider />
-
-      <div className="admin-content">{children}</div>
 
       <AdminFeedbackDrawer
         isOpen={isFeedbackOpen}
@@ -118,21 +183,22 @@ export default function AdminShell({
         }
       />
 
-      <nav className="admin-nav">
-        {NAV_ITEMS.map(item => (
-          <Link
-            key={item.href}
-            href={item.href}
-            className={`admin-nav-item ${pathname === item.href || pathname.startsWith(item.href + '/') ? 'admin-nav-item-active' : ''}`}
-          >
-            <span style={{ fontSize: '1.25rem' }}>{item.icon}</span>
-            {item.label}
-          </Link>
-        ))}
+      {/* 3. Bottom Nav Fallback (Mobile Viewports / Webview compat) */}
+      <nav className={styles.bottomNav}>
+        {NAV_ITEMS.map((item) => {
+          const isActive = pathname === item.href || pathname.startsWith(item.href + '/');
+          return (
+            <Link
+              key={item.href}
+              href={item.href}
+              className={`${styles.bottomNavItem} ${isActive ? styles.bottomNavItemActive : ''}`}
+            >
+              <span style={{ fontSize: '1.25rem' }}>{item.icon}</span>
+              {item.label}
+            </Link>
+          );
+        })}
       </nav>
-
-      <div style={{ height: '70px' }} />
-
     </div>
   );
 }
