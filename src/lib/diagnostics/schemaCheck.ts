@@ -55,6 +55,36 @@ export async function runPantherSchemaCheck() {
       console.error('\n❌ [PANTHER_SCHEMA_CHECK] Missing table: admin_fcm_tokens. Expected migration: 028_fcm_tokens\n');
     }
 
+    // 5. Check marketing_events table
+    const { error: marketingEventsErr } = await supabase.from('marketing_events').select('id').limit(1);
+    if (marketingEventsErr && (marketingEventsErr.code === '42P01' || marketingEventsErr.message?.includes('relation'))) {
+      console.error('\n❌ [PANTHER_SCHEMA_CHECK] Missing table: marketing_events. Expected migration: 034_marketing_platform\n');
+    }
+
+    // 6. Check marketing_providers table
+    const { error: marketingProvidersErr } = await supabase.from('marketing_providers').select('id').limit(1);
+    if (marketingProvidersErr && (marketingProvidersErr.code === '42P01' || marketingProvidersErr.message?.includes('relation'))) {
+      console.error('\n❌ [PANTHER_SCHEMA_CHECK] Missing table: marketing_providers. Expected migration: 034_marketing_platform\n');
+    }
+
+    // 7. Check marketing_consent table
+    const { error: marketingConsentErr } = await supabase.from('marketing_consent').select('id').limit(1);
+    if (marketingConsentErr && (marketingConsentErr.code === '42P01' || marketingConsentErr.message?.includes('relation'))) {
+      console.error('\n❌ [PANTHER_SCHEMA_CHECK] Missing table: marketing_consent. Expected migration: 034_marketing_platform\n');
+    }
+
+    // 8. Check marketing_feature_flags table
+    const { error: marketingFlagsErr } = await supabase.from('marketing_feature_flags').select('key').limit(1);
+    if (marketingFlagsErr && (marketingFlagsErr.code === '42P01' || marketingFlagsErr.message?.includes('relation'))) {
+      console.error('\n❌ [PANTHER_SCHEMA_CHECK] Missing table: marketing_feature_flags. Expected migration: 035_marketing_platform_refinement\n');
+    }
+
+    // 9. Check correlation_id column on marketing_events
+    const { error: correlationColErr } = await supabase.from('marketing_events').select('correlation_id').limit(1);
+    if (correlationColErr && (correlationColErr.code === '42703' || correlationColErr.message?.includes('column'))) {
+      console.error('\n❌ [PANTHER_SCHEMA_CHECK] Missing column: marketing_events.correlation_id. Expected migration: 035_marketing_platform_refinement\n');
+    }
+
     console.log('[PANTHER_SCHEMA_CHECK] Database schema health check complete.');
   } catch (err) {
     console.error('[PANTHER_SCHEMA_CHECK] Uncaught exception running schema checker:', err);

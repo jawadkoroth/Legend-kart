@@ -22,6 +22,11 @@ interface DbHealthStats {
   referrals_exists: boolean;
   loyalty_ledger_exists: boolean;
   abandoned_carts_exists: boolean;
+  marketing_events_exists: boolean;
+  marketing_providers_exists: boolean;
+  marketing_consent_exists: boolean;
+  marketing_feature_flags_exists: boolean;
+  events_correlation_exists: boolean;
   // Metrics
   total_tables: number;
   total_functions: number;
@@ -73,6 +78,11 @@ export default async function DatabaseHealthPage({
     referrals_exists: false,
     loyalty_ledger_exists: false,
     abandoned_carts_exists: false,
+    marketing_events_exists: false,
+    marketing_providers_exists: false,
+    marketing_consent_exists: false,
+    marketing_feature_flags_exists: false,
+    events_correlation_exists: false,
     total_tables: 0,
     total_functions: 0,
     total_triggers: 0,
@@ -163,7 +173,12 @@ export default async function DatabaseHealthPage({
     dbStats.gift_cards_exists &&
     dbStats.referrals_exists &&
     dbStats.loyalty_ledger_exists &&
-    dbStats.abandoned_carts_exists
+    dbStats.abandoned_carts_exists &&
+    dbStats.marketing_events_exists &&
+    dbStats.marketing_providers_exists &&
+    dbStats.marketing_consent_exists &&
+    dbStats.marketing_feature_flags_exists &&
+    dbStats.events_correlation_exists
   );
 
   const realtimeEnabled = dbStats.realtime_publication_exists;
@@ -259,6 +274,11 @@ export default async function DatabaseHealthPage({
               { name: 'referrals table', status: dbStats.referrals_exists, migration: '033' },
               { name: 'loyalty_ledger table', status: dbStats.loyalty_ledger_exists, migration: '033' },
               { name: 'abandoned_carts table', status: dbStats.abandoned_carts_exists, migration: '033' },
+              { name: 'marketing_events table', status: dbStats.marketing_events_exists, migration: '034' },
+              { name: 'marketing_providers table', status: dbStats.marketing_providers_exists, migration: '034' },
+              { name: 'marketing_consent table', status: dbStats.marketing_consent_exists, migration: '034' },
+              { name: 'marketing_feature_flags table', status: dbStats.marketing_feature_flags_exists, migration: '035' },
+              { name: 'marketing_events.correlation_id column', status: dbStats.events_correlation_exists, migration: '035' },
             ].map((check) => (
               <div key={check.name} className={styles.statusCard}>
                 <div className={styles.infoCol}>

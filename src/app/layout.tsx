@@ -82,6 +82,7 @@ export const viewport: Viewport = {
 };
 
 import { WishlistProvider } from '@/lib/wishlist';
+import { MarketingProvider } from '@/components/marketing/MarketingProvider';
 
 export default async function RootLayout({
   children,
@@ -122,18 +123,20 @@ export default async function RootLayout({
       <body>
         <PWAProvider>
           <AuthProvider initialUser={user}>
-            <WishlistProvider>
-              <CartProvider>
-                <Navbar />
-                {children}
-                <FooterGate>
-                  <Footer />
-                </FooterGate>
-                <FeedbackButton />
-                <Analytics />
-                <SpeedInsights />
-              </CartProvider>
-            </WishlistProvider>
+            <MarketingProvider>
+              <WishlistProvider>
+                <CartProvider>
+                  <Navbar />
+                  {children}
+                  <FooterGate>
+                    <Footer />
+                  </FooterGate>
+                  <FeedbackButton />
+                  <Analytics />
+                  <SpeedInsights />
+                </CartProvider>
+              </WishlistProvider>
+            </MarketingProvider>
           </AuthProvider>
         </PWAProvider>
       </body>
