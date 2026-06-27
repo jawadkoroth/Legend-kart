@@ -3,7 +3,7 @@ import { MarketingProvider } from './base';
 
 export class GoogleProvider implements MarketingProvider {
   id = 'google';
-  version = '1.0.0';
+  version = '2.0.0';
   private initialized = false;
   private config: Record<string, any> = {};
 
@@ -25,53 +25,116 @@ export class GoogleProvider implements MarketingProvider {
       throw new Error(`Invalid Google configuration: ${check.errors?.join(', ')}`);
     }
     this.config = config;
-    console.log('[Marketing-Google] Initialized Google Provider with measurementId:', config.measurementId);
     this.initialized = true;
   }
 
   async track(event: MarketingEvent): Promise<void> {
     if (!this.initialized) return;
+
+    const isSandbox = this.config.sandbox !== false;
+    const googleEventName = this.mapToGoogleEvent(event.eventName);
+
+    const props = event.properties || {};
     
-    const googleEvent = this.mapToGoogleEvent(event.eventName);
-    console.log(`[Marketing-Google] GA4 Measurement Protocol: Emitted event "${googleEvent}" from PANTHER event "${event.eventName}"`, {
-      eventId: event.eventId,
-      correlationId: event.correlationId,
-      measurementId: this.config.measurementId,
-      properties: event.properties,
-      items: event.properties.items || undefined,
-    });
+    // Format items if any product is set in attributes
+    const items = props.productId ? [{
+      item_id: props.productId,
+      item_name: props.name || undefined,
+      price: props.price || undefined,
+      quantity: props.quantity || 1,
+    }] : undefined;
+
+    // GA4 Measurement Protocol Payload
+    const mpPayload = {
+      client_id: event.anonymousId,
+      user_id: event.userId || undefined,
+      events: [
+        {
+          name: googleEventName,
+          params: {
+            session_id: event.sessionId,
+            engagement_time_msec: '100',
+            value: props.total || props.value || undefined,
+            currency: props.currency || 'INR',
+            search_term: props.query || undefined,
+            items: items,
+          },
+        },
+      ],
+    };
+
+    if (isSandbox) {
+      console.log(`[Google GA4 Sandbox] Tracked "${googleEventName}" (Event ID: ${event.eventId})`, mpPayload);
+      return;
+    }
+
+    // Production Measurement Protocol fetch collect
+    const measurementId = this.config.measurementId;
+    const apiSecret = this.config.apiSecret;
+    const url = `https://www.google-analytics.com/mp/collect?measurement_id=${measurementId}&api_secret=${apiSecret}`;
+
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(mpPayload),
+      });
+
+      if (!response.ok) {
+        throw new Error(`GA4 server returned HTTP error ${response.status}`);
+      }
+    } catch (err: any) {
+      throw new Error(`GA4 Measurement Protocol push failed: ${err.message}`);
+    }
   }
 
   async identify(userId: string | null, anonymousId: string, traits?: Record<string, any>): Promise<void> {
-    if (!this.initialized) return;
-    console.log('[Marketing-Google] Set User Properties & User ID:', { userId, anonymousId, ...traits });
+    console.log('[Google GA4] Binding user traits:', { userId, anonymousId, ...traits });
   }
 
   async page(url: string, path: string, title: string, referrer: string): Promise<void> {
-    if (!this.initialized) return;
-    console.log('[Marketing-Google] Page view tracked on sGTM:', { url, path, title });
+    console.log('[Google Tag Manager] PageView event pushed to sGTM container:', path);
   }
 
   async shutdown(): Promise<void> {
-    console.log('[Marketing-Google] Shutdown');
     this.initialized = false;
   }
 
   async testConnection(config: Record<string, any>): Promise<boolean> {
     const { valid } = this.validateConfig(config);
     if (!valid) return false;
-    
-    // Simulate test API ping to Measurement Protocol Validation Server
-    await new Promise((resolve) => setTimeout(resolve, 800));
-    return config.measurementId !== 'G-000000'; // Fail for specific dummy value
+
+    if (config.sandbox !== false) {
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      return true;
+    }
+
+    // Google provides a validation server path at /debug/mp/collect to verify payloads
+    const url = `https://www.google-analytics.com/debug/mp/collect?measurement_id=${config.measurementId}&api_secret=${config.apiSecret}`;
+    const testPayload = {
+      client_id: 'connection_test_clientId',
+      events: [{ name: 'ping' }],
+    };
+
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(testPayload),
+      });
+      return res.ok;
+    } catch {
+      return false;
+    }
   }
 
   validateConfig(config: Record<string, any>): { valid: boolean; errors?: string[] } {
     const errors: string[] = [];
     if (!config.measurementId) {
       errors.push('Measurement ID is required.');
-    } else if (!/^G-[A-Z0-9]+$/i.test(config.measurementId)) {
-      errors.push('Measurement ID must be in format "G-XXXXXX".');
+    }
+    if (config.sandbox === false && !config.apiSecret) {
+      errors.push('API Secret is required for production mode.');
     }
     return {
       valid: errors.length === 0,

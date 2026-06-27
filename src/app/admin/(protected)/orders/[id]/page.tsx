@@ -45,6 +45,20 @@ interface Order {
   notes: string | null;
   created_at: string;
   updated_at: string;
+  utm_source: string | null;
+  utm_medium: string | null;
+  utm_campaign: string | null;
+  utm_content: string | null;
+  utm_term: string | null;
+  gclid: string | null;
+  fbclid: string | null;
+  landing_page: string | null;
+  first_touch: string | null;
+  last_touch: string | null;
+  referrer: string | null;
+  device: string | null;
+  browser: string | null;
+  country: string | null;
   shipment?: {
     id: string;
     tracking_id: string | null;
@@ -477,6 +491,54 @@ export default function AdminOrderDetail({ params }: { params: Promise<{ id: str
           )}
         </div>
       )}
+
+      {/* Marketing Acquisition & Customer Journey Timeline */}
+      <div className="card" style={{ marginBottom: 'var(--space-4)' }}>
+        <p className="input-label" style={{ marginBottom: 'var(--space-3)' }}>Marketing Acquisition & Traffic Attribution</p>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-4)', fontSize: '0.85rem' }}>
+          <div>
+            <p className="text-muted" style={{ margin: '0 0 2px 0' }}>Channel Source</p>
+            <p style={{ fontWeight: 500, margin: 0 }}>
+              {order.utm_source ? `Source: ${order.utm_source}` : 'Direct / Organic'}
+            </p>
+            {order.utm_campaign && <p className="text-xs text-muted" style={{ margin: '2px 0 0 0' }}>Campaign: {order.utm_campaign}</p>}
+            {order.utm_medium && <p className="text-xs text-muted" style={{ margin: '2px 0 0 0' }}>Medium: {order.utm_medium}</p>}
+          </div>
+          <div>
+            <p className="text-muted" style={{ margin: '0 0 2px 0' }}>Client Device Context</p>
+            <p className="text-xs" style={{ margin: 0 }}>Device: {order.device || 'desktop'}</p>
+            <p className="text-xs" style={{ margin: '2px 0 0 0' }}>Browser: {order.browser || 'Chrome'}</p>
+            {order.gclid && <p className="text-xs text-muted" style={{ margin: '2px 0 0 0' }}>Google Click ID: {order.gclid.slice(0, 10)}...</p>}
+            {order.fbclid && <p className="text-xs text-muted" style={{ margin: '2px 0 0 0' }}>Facebook Click ID: {order.fbclid.slice(0, 10)}...</p>}
+          </div>
+        </div>
+
+        <div style={{ borderTop: '1px solid var(--border-color)', marginTop: 'var(--space-3)', paddingTop: 'var(--space-3)' }}>
+          <p className="text-muted" style={{ margin: '0 0 4px 0', fontSize: '0.75rem', fontWeight: 'bold' }}>Customer Journey Timeline Path</p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '0.75rem', marginTop: '6px' }}>
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+              <span style={{ color: 'var(--accent-gold)' }}>🚀 First Touch:</span>
+              <span><strong>{order.first_touch || 'Direct / Organic'}</strong></span>
+            </div>
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+              <span style={{ color: 'var(--accent-gold)' }}>🔗 Last Touch:</span>
+              <span><strong>{order.last_touch || 'Direct / Organic'}</strong></span>
+            </div>
+            {order.landing_page && (
+              <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                <span>📍 Landing Page:</span>
+                <span className="text-xs text-muted" style={{ wordBreak: 'break-all' }}>{order.landing_page}</span>
+              </div>
+            )}
+            {order.referrer && (
+              <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                <span>🔎 Referral Domain:</span>
+                <span className="text-xs text-muted" style={{ wordBreak: 'break-all' }}>{order.referrer}</span>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
 
       {/* Admin Notes — Premium Internal Thread */}
       <AdminNotes orderId={id} />

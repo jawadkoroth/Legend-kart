@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
 import { useCart } from '@/lib/cart';
+import { getAttributionContext } from '@/lib/marketing/identity';
 import styles from './page.module.css';
 
 /**
@@ -518,6 +519,7 @@ function CheckoutContent() {
           payment_method: paymentMethod,
           coupon_code: couponCode || undefined,
           client_request_id: clientRequestId,
+          attribution: getAttributionContext(),
         }),
       });
 

@@ -334,6 +334,30 @@ async function handlePOST(req: NextRequest) {
     const finalOrderNumber = rpcRow.order_number;
     const wasExisting = rpcRow.was_existing;
 
+    // Persist marketing attribution parameters
+    if (!wasExisting && body.attribution) {
+      const attr = body.attribution;
+      await supabase
+        .from('orders')
+        .update({
+          utm_source: attr.utm_source || null,
+          utm_medium: attr.utm_medium || null,
+          utm_campaign: attr.utm_campaign || null,
+          utm_content: attr.utm_content || null,
+          utm_term: attr.utm_term || null,
+          gclid: attr.gclid || null,
+          fbclid: attr.fbclid || null,
+          landing_page: attr.landing_page || null,
+          first_touch: attr.first_touch || null,
+          last_touch: attr.last_touch || null,
+          referrer: attr.referrer || null,
+          device: attr.device || null,
+          browser: attr.browser || null,
+          country: attr.country || 'India',
+        })
+        .eq('id', orderId);
+    }
+
     logEvent('order.created', {
       order_id: orderId,
       order_number: finalOrderNumber,

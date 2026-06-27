@@ -46,6 +46,37 @@ export function MarketingProvider({ children }: { children: React.ReactNode }) {
     setAnonymousId(anon);
     setSessionId(sess);
     setCorrelationId(corr);
+
+    if (typeof window !== 'undefined') {
+      const searchParams = new URLSearchParams(window.location.search);
+      const utmSource = searchParams.get('utm_source');
+      const gclid = searchParams.get('gclid');
+      const fbclid = searchParams.get('fbclid');
+      const ref = document.referrer;
+      
+      let sourceName = 'Direct / Organic';
+      if (utmSource) {
+        sourceName = `UTM: ${utmSource}`;
+        const campaign = searchParams.get('utm_campaign');
+        if (campaign) sourceName += ` (${campaign})`;
+      } else if (gclid) {
+        sourceName = 'Google Ads (gclid)';
+      } else if (fbclid) {
+        sourceName = 'Facebook Ads (fbclid)';
+      } else if (ref) {
+        try {
+          const refUrl = new URL(ref);
+          sourceName = `Referrer: ${refUrl.hostname}`;
+        } catch {
+          sourceName = `Referrer: ${ref}`;
+        }
+      }
+
+      if (!window.localStorage.getItem('panther_first_touch')) {
+        window.localStorage.setItem('panther_first_touch', sourceName);
+      }
+      window.sessionStorage.setItem('panther_last_touch', sourceName);
+    }
     
     // Fetch active provider configurations from DB
     async function loadProviders() {

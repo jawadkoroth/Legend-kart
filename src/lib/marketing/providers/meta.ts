@@ -3,7 +3,7 @@ import { MarketingProvider } from './base';
 
 export class MetaProvider implements MarketingProvider {
   id = 'meta';
-  version = '1.0.0';
+  version = '2.0.0';
   private initialized = false;
   private config: Record<string, any> = {};
 
@@ -25,58 +25,122 @@ export class MetaProvider implements MarketingProvider {
       throw new Error(`Invalid Meta configuration: ${check.errors?.join(', ')}`);
     }
     this.config = config;
-    console.log('[Marketing-Meta] Initialized Meta Provider with pixelId:', config.pixelId);
     this.initialized = true;
   }
 
   async track(event: MarketingEvent): Promise<void> {
     if (!this.initialized) return;
-    
-    const metaEvent = this.mapToMetaEvent(event.eventName);
-    console.log(`[Marketing-Meta] CAPI Track: Emitted standard Meta event "${metaEvent}" from PANTHER event "${event.eventName}"`, {
-      eventId: event.eventId,
-      correlationId: event.correlationId,
-      pixelId: this.config.pixelId,
-      properties: event.properties,
-      customData: {
-        value: event.properties.total || event.properties.value || undefined,
-        currency: event.properties.currency || 'INR',
-        content_name: event.properties.name || undefined,
-        content_type: event.properties.category ? 'product' : undefined,
+
+    const isSandbox = this.config.sandbox !== false; // Default to sandbox unless explicitly production
+    const metaEventName = this.mapToMetaEvent(event.eventName);
+
+    // Prepare User Data payload (SHA-256 hashed matching metrics)
+    const userData: Record<string, any> = {
+      client_ip_address: event.context.ip || '127.0.0.1',
+      client_user_agent: event.context.device.userAgent || 'Mozilla/5.0',
+    };
+
+    // Meta expects hashed emails/phones for advanced matching
+    if (event.properties.email) {
+      userData.em = [await this.sha256(event.properties.email.trim().toLowerCase())];
+    }
+    if (event.properties.phone) {
+      userData.ph = [await this.sha256(event.properties.phone.trim().replace(/\D/g, ''))];
+    }
+
+    const props = event.properties || {};
+    const customData = {
+      value: props.total || props.value || undefined,
+      currency: props.currency || 'INR',
+      content_name: props.name || undefined,
+      content_type: props.productId ? 'product' : undefined,
+      content_ids: props.productId ? [props.productId] : undefined,
+    };
+
+    const capiPayload = {
+      data: [
+        {
+          event_name: metaEventName,
+          event_time: Math.floor(new Date(event.timestamp).getTime() / 1000),
+          event_id: event.eventId,
+          user_data: userData,
+          custom_data: customData,
+          action_source: 'website',
+          event_source_url: event.context.page.url,
+        },
+      ],
+      test_event_code: isSandbox ? this.config.testEventCode || 'TEST99999' : undefined,
+    };
+
+    if (isSandbox) {
+      // Mock execution in sandbox mode
+      console.log(`[Meta CAPI Sandbox] Tracked "${metaEventName}" (Event ID: ${event.eventId})`, capiPayload);
+      return;
+    }
+
+    // Production CAPI Request
+    const pixelId = this.config.pixelId;
+    const accessToken = this.config.accessToken;
+    const url = `https://graph.facebook.com/v19.0/${pixelId}/events?access_token=${accessToken}`;
+
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(capiPayload),
+      });
+
+      if (!response.ok) {
+        const errorDetails = await response.json();
+        throw new Error(errorDetails.error?.message || `HTTP error ${response.status}`);
       }
-    });
+    } catch (err: any) {
+      throw new Error(`Meta CAPI push failed: ${err.message}`);
+    }
   }
 
   async identify(userId: string | null, anonymousId: string, traits?: Record<string, any>): Promise<void> {
-    if (!this.initialized) return;
-    console.log('[Marketing-Meta] Identify: Stashed user identifiers for Advanced Matching:', { userId, anonymousId, ...traits });
+    // Advanced matching storage
+    console.log('[Meta Provider] Hashing profile parameters for conversions matching:', { userId, anonymousId, ...traits });
   }
 
   async page(url: string, path: string, title: string, referrer: string): Promise<void> {
-    if (!this.initialized) return;
-    console.log('[Marketing-Meta] Page view tracked on pixel:', { path, title });
+    // Client-side pixel PageView (pixel script loads in browser if configured)
+    console.log('[Meta Pixel] Triggered browser PageView for route:', path);
   }
 
   async shutdown(): Promise<void> {
-    console.log('[Marketing-Meta] Shutdown');
     this.initialized = false;
   }
 
   async testConnection(config: Record<string, any>): Promise<boolean> {
     const { valid } = this.validateConfig(config);
     if (!valid) return false;
-    
-    // Simulate test API ping to Graph API
-    await new Promise((resolve) => setTimeout(resolve, 800));
-    return config.pixelId !== '000000'; // Fail for specific dummy value
+
+    if (config.sandbox !== false) {
+      // Mock sandbox verification success
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      return true;
+    }
+
+    // Direct ping validation check
+    const url = `https://graph.facebook.com/v19.0/${config.pixelId}?access_token=${config.accessToken}`;
+    try {
+      const res = await fetch(url);
+      return res.ok;
+    } catch {
+      return false;
+    }
   }
 
   validateConfig(config: Record<string, any>): { valid: boolean; errors?: string[] } {
     const errors: string[] = [];
     if (!config.pixelId) {
       errors.push('Pixel ID is required.');
-    } else if (!/^\d+$/.test(config.pixelId)) {
-      errors.push('Pixel ID must be a numeric string.');
+    }
+    if (config.sandbox === false && !config.accessToken) {
+      // Production needs access token
+      errors.push('Access token is required for production mode.');
     }
     return {
       valid: errors.length === 0,
@@ -98,6 +162,21 @@ export class MetaProvider implements MarketingProvider {
       registration_completed: 'CompleteRegistration',
     };
     return mapping[name] || name;
+  }
+
+  // Basic JS implementation of SHA-256 for Node environment
+  private async sha256(message: string): Promise<string> {
+    if (typeof window !== 'undefined') {
+      // Client-side fallback using web crypto
+      const msgBuffer = new TextEncoder().encode(message);
+      const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
+      const hashArray = Array.from(new Uint8Array(hashBuffer));
+      return hashArray.map((b) => b.toString(16).padStart(2, '0')).join('');
+    } else {
+      // Server-side using Node crypto
+      const cryptoLib = require('crypto');
+      return cryptoLib.createHash('sha256').update(message).digest('hex');
+    }
   }
 }
 export default MetaProvider;

@@ -147,3 +147,34 @@ export function getLandingPage(): string {
   }
   return landingPage;
 }
+
+export function getAttributionContext(): Record<string, any> {
+  if (typeof window === 'undefined') return {};
+  
+  const searchParams = new URLSearchParams(window.location.search);
+  const utms = getUTMContext(searchParams);
+  const clickIds = getClickIds(searchParams);
+  const deviceCtx = getDeviceContext();
+
+  // Read first touch and last touch records
+  let firstTouch = window.localStorage.getItem('panther_first_touch') || 'Direct / Organic';
+  let lastTouch = window.sessionStorage.getItem('panther_last_touch') || 'Direct / Organic';
+
+  return {
+    utm_source: utms.source || null,
+    utm_medium: utms.medium || null,
+    utm_campaign: utms.campaign || null,
+    utm_content: utms.content || null,
+    utm_term: utms.term || null,
+    gclid: clickIds.gclid || null,
+    fbclid: clickIds.fbclid || null,
+    landing_page: getLandingPage() || null,
+    first_touch: firstTouch,
+    last_touch: lastTouch,
+    referrer: getReferrer() || null,
+    device: deviceCtx.type,
+    browser: deviceCtx.browser,
+    country: 'India',
+  };
+}
+

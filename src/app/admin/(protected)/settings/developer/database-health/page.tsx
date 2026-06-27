@@ -27,6 +27,9 @@ interface DbHealthStats {
   marketing_consent_exists: boolean;
   marketing_feature_flags_exists: boolean;
   events_correlation_exists: boolean;
+  orders_attribution_exists: boolean;
+  products_gtin_exists: boolean;
+  audiences_table_exists: boolean;
   // Metrics
   total_tables: number;
   total_functions: number;
@@ -83,6 +86,9 @@ export default async function DatabaseHealthPage({
     marketing_consent_exists: false,
     marketing_feature_flags_exists: false,
     events_correlation_exists: false,
+    orders_attribution_exists: false,
+    products_gtin_exists: false,
+    audiences_table_exists: false,
     total_tables: 0,
     total_functions: 0,
     total_triggers: 0,
@@ -279,6 +285,9 @@ export default async function DatabaseHealthPage({
               { name: 'marketing_consent table', status: dbStats.marketing_consent_exists, migration: '034' },
               { name: 'marketing_feature_flags table', status: dbStats.marketing_feature_flags_exists, migration: '035' },
               { name: 'marketing_events.correlation_id column', status: dbStats.events_correlation_exists, migration: '035' },
+              { name: 'orders.utm_source (attribution) columns', status: dbStats.orders_attribution_exists, migration: '036' },
+              { name: 'products.gtin / brand columns', status: dbStats.products_gtin_exists, migration: '036' },
+              { name: 'marketing_audiences table', status: dbStats.audiences_table_exists, migration: '036' },
             ].map((check) => (
               <div key={check.name} className={styles.statusCard}>
                 <div className={styles.infoCol}>
