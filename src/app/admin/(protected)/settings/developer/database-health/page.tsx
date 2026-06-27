@@ -30,6 +30,12 @@ interface DbHealthStats {
   orders_attribution_exists: boolean;
   products_gtin_exists: boolean;
   audiences_table_exists: boolean;
+  customer_profiles_exists?: boolean;
+  customer_identity_links_exists?: boolean;
+  customer_scores_exists?: boolean;
+  customer_segments_exists?: boolean;
+  customer_activity_summary_exists?: boolean;
+  customer_preferences_exists?: boolean;
   // Metrics
   total_tables: number;
   total_functions: number;
@@ -89,6 +95,12 @@ export default async function DatabaseHealthPage({
     orders_attribution_exists: false,
     products_gtin_exists: false,
     audiences_table_exists: false,
+    customer_profiles_exists: false,
+    customer_identity_links_exists: false,
+    customer_scores_exists: false,
+    customer_segments_exists: false,
+    customer_activity_summary_exists: false,
+    customer_preferences_exists: false,
     total_tables: 0,
     total_functions: 0,
     total_triggers: 0,
@@ -288,6 +300,12 @@ export default async function DatabaseHealthPage({
               { name: 'orders.utm_source (attribution) columns', status: dbStats.orders_attribution_exists, migration: '036' },
               { name: 'products.gtin / brand columns', status: dbStats.products_gtin_exists, migration: '036' },
               { name: 'marketing_audiences table', status: dbStats.audiences_table_exists, migration: '036' },
+              { name: 'customer_profiles table', status: dbStats.customer_profiles_exists, migration: '037' },
+              { name: 'customer_identity_links table', status: dbStats.customer_identity_links_exists, migration: '037' },
+              { name: 'customer_scores table', status: dbStats.customer_scores_exists, migration: '037' },
+              { name: 'customer_segments table', status: dbStats.customer_segments_exists, migration: '037' },
+              { name: 'customer_activity_summary table', status: dbStats.customer_activity_summary_exists, migration: '037' },
+              { name: 'customer_preferences table', status: dbStats.customer_preferences_exists, migration: '037' },
             ].map((check) => (
               <div key={check.name} className={styles.statusCard}>
                 <div className={styles.infoCol}>

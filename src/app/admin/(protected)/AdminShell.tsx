@@ -40,7 +40,7 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { href: '/admin/products', label: 'Products', icon: '👕' },
       { href: '/admin/orders', label: 'Orders', icon: '📦' },
-      { href: '/admin/orders#customers', label: 'Customers', icon: '👥' },
+      { href: '/admin/customers', label: 'Customers', icon: '👥' },
       { href: '/admin/coupons', label: 'Coupons', icon: '🏷️' }
     ]
   },
@@ -369,7 +369,7 @@ export default function AdminShell({
                 <Link href="/admin/products" onClick={() => closeMobileDrawer(true)} className={`${styles.navLink} ${pathname === '/admin/products' ? styles.navLinkActive : ''}`}>
                   <span className={styles.navIcon}>👕</span> <span className={styles.navText}>Products</span>
                 </Link>
-                <Link href="/admin/orders#customers" onClick={() => closeMobileDrawer(true)} className={styles.navLink}>
+                <Link href="/admin/customers" onClick={() => closeMobileDrawer(true)} className={`${styles.navLink} ${pathname.startsWith('/admin/customers') ? styles.navLinkActive : ''}`}>
                   <span className={styles.navIcon}>👥</span> <span className={styles.navText}>Customers</span>
                 </Link>
                 <Link href="/admin/coupons" onClick={() => closeMobileDrawer(true)} className={`${styles.navLink} ${pathname === '/admin/coupons' ? styles.navLinkActive : ''}`}>
