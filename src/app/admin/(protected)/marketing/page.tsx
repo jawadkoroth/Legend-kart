@@ -1,6 +1,7 @@
 import React from 'react';
 import { createAdminClient } from '@/lib/supabase/admin';
 import styles from './marketing-admin.module.css';
+import { InfoTooltip } from '@/components/admin/AdminTooltip';
 
 export const dynamic = 'force-dynamic';
 
@@ -110,12 +111,16 @@ export default async function MarketingOverviewPage() {
           </p>
           <div style={{ display: 'flex', gap: 'var(--space-4)', fontSize: '0.8125rem', color: 'var(--text-muted)' }}>
             <span>Orders: {totalOrdersCount}</span>
-            <span>AOV: ₹{totalOrdersCount > 0 ? Math.floor((totalRevenuePaise / 100) / totalOrdersCount) : 0}</span>
+            <span>
+              AOV <InfoTooltip content="Average Order Value (AOV) is the average amount spent per checkout transaction." />: ₹{totalOrdersCount > 0 ? Math.floor((totalRevenuePaise / 100) / totalOrdersCount) : 0}
+            </span>
           </div>
         </div>
 
         <div className={styles.card}>
-          <span className={styles.label}>ROAS Metrics (Mock Ad Spend)</span>
+          <span className={styles.label}>
+            ROAS Metrics (Mock Ad Spend) <InfoTooltip content="Return on Ad Spend (ROAS) is calculated by dividing marketing revenue by campaign advertising spend." />
+          </span>
           <p style={{ fontSize: '2.2rem', fontWeight: '600', margin: 'var(--space-2) 0', color: 'var(--accent-gold)' }}>
             {roas}x
           </p>

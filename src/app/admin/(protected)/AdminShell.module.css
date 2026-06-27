@@ -321,3 +321,46 @@
     padding-left: 72px;
   }
 }
+
+/* Favorites star and links layout wrapper */
+.navLinkWrapper {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-radius: var(--radius-md);
+  transition: all var(--duration-fast) var(--ease-out);
+  width: 100%;
+}
+
+.navLinkWrapper:hover {
+  background: var(--hover-wash);
+}
+
+.navLinkWrapper .navLink {
+  flex: 1;
+}
+
+.navLinkWrapper .navLink:hover {
+  background: transparent;
+}
+
+.favBtn {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: var(--space-2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity var(--duration-fast) var(--ease-out), transform var(--duration-fast) var(--ease-out);
+}
+
+.favBtn:hover {
+  transform: scale(1.15);
+}
+
+.navLinkWrapper:hover .favBtn {
+  opacity: 1;
+}
+

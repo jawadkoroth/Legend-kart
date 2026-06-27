@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import AdminFeedbackDrawer from '@/components/AdminFeedbackDrawer';
@@ -10,6 +10,31 @@ import AdminReturnsBadge from '@/components/admin/AdminReturnsBadge';
 import { useAuth } from '@/lib/auth/AuthProvider';
 import { createClient } from '@/lib/supabase/client';
 import styles from './AdminShell.module.css';
+import AdminSearchOverlay from '@/components/admin/AdminSearchOverlay';
+import AdminBreadcrumbs from '@/components/admin/AdminBreadcrumbs';
+
+// Import Lucide Icons
+import {
+  Home,
+  ShoppingCart,
+  Tag,
+  Users,
+  Megaphone,
+  Zap,
+  Truck,
+  Ticket,
+  BarChart3,
+  Settings,
+  LayoutDashboard,
+  HelpCircle,
+  LogOut,
+  Star,
+  Search,
+  ChevronDown,
+  ChevronRight,
+  Menu,
+  X
+} from 'lucide-react';
 
 interface NavItem {
   href: string;
@@ -24,58 +49,109 @@ interface NavGroup {
   items: NavItem[];
 }
 
+const ICON_MAP: Record<string, React.ComponentType<any>> = {
+  Home,
+  ShoppingCart,
+  Tag,
+  Users,
+  Megaphone,
+  Zap,
+  Truck,
+  Ticket,
+  BarChart3,
+  Settings,
+  LayoutDashboard,
+  HelpCircle,
+  LogOut
+};
+
 const NAV_GROUPS: NavGroup[] = [
   {
     id: 'dashboard',
     label: 'Dashboard',
-    icon: '🏠',
+    icon: 'Home',
     items: [
-      { href: '/admin/dashboard', label: 'Home', icon: '📊' }
+      { href: '/admin/dashboard', label: 'Home', icon: 'LayoutDashboard' }
     ]
   },
   {
-    id: 'commerce',
-    label: 'Commerce',
-    icon: '🛒',
+    id: 'orders',
+    label: 'Orders',
+    icon: 'ShoppingCart',
     items: [
-      { href: '/admin/products', label: 'Products', icon: '👕' },
-      { href: '/admin/orders', label: 'Orders', icon: '📦' },
-      { href: '/admin/customers', label: 'Customers', icon: '👥' },
-      { href: '/admin/coupons', label: 'Coupons', icon: '🏷️' }
+      { href: '/admin/orders', label: 'All Orders', icon: 'ShoppingCart' },
+      { href: '/admin/orders#returns', label: 'Returns', icon: 'HelpCircle' },
+      { href: '/admin/orders#exchanges', label: 'Exchanges', icon: 'HelpCircle' }
     ]
   },
   {
-    id: 'operations',
-    label: 'Operations',
-    icon: '⚙️',
+    id: 'products',
+    label: 'Products',
+    icon: 'Tag',
     items: [
-      { href: '/admin/shipping', label: 'Shipping', icon: '🚚' },
-      { href: '/admin/orders#returns', label: 'Returns', icon: '🔄' },
-      { href: '/admin/orders#exchanges', label: 'Exchanges', icon: '🔀' }
+      { href: '/admin/products', label: 'Inventory', icon: 'Tag' },
+      { href: '/admin/marketing/catalog-health', label: 'Catalog Quality', icon: 'HelpCircle' }
+    ]
+  },
+  {
+    id: 'customers',
+    label: 'Customers',
+    icon: 'Users',
+    items: [
+      { href: '/admin/customers', label: 'Customer Profiles', icon: 'Users' },
+      { href: '/admin/marketing/audiences', label: 'Segments', icon: 'Users' }
     ]
   },
   {
     id: 'marketing',
     label: 'Marketing',
-    icon: '📈',
+    icon: 'Megaphone',
     items: [
-      { href: '/admin/marketing', label: 'Overview', icon: '📣' },
-      { href: '/admin/marketing/providers', label: 'Meta', icon: '🔌' },
-      { href: '/admin/marketing/providers#google', label: 'Google', icon: '🔌' },
-      { href: '/admin/marketing/settings#crm', label: 'CRM', icon: '👤' },
-      { href: '/admin/marketing/events', label: 'Events', icon: '🔍' },
-      { href: '/admin/marketing/diagnostics', label: 'Diagnostics', icon: '🩺' }
+      { href: '/admin/marketing', label: 'Overview', icon: 'Megaphone' },
+      { href: '/admin/marketing/providers', label: 'Connections', icon: 'Megaphone' },
+      { href: '/admin/marketing/settings', label: 'Settings', icon: 'Settings' }
     ]
   },
   {
-    id: 'system',
-    label: 'System',
-    icon: '🖥️',
+    id: 'automation',
+    label: 'Automation',
+    icon: 'Zap',
     items: [
-      { href: '/admin/dashboard#analytics', label: 'Analytics', icon: '📈' },
-      { href: '/admin/settings/developer/database-health', label: 'Database Health', icon: '🗄️' },
-      { href: '/admin/settings', label: 'Developer', icon: '🛠️' },
-      { href: '/admin/settings#general', label: 'Settings', icon: '⚙️' }
+      { href: '/admin/automation', label: 'Flows', icon: 'Zap' },
+      { href: '/admin/automation/templates', label: 'Templates', icon: 'Zap' },
+      { href: '/admin/automation/executions', label: 'Automation History', icon: 'Zap' }
+    ]
+  },
+  {
+    id: 'shipping',
+    label: 'Shipping',
+    icon: 'Truck',
+    items: [
+      { href: '/admin/shipping', label: 'Overview', icon: 'Truck' }
+    ]
+  },
+  {
+    id: 'coupons',
+    label: 'Coupons',
+    icon: 'Ticket',
+    items: [
+      { href: '/admin/coupons', label: 'Overview', icon: 'Ticket' }
+    ]
+  },
+  {
+    id: 'analytics',
+    label: 'Analytics',
+    icon: 'BarChart3',
+    items: [
+      { href: '/admin/dashboard#analytics', label: 'Overview', icon: 'BarChart3' }
+    ]
+  },
+  {
+    id: 'settings',
+    label: 'Settings',
+    icon: 'Settings',
+    items: [
+      { href: '/admin/settings', label: 'System Settings', icon: 'Settings' }
     ]
   }
 ];
@@ -93,6 +169,15 @@ export default function AdminShell({
   const [unreadCount, setUnreadCount] = useState(initialUnreadCount);
   const [isFeedbackOpen, setIsFeedbackOpen] = useState(false);
   
+  // Search state
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
+
+  // Favorites state
+  const [favorites, setFavorites] = useState<string[]>([]);
+
+  // Role permissions state
+  const [role, setRole] = useState<string | null>(null);
+
   // Responsive States
   const [windowWidth, setWindowWidth] = useState(1200);
   const [isCollapsed, setIsCollapsed] = useState(false); // Desktop Manual Collapse
@@ -102,6 +187,60 @@ export default function AdminShell({
   
   // Accordion state
   const [expandedGroup, setExpandedGroup] = useState<string | null>(null);
+
+  // Load favorites & responsive triggers
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const savedFavs = localStorage.getItem('admin_sidebar_favorites');
+      if (savedFavs) {
+        try {
+          setFavorites(JSON.parse(savedFavs));
+        } catch {}
+      }
+    }
+  }, []);
+
+  // Fetch admin role & react to role updates (supporting developers overrides)
+  useEffect(() => {
+    const fetchRole = () => {
+      if (user) {
+        const mocked = localStorage.getItem('panther_mock_role');
+        if (mocked) {
+          setRole(mocked);
+          return;
+        }
+        const supabase = createClient();
+        supabase
+          .from('admin_users')
+          .select('role')
+          .eq('id', user.id)
+          .maybeSingle()
+          .then(({ data }) => {
+            if (data) {
+              setRole(data.role || 'admin');
+            }
+          });
+      } else {
+        setRole(null);
+      }
+    };
+
+    fetchRole();
+    window.addEventListener('storage', fetchRole);
+    return () => window.removeEventListener('storage', fetchRole);
+  }, [user]);
+
+  // Command palette listener
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+        e.preventDefault();
+        setIsSearchOpen((prev) => !prev);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
 
   // Resize Listener
   useEffect(() => {
@@ -170,13 +309,6 @@ export default function AdminShell({
     }
   };
 
-  const closeFeedbackDrawer = () => {
-    setIsFeedbackOpen(false);
-    if (window.history.state?.feedbackOpen) {
-      window.history.back();
-    }
-  };
-
   const toggleSidebar = () => {
     setIsCollapsed((prev) => {
       const next = !prev;
@@ -194,7 +326,6 @@ export default function AdminShell({
   };
 
   const toggleGroup = (groupId: string) => {
-    // If sidebar is collapsed, expand it
     if (isDesktop && isCollapsed) {
       setIsCollapsed(false);
       localStorage.setItem('admin_sidebar_collapsed', 'false');
@@ -212,6 +343,16 @@ export default function AdminShell({
       }
       return next;
     });
+  };
+
+  const toggleFavorite = (href: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    e.preventDefault();
+    const next = favorites.includes(href)
+      ? favorites.filter(x => x !== href)
+      : [...favorites, href];
+    setFavorites(next);
+    localStorage.setItem('admin_sidebar_favorites', JSON.stringify(next));
   };
 
   const handleLogout = async () => {
@@ -256,6 +397,27 @@ export default function AdminShell({
     ? (isHovered || isPinned)
     : false;
 
+  // Role permissions menu filtering
+  const visibleGroups = NAV_GROUPS.filter((group) => {
+    if (!role) return true; // Default show all until loaded
+    const lowerRole = role.toLowerCase();
+    if (lowerRole === 'owner' || lowerRole === 'admin') return true;
+
+    if (lowerRole === 'marketing') {
+      return ['dashboard', 'customers', 'marketing', 'automation', 'coupons', 'analytics'].includes(group.id);
+    }
+    if (lowerRole === 'support') {
+      return ['dashboard', 'orders', 'customers'].includes(group.id);
+    }
+    if (lowerRole === 'warehouse') {
+      return ['orders', 'products', 'shipping'].includes(group.id);
+    }
+    if (lowerRole === 'developer') {
+      return ['dashboard', 'settings'].includes(group.id);
+    }
+    return true;
+  });
+
   return (
     <div className={styles.adminLayout}>
       
@@ -275,18 +437,62 @@ export default function AdminShell({
             {/* Action buttons based on viewport */}
             {isDesktop ? (
               <button onClick={toggleSidebar} className={styles.toggleBtn} aria-label="Toggle Sidebar">
-                {isCollapsed ? '⮕' : '⬅'}
+                {isCollapsed ? <ChevronRight size={16} /> : <ChevronDown size={16} style={{ transform: 'rotate(90deg)' }} />}
               </button>
             ) : isTablet ? (
               <button onClick={togglePin} className={styles.toggleBtn} title={isPinned ? 'Unpin Sidebar' : 'Pin Sidebar'}>
-                {isPinned ? '📌' : '📍'}
+                📌
               </button>
             ) : null}
           </div>
 
           <nav className={styles.sidebarNav}>
-            {NAV_GROUPS.map((group) => {
+            
+            {/* Favorites Category Header */}
+            {favorites.length > 0 && (
+              <div className={styles.navGroupContainer} style={{ marginBottom: 'var(--space-2)' }}>
+                <div className={styles.groupHeader} style={{ cursor: 'default', color: 'var(--accent-gold)' }}>
+                  <Star size={16} fill="var(--accent-gold)" style={{ color: 'var(--accent-gold)' }} />
+                  {shouldBeExpanded && (
+                    <span className={styles.groupText} style={{ fontSize: '0.75rem', fontWeight: 700 }}>Favorites</span>
+                  )}
+                </div>
+                {shouldBeExpanded && (
+                  <div className={styles.groupItems} style={{ borderLeft: '1px solid rgba(201,168,106,0.15)', paddingLeft: '12px' }}>
+                    {visibleGroups
+                      .flatMap(g => g.items)
+                      .filter(item => favorites.includes(item.href))
+                      .map((item) => {
+                        const Icon = ICON_MAP[item.icon] || HelpCircle;
+                        const isActive = pathname === item.href;
+                        return (
+                          <div key={`fav-${item.href}`} className={styles.navLinkWrapper}>
+                            <Link
+                              href={item.href}
+                              className={`${styles.navLink} ${isActive ? styles.navLinkActive : ''}`}
+                            >
+                              <Icon size={14} />
+                              <span className={styles.navText}>{item.label}</span>
+                            </Link>
+                            <button
+                              onClick={(e) => toggleFavorite(item.href, e)}
+                              className={styles.favBtn}
+                              title="Unfavorite"
+                            >
+                              <Star size={11} fill="var(--accent-gold)" style={{ color: 'var(--accent-gold)' }} />
+                            </button>
+                          </div>
+                        );
+                      })}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Normal Categories List */}
+            {visibleGroups.map((group) => {
               const isGroupExpanded = expandedGroup === group.id;
+              const GroupIcon = ICON_MAP[group.icon] || HelpCircle;
               
               return (
                 <div key={group.id} className={styles.navGroupContainer}>
@@ -296,11 +502,15 @@ export default function AdminShell({
                     onClick={() => toggleGroup(group.id)}
                     title={group.label}
                   >
-                    <span className={styles.navIcon}>{group.icon}</span>
+                    <span className={styles.navIcon} style={{ display: 'flex', alignItems: 'center' }}>
+                      <GroupIcon size={18} />
+                    </span>
                     {shouldBeExpanded && (
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
                         <span className={styles.groupText}>{group.label}</span>
-                        <span className={styles.groupArrow}>{isGroupExpanded ? '▼' : '▶'}</span>
+                        <span className={styles.groupArrow}>
+                          {isGroupExpanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+                        </span>
                       </div>
                     )}
                   </button>
@@ -309,16 +519,30 @@ export default function AdminShell({
                   {shouldBeExpanded && isGroupExpanded && (
                     <div className={styles.groupItems}>
                       {group.items.map((item) => {
+                        const ItemIcon = ICON_MAP[item.icon] || HelpCircle;
                         const isActive = pathname === item.href || pathname.startsWith(item.href + '/');
+                        const isFav = favorites.includes(item.href);
                         return (
-                          <Link
-                            key={item.href}
-                            href={item.href}
-                            className={`${styles.navLink} ${isActive ? styles.navLinkActive : ''}`}
-                          >
-                            <span className={styles.navIcon} style={{ fontSize: '1rem' }}>{item.icon}</span>
-                            <span className={styles.navText}>{item.label}</span>
-                          </Link>
+                          <div key={item.href} className={styles.navLinkWrapper}>
+                            <Link
+                              href={item.href}
+                              className={`${styles.navLink} ${isActive ? styles.navLinkActive : ''}`}
+                            >
+                              <ItemIcon size={14} />
+                              <span className={styles.navText}>{item.label}</span>
+                            </Link>
+                            <button
+                              onClick={(e) => toggleFavorite(item.href, e)}
+                              className={styles.favBtn}
+                              title={isFav ? "Remove from favorites" : "Pin to favorites"}
+                            >
+                              <Star 
+                                size={11} 
+                                fill={isFav ? 'var(--accent-gold)' : 'none'} 
+                                style={{ color: isFav ? 'var(--accent-gold)' : 'var(--text-muted)' }} 
+                              />
+                            </button>
+                          </div>
                         );
                       })}
                     </div>
@@ -329,12 +553,12 @@ export default function AdminShell({
           </nav>
 
           <div className={styles.sidebarFooter}>
-            <button onClick={() => setIsFeedbackOpen(true)} className={styles.navLink} title="Feedback">
-              <span className={styles.navIcon}>💬</span>
+            <button onClick={() => setIsFeedbackOpen(true)} className={styles.navLink} title="Feedback" style={{ width: '100%' }}>
+              <HelpCircle size={16} />
               <span className={styles.navText}>Feedback</span>
             </button>
-            <button onClick={handleLogout} className={styles.navLink} title="Logout">
-              <span className={styles.navIcon}>🚪</span>
+            <button onClick={handleLogout} className={styles.navLink} title="Logout" style={{ width: '100%', marginTop: '4px' }}>
+              <LogOut size={16} />
               <span className={styles.navText}>Logout</span>
             </button>
           </div>
@@ -344,76 +568,67 @@ export default function AdminShell({
       {/* 2. Mobile Drawer Navigation Panel */}
       {isMobile && isMobileOpen && (
         <>
-          {/* Backdrop Overlay with Blur */}
           <div className={styles.drawerOverlay} onClick={() => closeMobileDrawer()} />
 
-          {/* Slide Drawer Content */}
           <div className={styles.drawerContent}>
             <div className={styles.drawerHeader}>
               <div className={styles.logoArea}>
                 <span className={styles.brandText} style={{ opacity: 1 }}>NOIR</span>
                 <span className={styles.brandSub} style={{ opacity: 1 }}>ADMIN</span>
               </div>
-              <button className={styles.closeBtn} onClick={() => closeMobileDrawer()} aria-label="Close Menu">✕</button>
+              <button className={styles.closeBtn} onClick={() => closeMobileDrawer()} aria-label="Close Menu">
+                <X size={20} />
+              </button>
             </div>
 
-            <nav className={styles.drawerNav}>
-              {/* Primary Actions */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                <Link href="/admin/dashboard" onClick={() => closeMobileDrawer(true)} className={`${styles.navLink} ${pathname === '/admin/dashboard' ? styles.navLinkActive : ''}`}>
-                  <span className={styles.navIcon}>🏠</span> <span className={styles.navText}>Dashboard</span>
-                </Link>
-                <Link href="/admin/orders" onClick={() => closeMobileDrawer(true)} className={`${styles.navLink} ${pathname === '/admin/orders' ? styles.navLinkActive : ''}`}>
-                  <span className={styles.navIcon}>📦</span> <span className={styles.navText}>Orders</span>
-                </Link>
-                <Link href="/admin/products" onClick={() => closeMobileDrawer(true)} className={`${styles.navLink} ${pathname === '/admin/products' ? styles.navLinkActive : ''}`}>
-                  <span className={styles.navIcon}>👕</span> <span className={styles.navText}>Products</span>
-                </Link>
-                <Link href="/admin/customers" onClick={() => closeMobileDrawer(true)} className={`${styles.navLink} ${pathname.startsWith('/admin/customers') ? styles.navLinkActive : ''}`}>
-                  <span className={styles.navIcon}>👥</span> <span className={styles.navText}>Customers</span>
-                </Link>
-                <Link href="/admin/coupons" onClick={() => closeMobileDrawer(true)} className={`${styles.navLink} ${pathname === '/admin/coupons' ? styles.navLinkActive : ''}`}>
-                  <span className={styles.navIcon}>🏷️</span> <span className={styles.navText}>Coupons</span>
-                </Link>
-                <Link href="/admin/shipping" onClick={() => closeMobileDrawer(true)} className={`${styles.navLink} ${pathname === '/admin/shipping' ? styles.navLinkActive : ''}`}>
-                  <span className={styles.navIcon}>🚚</span> <span className={styles.navText}>Shipping</span>
-                </Link>
-                <Link href="/admin/marketing" onClick={() => closeMobileDrawer(true)} className={`${styles.navLink} ${pathname.startsWith('/admin/marketing') ? styles.navLinkActive : ''}`}>
-                  <span className={styles.navIcon}>📈</span> <span className={styles.navText}>Marketing</span>
-                </Link>
-                <Link href="/admin/settings" onClick={() => closeMobileDrawer(true)} className={`${styles.navLink} ${pathname === '/admin/settings' ? styles.navLinkActive : ''}`}>
-                  <span className={styles.navIcon}>⚙️</span> <span className={styles.navText}>Settings</span>
-                </Link>
-              </div>
-
-              <div className={styles.drawerDivider} />
-
-              {/* Secondary Actions */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                <Link href="/admin/settings" onClick={() => closeMobileDrawer(true)} className={styles.navLink}>
-                  🛠️ Developer Tools
-                </Link>
-                <Link href="/admin/marketing/diagnostics" onClick={() => closeMobileDrawer(true)} className={styles.navLink}>
-                  🩺 Diagnostics
-                </Link>
-                <Link href="/admin/settings/developer/database-health" onClick={() => closeMobileDrawer(true)} className={styles.navLink}>
-                  🗄️ Database Health
-                </Link>
-                <Link href="/admin/marketing/events" onClick={() => closeMobileDrawer(true)} className={styles.navLink}>
-                  🔍 System Logs
-                </Link>
-                <Link href="/admin/marketing/settings" onClick={() => closeMobileDrawer(true)} className={styles.navLink}>
-                  🚩 Feature Flags
-                </Link>
-              </div>
+            <nav className={styles.drawerNav} style={{ flex: 1, overflowY: 'auto', padding: '16px 8px' }}>
+              {visibleGroups.map((group) => {
+                const isGroupExpanded = expandedGroup === `mobile-${group.id}`;
+                const GroupIcon = ICON_MAP[group.icon] || HelpCircle;
+                
+                return (
+                  <div key={`mob-${group.id}`} className={styles.navGroupContainer} style={{ marginBottom: '8px' }}>
+                    <button
+                      className={styles.groupHeader}
+                      onClick={() => setExpandedGroup(isGroupExpanded ? null : `mobile-${group.id}`)}
+                      style={{ width: '100%', display: 'flex', alignItems: 'center', background: 'rgba(255,255,255,0.01)' }}
+                    >
+                      <GroupIcon size={18} />
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', marginLeft: '12px' }}>
+                        <span className={styles.groupText} style={{ fontSize: '0.85rem' }}>{group.label}</span>
+                        <span>{isGroupExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}</span>
+                      </div>
+                    </button>
+                    {isGroupExpanded && (
+                      <div className={styles.groupItems} style={{ paddingLeft: '24px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                        {group.items.map((item) => {
+                          const ItemIcon = ICON_MAP[item.icon] || HelpCircle;
+                          const isActive = pathname === item.href;
+                          return (
+                            <Link
+                              key={`mob-item-${item.href}`}
+                              href={item.href}
+                              onClick={() => closeMobileDrawer(true)}
+                              className={`${styles.navLink} ${isActive ? styles.navLinkActive : ''}`}
+                            >
+                              <ItemIcon size={14} />
+                              <span className={styles.navText}>{item.label}</span>
+                            </Link>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </nav>
             
-            <div className={styles.drawerFooter}>
-              <button onClick={() => { closeMobileDrawer(true); setIsFeedbackOpen(true); }} className={styles.navLink}>
-                <span className={styles.navIcon}>💬</span> Feedback
+            <div className={styles.drawerFooter} style={{ borderTop: '1px solid var(--border-color)', padding: '12px 16px' }}>
+              <button onClick={() => { closeMobileDrawer(true); setIsFeedbackOpen(true); }} className={styles.navLink} style={{ width: '100%' }}>
+                <HelpCircle size={16} /> <span className={styles.navText}>Feedback</span>
               </button>
-              <button onClick={() => { closeMobileDrawer(true); handleLogout(); }} className={styles.navLink}>
-                <span className={styles.navIcon}>🚪</span> Logout
+              <button onClick={() => { closeMobileDrawer(true); handleLogout(); }} className={styles.navLink} style={{ width: '100%', marginTop: '6px' }}>
+                <LogOut size={16} /> <span className={styles.navText}>Logout</span>
               </button>
             </div>
           </div>
@@ -426,38 +641,51 @@ export default function AdminShell({
         {/* Dynamic Responsive Header */}
         <header className="admin-header">
           <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-4)' }}>
-            {/* Hamburger Button for Mobile */}
             {isMobile && (
               <button onClick={() => setIsMobileOpen(true)} className={styles.hamburgerBtn} aria-label="Open Navigation Drawer">
-                ☰
+                <Menu size={20} />
               </button>
             )}
 
-            {/* Title / Brand details */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
               <span style={{ fontFamily: 'var(--font-serif)', fontSize: '1.25rem', fontWeight: 600, letterSpacing: '0.1em' }}>NOIR</span>
               <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)', letterSpacing: '0.15em' }}>ADMIN</span>
+              {role && (
+                <span 
+                  style={{ 
+                    fontSize: '9px', 
+                    background: 'rgba(212,175,55,0.1)', 
+                    color: 'var(--accent-gold)', 
+                    padding: '1px 5px', 
+                    borderRadius: '3px',
+                    border: '1px solid rgba(212,175,55,0.2)',
+                    marginLeft: '8px',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.05em'
+                  }}
+                  title="Current Access Permission Role"
+                >
+                  {role}
+                </span>
+              )}
             </div>
           </div>
 
           {/* Top Right Utility Actions */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)' }}>
             
-            {/* Search Placeholder Trigger */}
-            <button className="admin-header-btn" title="Search catalog" onClick={() => alert('Search functionality initialized.')}>
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-                <circle cx="11" cy="11" r="8" />
-                <line x1="21" y1="21" x2="16.65" y2="16.65" />
-              </svg>
+            {/* Global Search command trigger button */}
+            <button className="admin-header-btn" title="Global Search (Ctrl+K)" onClick={() => setIsSearchOpen(true)}>
+              <Search size={18} />
             </button>
 
-            {/* Notifications / Support Feedback */}
+            {/* Notifications & support requests feedback */}
             <button
               onClick={() => setIsFeedbackOpen(true)}
               className="admin-header-btn"
               title="Notifications & Feedback"
             >
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ width: '18px', height: '18px' }}>
                 <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
                 <path d="M13.73 21a2 2 0 0 1-3.46 0" />
               </svg>
@@ -468,11 +696,9 @@ export default function AdminShell({
               )}
             </button>
 
-            {/* Returns and Push Notifications config badges */}
             <AdminReturnsBadge />
             <AdminPushPrompt />
 
-            {/* Profile Avatar Badge */}
             <div
               style={{
                 width: '32px',
@@ -490,27 +716,26 @@ export default function AdminShell({
               }}
               title={user?.email || 'Admin Profile'}
             >
-              A
+              {user?.email ? user.email.charAt(0).toUpperCase() : 'A'}
             </div>
 
-            {/* Logout button */}
             <button
               onClick={handleLogout}
               className="admin-header-btn"
               title="Logout"
             >
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
-                <polyline points="16 17 21 12 16 7" />
-                <line x1="21" y1="12" x2="9" y2="12" />
-              </svg>
+              <LogOut size={18} />
             </button>
           </div>
         </header>
 
         <AdminRealtimeProvider />
 
-        <div className="admin-content">{children}</div>
+        <div className="admin-content">
+          {/* Breadcrumb Rail rendered on all child pages */}
+          <AdminBreadcrumbs />
+          {children}
+        </div>
       </div>
 
       <AdminFeedbackDrawer
@@ -520,6 +745,11 @@ export default function AdminShell({
           setUnreadCount(prev => Math.max(0, prev + delta))
         }
       />
+
+      {/* Ctrl+K Search Overlay */}
+      {isSearchOpen && (
+        <AdminSearchOverlay onClose={() => setIsSearchOpen(false)} />
+      )}
     </div>
   );
 }

@@ -42,11 +42,11 @@ export default function MarketingAdminLayout({
   }, []);
 
   const TABS = [
-    { id: 'overview', label: '📊 Overview', href: '/admin/marketing' },
-    { id: 'providers', label: '🔌 Providers', href: '/admin/marketing/providers' },
-    { id: 'events', label: '🔍 Event Inspector', href: '/admin/marketing/events' },
-    { id: 'diagnostics', label: '🩺 Diagnostics', href: '/admin/marketing/diagnostics' },
-    { id: 'settings', label: '⚙️ Settings', href: '/admin/marketing/settings' },
+    { id: 'overview', label: 'Overview', href: '/admin/marketing' },
+    { id: 'providers', label: 'Connections', href: '/admin/marketing/providers' },
+    { id: 'events', label: 'Event Library', href: '/admin/marketing/events' },
+    { id: 'diagnostics', label: 'Diagnostics', href: '/admin/marketing/diagnostics' },
+    { id: 'settings', label: 'Settings', href: '/admin/marketing/settings' },
   ];
 
   // Colors based on health score

@@ -117,6 +117,16 @@ export async function POST(req: NextRequest) {
       return apiError(500, 'Failed to persist event');
     }
 
+    // 3b. Trigger matching workflows in the automation engine (non-blocking)
+    try {
+      const { triggerWorkflows } = await import('@/lib/workflow/engine');
+      void triggerWorkflows(event.eventName, event, supabase).catch(err => {
+        console.error('[MARKETING_EVENTS_API] Workflows trigger unhandled error:', err);
+      });
+    } catch (err) {
+      console.error('[MARKETING_EVENTS_API] Workflows engine trigger import/start error:', err);
+    }
+
     // 4. Fetch enabled providers
     const { data: dbProviders } = await supabase
       .from('marketing_providers')

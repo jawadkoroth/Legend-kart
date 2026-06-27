@@ -73,6 +73,16 @@ const handlers: Record<string, JobHandler> = {
       throw new Error(`push fan-out errored: ${result.errored} subs`);
     }
   },
+
+  // ---- workflow.* --------------------------------------------------
+  'workflow.resume': async (payload, supabase) => {
+    const { executionId, resumeNodeId } = payload as { executionId?: string; resumeNodeId?: string };
+    if (!executionId || !resumeNodeId) {
+      throw new Error('workflow.resume job payload missing executionId or resumeNodeId');
+    }
+    const { resumeWorkflowExecution } = await import('@/lib/workflow/engine');
+    await resumeWorkflowExecution(executionId, resumeNodeId, supabase);
+  },
 };
 
 export function getHandler(kind: string): JobHandler | undefined {
