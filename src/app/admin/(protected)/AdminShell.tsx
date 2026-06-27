@@ -493,7 +493,32 @@ export default function AdminShell({
             {visibleGroups.map((group) => {
               const isGroupExpanded = expandedGroup === group.id;
               const GroupIcon = ICON_MAP[group.icon] || HelpCircle;
-              
+              const hasSingleItem = group.items.length === 1;
+
+              if (hasSingleItem) {
+                const singleItem = group.items[0];
+                const isActive = pathname === singleItem.href || pathname.startsWith(singleItem.href + '/');
+                return (
+                  <div key={group.id} className={styles.navGroupContainer}>
+                    <Link
+                      href={singleItem.href}
+                      className={`${styles.navLink} ${isActive ? styles.navLinkActive : ''}`}
+                      title={group.label}
+                      style={{ padding: 'var(--space-3) var(--space-4)', display: 'flex', alignItems: 'center' }}
+                    >
+                      <span className={styles.navIcon} style={{ display: 'flex', alignItems: 'center' }}>
+                        <GroupIcon size={18} />
+                      </span>
+                      {shouldBeExpanded && (
+                        <span className={styles.navText} style={{ fontWeight: 600, fontSize: '0.8125rem', textTransform: 'uppercase', letterSpacing: '0.05em', marginLeft: '12px' }}>
+                          {group.label}
+                        </span>
+                      )}
+                    </Link>
+                  </div>
+                );
+              }
+
               return (
                 <div key={group.id} className={styles.navGroupContainer}>
                   {/* Group Header Trigger */}
@@ -585,7 +610,26 @@ export default function AdminShell({
               {visibleGroups.map((group) => {
                 const isGroupExpanded = expandedGroup === `mobile-${group.id}`;
                 const GroupIcon = ICON_MAP[group.icon] || HelpCircle;
-                
+                const hasSingleItem = group.items.length === 1;
+
+                if (hasSingleItem) {
+                  const singleItem = group.items[0];
+                  const isActive = pathname === singleItem.href || pathname.startsWith(singleItem.href + '/');
+                  return (
+                    <div key={`mob-${group.id}`} className={styles.navGroupContainer} style={{ marginBottom: '8px' }}>
+                      <Link
+                        href={singleItem.href}
+                        onClick={() => closeMobileDrawer(true)}
+                        className={`${styles.navLink} ${isActive ? styles.navLinkActive : ''}`}
+                        style={{ display: 'flex', alignItems: 'center', padding: 'var(--space-3) var(--space-4)' }}
+                      >
+                        <GroupIcon size={18} />
+                        <span className={styles.navText} style={{ marginLeft: '12px', fontSize: '0.85rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>{group.label}</span>
+                      </Link>
+                    </div>
+                  );
+                }
+
                 return (
                   <div key={`mob-${group.id}`} className={styles.navGroupContainer} style={{ marginBottom: '8px' }}>
                     <button
@@ -650,24 +694,6 @@ export default function AdminShell({
             <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
               <span style={{ fontFamily: 'var(--font-serif)', fontSize: '1.25rem', fontWeight: 600, letterSpacing: '0.1em' }}>NOIR</span>
               <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)', letterSpacing: '0.15em' }}>ADMIN</span>
-              {role && (
-                <span 
-                  style={{ 
-                    fontSize: '9px', 
-                    background: 'rgba(212,175,55,0.1)', 
-                    color: 'var(--accent-gold)', 
-                    padding: '1px 5px', 
-                    borderRadius: '3px',
-                    border: '1px solid rgba(212,175,55,0.2)',
-                    marginLeft: '8px',
-                    textTransform: 'uppercase',
-                    letterSpacing: '0.05em'
-                  }}
-                  title="Current Access Permission Role"
-                >
-                  {role}
-                </span>
-              )}
             </div>
           </div>
 
@@ -695,29 +721,6 @@ export default function AdminShell({
                 </span>
               )}
             </button>
-
-            <AdminReturnsBadge />
-            <AdminPushPrompt />
-
-            <div
-              style={{
-                width: '32px',
-                height: '32px',
-                borderRadius: '50%',
-                background: 'rgba(212,175,55,0.1)',
-                border: '1px solid var(--accent-gold)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                fontSize: '0.8rem',
-                fontWeight: 'bold',
-                color: 'var(--accent-gold)',
-                cursor: 'pointer'
-              }}
-              title={user?.email || 'Admin Profile'}
-            >
-              {user?.email ? user.email.charAt(0).toUpperCase() : 'A'}
-            </div>
 
             <button
               onClick={handleLogout}
