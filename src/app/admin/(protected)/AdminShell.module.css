@@ -5,7 +5,7 @@
   background: var(--bg-primary);
 }
 
-/* Sidebar for desktop */
+/* Sidebar structure */
 .sidebar {
   display: none;
   background: var(--bg-secondary);
@@ -17,12 +17,18 @@
   left: 0;
   flex-direction: column;
   z-index: 100;
-  transition: width var(--duration-normal) var(--ease-out);
+  transition: width var(--duration-normal) var(--ease-out), box-shadow var(--duration-normal) var(--ease-out);
   overflow-x: hidden;
 }
 
 .sidebarCollapsed {
   width: 72px;
+}
+
+/* Tablet floating overlay state */
+.sidebarHoverExpanded {
+  width: 240px;
+  box-shadow: 10px 0 25px rgba(0, 0, 0, 0.4);
 }
 
 .sidebarHeader {
@@ -32,6 +38,7 @@
   padding: var(--space-4) var(--space-5);
   height: 64px;
   border-bottom: 1px solid var(--border-color);
+  white-space: nowrap;
 }
 
 .logoArea {
@@ -72,7 +79,7 @@
   background: none;
   border: none;
   color: var(--text-muted);
-  font-size: 1.125rem;
+  font-size: 1rem;
   cursor: pointer;
   padding: var(--space-1);
   border-radius: var(--radius-sm);
@@ -91,18 +98,67 @@
   display: flex;
   flex-direction: column;
   padding: var(--space-4) var(--space-2);
-  gap: var(--space-1);
+  gap: var(--space-3);
   flex: 1;
+  overflow-y: auto;
+}
+
+/* Accordion Nav Groups */
+.navGroupContainer {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.groupHeader {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  transition: all var(--duration-fast) var(--ease-out);
+  width: 100%;
+}
+
+.groupHeader:hover {
+  background: var(--hover-wash);
+  color: var(--text-primary);
+}
+
+.groupText {
+  flex: 1;
+}
+
+.groupArrow {
+  font-size: 0.6rem;
+  color: var(--text-muted);
+}
+
+.groupItems {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-left: var(--space-4);
+  margin-top: 2px;
 }
 
 .navLink {
   display: flex;
   align-items: center;
   gap: var(--space-4);
-  padding: var(--space-3) var(--space-4);
+  padding: var(--space-2) var(--space-4);
   border-radius: var(--radius-md);
   color: var(--text-muted);
-  font-size: 0.875rem;
+  font-size: 0.85rem;
   font-weight: 500;
   transition: all var(--duration-fast) var(--ease-out);
   white-space: nowrap;
@@ -117,11 +173,11 @@
 .navLinkActive {
   background: var(--hover-wash-strong);
   color: var(--text-primary);
-  border-left: 3px solid var(--accent-gold);
+  border-left: 2px solid var(--accent-gold);
 }
 
 .navIcon {
-  font-size: 1.25rem;
+  font-size: 1.15rem;
   width: 24px;
   display: flex;
   align-items: center;
@@ -132,9 +188,96 @@
   transition: opacity var(--duration-fast) var(--ease-out);
 }
 
-.sidebarCollapsed .navText {
-  opacity: 0;
-  pointer-events: none;
+.sidebarFooter {
+  border-top: 1px solid var(--border-color);
+  padding: var(--space-3) var(--space-2);
+}
+
+.sidebarCollapsed .sidebarFooter button span:last-child {
+  display: none;
+}
+
+/* Mobile Hamburger Button */
+.hamburgerBtn {
+  background: none;
+  border: none;
+  color: var(--text-primary);
+  font-size: 1.5rem;
+  cursor: pointer;
+  padding: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Mobile Drawer Overlay */
+.drawerOverlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  z-index: 199;
+  animation: fadeIn var(--duration-fast) var(--ease-out);
+}
+
+/* Mobile Drawer Content Box */
+.drawerContent {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 82%;
+  max-width: 320px;
+  height: 100vh;
+  background: var(--bg-secondary);
+  border-right: 1px solid var(--border-color);
+  z-index: 200;
+  display: flex;
+  flex-direction: column;
+  animation: slideIn var(--duration-normal) var(--ease-out);
+}
+
+.drawerHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-4) var(--space-5);
+  height: 64px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.closeBtn {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 1.25rem;
+  cursor: pointer;
+}
+
+.drawerNav {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--space-4) var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.drawerDivider {
+  height: 1px;
+  background: var(--border-color);
+  margin: var(--space-2) 0;
+}
+
+.drawerFooter {
+  border-top: 1px solid var(--border-color);
+  padding: var(--space-4) var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
 }
 
 .mainContent {
@@ -142,55 +285,38 @@
   display: flex;
   flex-direction: column;
   transition: padding-left var(--duration-normal) var(--ease-out);
-  padding-bottom: 80px; /* Spacer for mobile bottom nav fallback */
 }
 
-/* Bottom Nav for Mobile viewports */
-.bottomNav {
-  display: flex;
-  border-top: 1px solid var(--border-color);
-  background: var(--bg-secondary);
-  position: fixed;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  z-index: 50;
-  padding-bottom: env(safe-area-inset-bottom);
+/* Animations */
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
-.bottomNavItem {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--space-1);
-  padding: var(--space-3) var(--space-2);
-  font-size: 0.6875rem;
-  color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  text-decoration: none;
-  transition: all var(--duration-fast) var(--ease-out);
+@keyframes slideIn {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(0); }
 }
 
-.bottomNavItemActive {
-  color: var(--text-primary);
-}
+/* Viewport Adjustments */
 
-@media (min-width: 1024px) {
+/* Tablet Viewport Overrides */
+@media (min-width: 768px) {
   .sidebar {
     display: flex;
   }
   
-  .bottomNav {
-    display: none;
-  }
-  
   .mainContent {
     padding-left: 240px;
-    padding-bottom: 0;
   }
   
+  .mainContentTabletCollapsed {
+    padding-left: 72px;
+  }
+}
+
+/* Desktop Viewport Overrides */
+@media (min-width: 1024px) {
   .mainContentCollapsed {
     padding-left: 72px;
   }

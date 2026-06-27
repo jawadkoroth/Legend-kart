@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import AdminFeedbackDrawer from '@/components/AdminFeedbackDrawer';
@@ -11,15 +11,73 @@ import { useAuth } from '@/lib/auth/AuthProvider';
 import { createClient } from '@/lib/supabase/client';
 import styles from './AdminShell.module.css';
 
-const NAV_ITEMS = [
-  { href: '/admin/dashboard', label: 'Home', icon: '📊' },
-  { href: '/admin/orders', label: 'Orders', icon: '📦' },
-  { href: '/admin/products', label: 'Products', icon: '👕' },
-  { href: '/admin/coupons', label: 'Coupons', icon: '🏷️' },
-  { href: '/admin/shipping', label: 'Shipping', icon: '🚚' },
-  { href: '/admin/marketing', label: 'Marketing', icon: '📣' },
-  { href: '/admin/diagnostics', label: 'Diag', icon: '🩺' },
-  { href: '/admin/settings', label: 'Settings', icon: '⚙️' },
+interface NavItem {
+  href: string;
+  label: string;
+  icon: string;
+}
+
+interface NavGroup {
+  id: string;
+  label: string;
+  icon: string;
+  items: NavItem[];
+}
+
+const NAV_GROUPS: NavGroup[] = [
+  {
+    id: 'dashboard',
+    label: 'Dashboard',
+    icon: '🏠',
+    items: [
+      { href: '/admin/dashboard', label: 'Home', icon: '📊' }
+    ]
+  },
+  {
+    id: 'commerce',
+    label: 'Commerce',
+    icon: '🛒',
+    items: [
+      { href: '/admin/products', label: 'Products', icon: '👕' },
+      { href: '/admin/orders', label: 'Orders', icon: '📦' },
+      { href: '/admin/orders#customers', label: 'Customers', icon: '👥' },
+      { href: '/admin/coupons', label: 'Coupons', icon: '🏷️' }
+    ]
+  },
+  {
+    id: 'operations',
+    label: 'Operations',
+    icon: '⚙️',
+    items: [
+      { href: '/admin/shipping', label: 'Shipping', icon: '🚚' },
+      { href: '/admin/orders#returns', label: 'Returns', icon: '🔄' },
+      { href: '/admin/orders#exchanges', label: 'Exchanges', icon: '🔀' }
+    ]
+  },
+  {
+    id: 'marketing',
+    label: 'Marketing',
+    icon: '📈',
+    items: [
+      { href: '/admin/marketing', label: 'Overview', icon: '📣' },
+      { href: '/admin/marketing/providers', label: 'Meta', icon: '🔌' },
+      { href: '/admin/marketing/providers#google', label: 'Google', icon: '🔌' },
+      { href: '/admin/marketing/settings#crm', label: 'CRM', icon: '👤' },
+      { href: '/admin/marketing/events', label: 'Events', icon: '🔍' },
+      { href: '/admin/marketing/diagnostics', label: 'Diagnostics', icon: '🩺' }
+    ]
+  },
+  {
+    id: 'system',
+    label: 'System',
+    icon: '🖥️',
+    items: [
+      { href: '/admin/dashboard#analytics', label: 'Analytics', icon: '📈' },
+      { href: '/admin/settings/developer/database-health', label: 'Database Health', icon: '🗄️' },
+      { href: '/admin/settings', label: 'Developer', icon: '🛠️' },
+      { href: '/admin/settings#general', label: 'Settings', icon: '⚙️' }
+    ]
+  }
 ];
 
 export default function AdminShell({
@@ -34,19 +92,99 @@ export default function AdminShell({
   const { user, loading } = useAuth();
   const [unreadCount, setUnreadCount] = useState(initialUnreadCount);
   const [isFeedbackOpen, setIsFeedbackOpen] = useState(false);
-  const [isCollapsed, setIsCollapsed] = useState(false);
+  
+  // Responsive States
+  const [windowWidth, setWindowWidth] = useState(1200);
+  const [isCollapsed, setIsCollapsed] = useState(false); // Desktop Manual Collapse
+  const [isHovered, setIsHovered] = useState(false); // Tablet/Collapsed hover state
+  const [isPinned, setIsPinned] = useState(false); // Tablet manual pin lock
+  const [isMobileOpen, setIsMobileOpen] = useState(false); // Mobile Drawer open state
+  
+  // Accordion state
+  const [expandedGroup, setExpandedGroup] = useState<string | null>(null);
+
+  // Resize Listener
+  useEffect(() => {
+    const handleResize = () => setWindowWidth(window.innerWidth);
+    window.addEventListener('resize', handleResize);
+    handleResize();
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  const isMobile = windowWidth < 768;
+  const isTablet = windowWidth >= 768 && windowWidth < 1024;
+  const isDesktop = windowWidth >= 1024;
+
+  // Restore Desktop collapse and Pinned state
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const savedCollapsed = localStorage.getItem('admin_sidebar_collapsed') === 'true';
+      setIsCollapsed(savedCollapsed);
+
+      const savedPinned = localStorage.getItem('admin_sidebar_pinned') === 'true';
+      setIsPinned(savedPinned);
+
+      const savedGroup = localStorage.getItem('admin_nav_expanded_group');
+      if (savedGroup) {
+        setExpandedGroup(savedGroup);
+      } else {
+        // Default expand active group
+        const activeGroup = NAV_GROUPS.find(g =>
+          g.items.some(item => pathname === item.href || pathname.startsWith(item.href + '/'))
+        );
+        setExpandedGroup(activeGroup ? activeGroup.id : 'dashboard');
+      }
+    }
+  }, [pathname]);
+
+  // Mobile Back Button Popstate handling
+  useEffect(() => {
+    if (isMobileOpen) {
+      window.history.pushState({ drawerOpen: true }, '');
+    }
+  }, [isMobileOpen]);
 
   useEffect(() => {
-    const saved = localStorage.getItem('admin_sidebar_collapsed');
-    if (saved === 'true') {
-      setIsCollapsed(true);
+    const handlePopState = (event: PopStateEvent) => {
+      if (isMobileOpen) {
+        setIsMobileOpen(false);
+      }
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, [isMobileOpen]);
+
+  const closeMobileDrawer = () => {
+    setIsMobileOpen(false);
+    if (window.history.state?.drawerOpen) {
+      window.history.back();
     }
-  }, []);
+  };
 
   const toggleSidebar = () => {
     setIsCollapsed((prev) => {
       const next = !prev;
       localStorage.setItem('admin_sidebar_collapsed', String(next));
+      return next;
+    });
+  };
+
+  const togglePin = () => {
+    setIsPinned((prev) => {
+      const next = !prev;
+      localStorage.setItem('admin_sidebar_pinned', String(next));
+      return next;
+    });
+  };
+
+  const toggleGroup = (groupId: string) => {
+    setExpandedGroup((prev) => {
+      const next = prev === groupId ? null : groupId;
+      if (next) {
+        localStorage.setItem('admin_nav_expanded_group', next);
+      } else {
+        localStorage.removeItem('admin_nav_expanded_group');
+      }
       return next;
     });
   };
@@ -86,77 +224,251 @@ export default function AdminShell({
     );
   }
 
+  // Derive final expanded sidebar state for Hover/Tablet Vercel style
+  const shouldBeExpanded = isDesktop
+    ? !isCollapsed
+    : isTablet
+    ? (isHovered || isPinned)
+    : false;
+
   return (
     <div className={styles.adminLayout}>
-      {/* 1. Left Collapsible Sidebar (Desktop) */}
-      <aside className={`${styles.sidebar} ${isCollapsed ? styles.sidebarCollapsed : ''}`}>
-        <div className={styles.sidebarHeader}>
-          <div className={styles.logoArea}>
-            <span className={styles.brandText}>NOIR</span>
-            <span className={styles.brandSub}>ADMIN</span>
+      
+      {/* 1. Collapsible Grouped Sidebar (Desktop & Tablet) */}
+      {!isMobile && (
+        <aside
+          className={`${styles.sidebar} ${!shouldBeExpanded ? styles.sidebarCollapsed : ''} ${isHovered && !isPinned ? styles.sidebarHoverExpanded : ''}`}
+          onMouseEnter={() => isTablet && setIsHovered(true)}
+          onMouseLeave={() => isTablet && setIsHovered(false)}
+        >
+          <div className={styles.sidebarHeader}>
+            <div className={styles.logoArea}>
+              <span className={styles.brandText}>NOIR</span>
+              <span className={styles.brandSub}>ADMIN</span>
+            </div>
+            
+            {/* Action buttons based on viewport */}
+            {isDesktop ? (
+              <button onClick={toggleSidebar} className={styles.toggleBtn} aria-label="Toggle Sidebar">
+                {isCollapsed ? '⮕' : '⬅'}
+              </button>
+            ) : isTablet ? (
+              <button onClick={togglePin} className={styles.toggleBtn} title={isPinned ? 'Unpin Sidebar' : 'Pin Sidebar'}>
+                {isPinned ? '📌' : '📍'}
+              </button>
+            ) : null}
           </div>
-          <button onClick={toggleSidebar} className={styles.toggleBtn} aria-label="Toggle Sidebar">
-            {isCollapsed ? '⮕' : '⬅'}
-          </button>
-        </div>
 
-        <nav className={styles.sidebarNav}>
-          {NAV_ITEMS.map((item) => {
-            const isActive = pathname === item.href || pathname.startsWith(item.href + '/');
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                className={`${styles.navLink} ${isActive ? styles.navLinkActive : ''}`}
-                title={item.label}
-              >
-                <span className={styles.navIcon}>{item.icon}</span>
-                <span className={styles.navText}>{item.label}</span>
-              </Link>
-            );
-          })}
-        </nav>
+          <nav className={styles.sidebarNav}>
+            {NAV_GROUPS.map((group) => {
+              const isGroupExpanded = expandedGroup === group.id;
+              
+              return (
+                <div key={group.id} className={styles.navGroupContainer}>
+                  {/* Group Header Trigger */}
+                  <button
+                    className={styles.groupHeader}
+                    onClick={() => shouldBeExpanded && toggleGroup(group.id)}
+                    title={group.label}
+                  >
+                    <span className={styles.navIcon}>{group.icon}</span>
+                    {shouldBeExpanded && (
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
+                        <span className={styles.groupText}>{group.label}</span>
+                        <span className={styles.groupArrow}>{isGroupExpanded ? '▼' : '▶'}</span>
+                      </div>
+                    )}
+                  </button>
 
-        <div className={styles.sidebarFooter}>
-          <button onClick={() => setIsFeedbackOpen(true)} className={styles.navLink} title="Feedback">
-            <span className={styles.navIcon}>💬</span>
-            <span className={styles.navText}>Feedback</span>
-          </button>
-          <button onClick={handleLogout} className={styles.navLink} title="Logout">
-            <span className={styles.navIcon}>🚪</span>
-            <span className={styles.navText}>Logout</span>
-          </button>
-        </div>
-      </aside>
+                  {/* Sub items */}
+                  {shouldBeExpanded && isGroupExpanded && (
+                    <div className={styles.groupItems}>
+                      {group.items.map((item) => {
+                        const isActive = pathname === item.href || pathname.startsWith(item.href + '/');
+                        return (
+                          <Link
+                            key={item.href}
+                            href={item.href}
+                            className={`${styles.navLink} ${isActive ? styles.navLinkActive : ''}`}
+                          >
+                            <span className={styles.navIcon} style={{ fontSize: '1rem' }}>{item.icon}</span>
+                            <span className={styles.navText}>{item.label}</span>
+                          </Link>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </nav>
 
-      {/* 2. Main Page Layout */}
-      <div className={`${styles.mainContent} ${isCollapsed ? styles.mainContentCollapsed : ''}`}>
-        <div className="admin-header">
-          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
-            {/* Show simple brand details if sidebar is not present (mobile/webview layout fallback) */}
-            <div className="lg:hidden" style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
+          <div className={styles.sidebarFooter}>
+            <button onClick={() => setIsFeedbackOpen(true)} className={styles.navLink} title="Feedback">
+              <span className={styles.navIcon}>💬</span>
+              <span className={styles.navText}>Feedback</span>
+            </button>
+            <button onClick={handleLogout} className={styles.navLink} title="Logout">
+              <span className={styles.navIcon}>🚪</span>
+              <span className={styles.navText}>Logout</span>
+            </button>
+          </div>
+        </aside>
+      )}
+
+      {/* 2. Mobile Drawer Navigation Panel */}
+      {isMobile && isMobileOpen && (
+        <>
+          {/* Backdrop Overlay with Blur */}
+          <div className={styles.drawerOverlay} onClick={closeMobileDrawer} />
+
+          {/* Slide Drawer Content */}
+          <div className={styles.drawerContent}>
+            <div className={styles.drawerHeader}>
+              <div className={styles.logoArea}>
+                <span className={styles.brandText} style={{ opacity: 1 }}>NOIR</span>
+                <span className={styles.brandSub} style={{ opacity: 1 }}>ADMIN</span>
+              </div>
+              <button className={styles.closeBtn} onClick={closeMobileDrawer} aria-label="Close Menu">✕</button>
+            </div>
+
+            <nav className={styles.drawerNav}>
+              {/* Primary Actions */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                <Link href="/admin/dashboard" onClick={closeMobileDrawer} className={`${styles.navLink} ${pathname === '/admin/dashboard' ? styles.navLinkActive : ''}`}>
+                  <span className={styles.navIcon}>🏠</span> <span className={styles.navText}>Dashboard</span>
+                </Link>
+                <Link href="/admin/orders" onClick={closeMobileDrawer} className={`${styles.navLink} ${pathname === '/admin/orders' ? styles.navLinkActive : ''}`}>
+                  <span className={styles.navIcon}>📦</span> <span className={styles.navText}>Orders</span>
+                </Link>
+                <Link href="/admin/products" onClick={closeMobileDrawer} className={`${styles.navLink} ${pathname === '/admin/products' ? styles.navLinkActive : ''}`}>
+                  <span className={styles.navIcon}>👕</span> <span className={styles.navText}>Products</span>
+                </Link>
+                <Link href="/admin/orders#customers" onClick={closeMobileDrawer} className={styles.navLink}>
+                  <span className={styles.navIcon}>👥</span> <span className={styles.navText}>Customers</span>
+                </Link>
+                <Link href="/admin/coupons" onClick={closeMobileDrawer} className={`${styles.navLink} ${pathname === '/admin/coupons' ? styles.navLinkActive : ''}`}>
+                  <span className={styles.navIcon}>🏷️</span> <span className={styles.navText}>Coupons</span>
+                </Link>
+                <Link href="/admin/shipping" onClick={closeMobileDrawer} className={`${styles.navLink} ${pathname === '/admin/shipping' ? styles.navLinkActive : ''}`}>
+                  <span className={styles.navIcon}>🚚</span> <span className={styles.navText}>Shipping</span>
+                </Link>
+                <Link href="/admin/marketing" onClick={closeMobileDrawer} className={`${styles.navLink} ${pathname.startsWith('/admin/marketing') ? styles.navLinkActive : ''}`}>
+                  <span className={styles.navIcon}>📈</span> <span className={styles.navText}>Marketing</span>
+                </Link>
+                <Link href="/admin/settings" onClick={closeMobileDrawer} className={`${styles.navLink} ${pathname === '/admin/settings' ? styles.navLinkActive : ''}`}>
+                  <span className={styles.navIcon}>⚙️</span> <span className={styles.navText}>Settings</span>
+                </Link>
+              </div>
+
+              <div className={styles.drawerDivider} />
+
+              {/* Secondary Actions */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                <Link href="/admin/settings" onClick={closeMobileDrawer} className={styles.navLink}>
+                  🛠️ Developer Tools
+                </Link>
+                <Link href="/admin/marketing/diagnostics" onClick={closeMobileDrawer} className={styles.navLink}>
+                  🩺 Diagnostics
+                </Link>
+                <Link href="/admin/settings/developer/database-health" onClick={closeMobileDrawer} className={styles.navLink}>
+                  🗄️ Database Health
+                </Link>
+                <Link href="/admin/marketing/events" onClick={closeMobileDrawer} className={styles.navLink}>
+                  🔍 System Logs
+                </Link>
+                <Link href="/admin/marketing/settings" onClick={closeMobileDrawer} className={styles.navLink}>
+                  🚩 Feature Flags
+                </Link>
+              </div>
+            </nav>
+            
+            <div className={styles.drawerFooter}>
+              <button onClick={() => { closeMobileDrawer(); setIsFeedbackOpen(true); }} className={styles.navLink}>
+                <span className={styles.navIcon}>💬</span> Feedback
+              </button>
+              <button onClick={() => { closeMobileDrawer(); handleLogout(); }} className={styles.navLink}>
+                <span className={styles.navIcon}>🚪</span> Logout
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* 3. Main Content Area */}
+      <div className={`${styles.mainContent} ${isCollapsed && isDesktop ? styles.mainContentCollapsed : isTablet && !isPinned ? styles.mainContentTabletCollapsed : ''}`}>
+        
+        {/* Dynamic Responsive Header */}
+        <header className="admin-header">
+          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-4)' }}>
+            {/* Hamburger Button for Mobile */}
+            {isMobile && (
+              <button onClick={() => setIsMobileOpen(true)} className={styles.hamburgerBtn} aria-label="Open Navigation Drawer">
+                ☰
+              </button>
+            )}
+
+            {/* Title / Brand details */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
               <span style={{ fontFamily: 'var(--font-serif)', fontSize: '1.25rem', fontWeight: 600, letterSpacing: '0.1em' }}>NOIR</span>
               <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)', letterSpacing: '0.15em' }}>ADMIN</span>
             </div>
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
-            <AdminReturnsBadge />
-            <AdminPushPrompt />
+          {/* Top Right Utility Actions */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)' }}>
+            
+            {/* Search Placeholder Trigger */}
+            <button className="admin-header-btn" title="Search catalog" onClick={() => alert('Search functionality initialized.')}>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                <circle cx="11" cy="11" r="8" />
+                <line x1="21" y1="21" x2="16.65" y2="16.65" />
+              </svg>
+            </button>
+
+            {/* Notifications / Support Feedback */}
             <button
               onClick={() => setIsFeedbackOpen(true)}
               className="admin-header-btn"
-              title="Feedback & Support"
+              title="Notifications & Feedback"
             >
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" />
+                <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
+                <path d="M13.73 21a2 2 0 0 1-3.46 0" />
               </svg>
               {unreadCount > 0 && (
-                <span style={{ position: 'absolute', top: '2px', right: '2px', background: 'var(--error)', color: 'white', fontSize: '9px', fontWeight: 'bold', padding: '1px 5px', borderRadius: '10px', boxShadow: '0 2px 6px rgba(0,0,0,0.3)' }}>
+                <span style={{ position: 'absolute', top: '2px', right: '2px', background: 'var(--accent-gold)', color: '#000', fontSize: '9px', fontWeight: 'bold', padding: '1px 5px', borderRadius: '10px', boxShadow: '0 2px 6px rgba(0,0,0,0.3)' }}>
                   {unreadCount}
                 </span>
               )}
             </button>
+
+            {/* Returns and Push Notifications config badges */}
+            <AdminReturnsBadge />
+            <AdminPushPrompt />
+
+            {/* Profile Avatar Badge */}
+            <div
+              style={{
+                width: '32px',
+                height: '32px',
+                borderRadius: '50%',
+                background: 'rgba(212,175,55,0.1)',
+                border: '1px solid var(--accent-gold)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontSize: '0.8rem',
+                fontWeight: 'bold',
+                color: 'var(--accent-gold)',
+                cursor: 'pointer'
+              }}
+              title={user?.email || 'Admin Profile'}
+            >
+              A
+            </div>
+
+            {/* Logout button */}
             <button
               onClick={handleLogout}
               className="admin-header-btn"
@@ -169,7 +481,7 @@ export default function AdminShell({
               </svg>
             </button>
           </div>
-        </div>
+        </header>
 
         <AdminRealtimeProvider />
 
@@ -183,23 +495,6 @@ export default function AdminShell({
           setUnreadCount(prev => Math.max(0, prev + delta))
         }
       />
-
-      {/* 3. Bottom Nav Fallback (Mobile Viewports / Webview compat) */}
-      <nav className={styles.bottomNav}>
-        {NAV_ITEMS.map((item) => {
-          const isActive = pathname === item.href || pathname.startsWith(item.href + '/');
-          return (
-            <Link
-              key={item.href}
-              href={item.href}
-              className={`${styles.bottomNavItem} ${isActive ? styles.bottomNavItemActive : ''}`}
-            >
-              <span style={{ fontSize: '1.25rem' }}>{item.icon}</span>
-              {item.label}
-            </Link>
-          );
-        })}
-      </nav>
     </div>
   );
 }
