@@ -118,24 +118,7 @@ BEGIN
 END
 $$;
 
--- 6. Update check_db_schema_health function to include marketing tables
-CREATE OR REPLACE FUNCTION check_db_schema_health()
-RETURNS JSONB AS $$
-DECLARE
-  v_result JSONB;
-  v_products_media_exists BOOLEAN;
-  v_story_sections_exists BOOLEAN;
-  v_product_coupons_exists BOOLEAN;
-  v_admin_fcm_tokens_exists BOOLEAN;
-  v_return_trigger_exists BOOLEAN;
-  v_notes_trigger_exists BOOLEAN;
-  v_shipment_trigger_exists BOOLEAN;
-  v_marketing_events_exists BOOLEAN;
-  v_marketing_providers_exists BOOLEAN;
-  v_marketing_consent_exists BOOLEAN;
-  v_current_migration TEXT;
-END;
-$$ LANGUAGE plpgsql;
+
 
 -- Re-create function with marketing metrics
 CREATE OR REPLACE FUNCTION check_db_schema_health()
