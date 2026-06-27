@@ -145,18 +145,34 @@ export default function AdminShell({
   }, [isMobileOpen]);
 
   useEffect(() => {
+    if (isFeedbackOpen) {
+      window.history.pushState({ feedbackOpen: true }, '');
+    }
+  }, [isFeedbackOpen]);
+
+  useEffect(() => {
     const handlePopState = (event: PopStateEvent) => {
       if (isMobileOpen) {
         setIsMobileOpen(false);
       }
+      if (isFeedbackOpen) {
+        setIsFeedbackOpen(false);
+      }
     };
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
-  }, [isMobileOpen]);
+  }, [isMobileOpen, isFeedbackOpen]);
 
-  const closeMobileDrawer = () => {
+  const closeMobileDrawer = (isNavigating = false) => {
     setIsMobileOpen(false);
-    if (window.history.state?.drawerOpen) {
+    if (!isNavigating && window.history.state?.drawerOpen) {
+      window.history.back();
+    }
+  };
+
+  const closeFeedbackDrawer = () => {
+    setIsFeedbackOpen(false);
+    if (window.history.state?.feedbackOpen) {
       window.history.back();
     }
   };
@@ -178,6 +194,15 @@ export default function AdminShell({
   };
 
   const toggleGroup = (groupId: string) => {
+    // If sidebar is collapsed, expand it
+    if (isDesktop && isCollapsed) {
+      setIsCollapsed(false);
+      localStorage.setItem('admin_sidebar_collapsed', 'false');
+    } else if (isTablet && !isPinned && !isHovered) {
+      setIsPinned(true);
+      localStorage.setItem('admin_sidebar_pinned', 'true');
+    }
+
     setExpandedGroup((prev) => {
       const next = prev === groupId ? null : groupId;
       if (next) {
@@ -268,7 +293,7 @@ export default function AdminShell({
                   {/* Group Header Trigger */}
                   <button
                     className={styles.groupHeader}
-                    onClick={() => shouldBeExpanded && toggleGroup(group.id)}
+                    onClick={() => toggleGroup(group.id)}
                     title={group.label}
                   >
                     <span className={styles.navIcon}>{group.icon}</span>
@@ -320,7 +345,7 @@ export default function AdminShell({
       {isMobile && isMobileOpen && (
         <>
           {/* Backdrop Overlay with Blur */}
-          <div className={styles.drawerOverlay} onClick={closeMobileDrawer} />
+          <div className={styles.drawerOverlay} onClick={() => closeMobileDrawer()} />
 
           {/* Slide Drawer Content */}
           <div className={styles.drawerContent}>
@@ -329,34 +354,34 @@ export default function AdminShell({
                 <span className={styles.brandText} style={{ opacity: 1 }}>NOIR</span>
                 <span className={styles.brandSub} style={{ opacity: 1 }}>ADMIN</span>
               </div>
-              <button className={styles.closeBtn} onClick={closeMobileDrawer} aria-label="Close Menu">✕</button>
+              <button className={styles.closeBtn} onClick={() => closeMobileDrawer()} aria-label="Close Menu">✕</button>
             </div>
 
             <nav className={styles.drawerNav}>
               {/* Primary Actions */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                <Link href="/admin/dashboard" onClick={closeMobileDrawer} className={`${styles.navLink} ${pathname === '/admin/dashboard' ? styles.navLinkActive : ''}`}>
+                <Link href="/admin/dashboard" onClick={() => closeMobileDrawer(true)} className={`${styles.navLink} ${pathname === '/admin/dashboard' ? styles.navLinkActive : ''}`}>
                   <span className={styles.navIcon}>🏠</span> <span className={styles.navText}>Dashboard</span>
                 </Link>
-                <Link href="/admin/orders" onClick={closeMobileDrawer} className={`${styles.navLink} ${pathname === '/admin/orders' ? styles.navLinkActive : ''}`}>
+                <Link href="/admin/orders" onClick={() => closeMobileDrawer(true)} className={`${styles.navLink} ${pathname === '/admin/orders' ? styles.navLinkActive : ''}`}>
                   <span className={styles.navIcon}>📦</span> <span className={styles.navText}>Orders</span>
                 </Link>
-                <Link href="/admin/products" onClick={closeMobileDrawer} className={`${styles.navLink} ${pathname === '/admin/products' ? styles.navLinkActive : ''}`}>
+                <Link href="/admin/products" onClick={() => closeMobileDrawer(true)} className={`${styles.navLink} ${pathname === '/admin/products' ? styles.navLinkActive : ''}`}>
                   <span className={styles.navIcon}>👕</span> <span className={styles.navText}>Products</span>
                 </Link>
-                <Link href="/admin/orders#customers" onClick={closeMobileDrawer} className={styles.navLink}>
+                <Link href="/admin/orders#customers" onClick={() => closeMobileDrawer(true)} className={styles.navLink}>
                   <span className={styles.navIcon}>👥</span> <span className={styles.navText}>Customers</span>
                 </Link>
-                <Link href="/admin/coupons" onClick={closeMobileDrawer} className={`${styles.navLink} ${pathname === '/admin/coupons' ? styles.navLinkActive : ''}`}>
+                <Link href="/admin/coupons" onClick={() => closeMobileDrawer(true)} className={`${styles.navLink} ${pathname === '/admin/coupons' ? styles.navLinkActive : ''}`}>
                   <span className={styles.navIcon}>🏷️</span> <span className={styles.navText}>Coupons</span>
                 </Link>
-                <Link href="/admin/shipping" onClick={closeMobileDrawer} className={`${styles.navLink} ${pathname === '/admin/shipping' ? styles.navLinkActive : ''}`}>
+                <Link href="/admin/shipping" onClick={() => closeMobileDrawer(true)} className={`${styles.navLink} ${pathname === '/admin/shipping' ? styles.navLinkActive : ''}`}>
                   <span className={styles.navIcon}>🚚</span> <span className={styles.navText}>Shipping</span>
                 </Link>
-                <Link href="/admin/marketing" onClick={closeMobileDrawer} className={`${styles.navLink} ${pathname.startsWith('/admin/marketing') ? styles.navLinkActive : ''}`}>
+                <Link href="/admin/marketing" onClick={() => closeMobileDrawer(true)} className={`${styles.navLink} ${pathname.startsWith('/admin/marketing') ? styles.navLinkActive : ''}`}>
                   <span className={styles.navIcon}>📈</span> <span className={styles.navText}>Marketing</span>
                 </Link>
-                <Link href="/admin/settings" onClick={closeMobileDrawer} className={`${styles.navLink} ${pathname === '/admin/settings' ? styles.navLinkActive : ''}`}>
+                <Link href="/admin/settings" onClick={() => closeMobileDrawer(true)} className={`${styles.navLink} ${pathname === '/admin/settings' ? styles.navLinkActive : ''}`}>
                   <span className={styles.navIcon}>⚙️</span> <span className={styles.navText}>Settings</span>
                 </Link>
               </div>
@@ -365,29 +390,29 @@ export default function AdminShell({
 
               {/* Secondary Actions */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                <Link href="/admin/settings" onClick={closeMobileDrawer} className={styles.navLink}>
+                <Link href="/admin/settings" onClick={() => closeMobileDrawer(true)} className={styles.navLink}>
                   🛠️ Developer Tools
                 </Link>
-                <Link href="/admin/marketing/diagnostics" onClick={closeMobileDrawer} className={styles.navLink}>
+                <Link href="/admin/marketing/diagnostics" onClick={() => closeMobileDrawer(true)} className={styles.navLink}>
                   🩺 Diagnostics
                 </Link>
-                <Link href="/admin/settings/developer/database-health" onClick={closeMobileDrawer} className={styles.navLink}>
+                <Link href="/admin/settings/developer/database-health" onClick={() => closeMobileDrawer(true)} className={styles.navLink}>
                   🗄️ Database Health
                 </Link>
-                <Link href="/admin/marketing/events" onClick={closeMobileDrawer} className={styles.navLink}>
+                <Link href="/admin/marketing/events" onClick={() => closeMobileDrawer(true)} className={styles.navLink}>
                   🔍 System Logs
                 </Link>
-                <Link href="/admin/marketing/settings" onClick={closeMobileDrawer} className={styles.navLink}>
+                <Link href="/admin/marketing/settings" onClick={() => closeMobileDrawer(true)} className={styles.navLink}>
                   🚩 Feature Flags
                 </Link>
               </div>
             </nav>
             
             <div className={styles.drawerFooter}>
-              <button onClick={() => { closeMobileDrawer(); setIsFeedbackOpen(true); }} className={styles.navLink}>
+              <button onClick={() => { closeMobileDrawer(true); setIsFeedbackOpen(true); }} className={styles.navLink}>
                 <span className={styles.navIcon}>💬</span> Feedback
               </button>
-              <button onClick={() => { closeMobileDrawer(); handleLogout(); }} className={styles.navLink}>
+              <button onClick={() => { closeMobileDrawer(true); handleLogout(); }} className={styles.navLink}>
                 <span className={styles.navIcon}>🚪</span> Logout
               </button>
             </div>

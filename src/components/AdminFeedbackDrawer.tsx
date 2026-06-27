@@ -137,7 +137,7 @@ export default function AdminFeedbackDrawer({ isOpen, onClose, onUnreadDelta }: 
             position: 'fixed', inset: 0,
             backgroundColor: 'rgba(11, 11, 11, 0.4)',
             backdropFilter: 'blur(4px)',
-            zIndex: 90,
+            zIndex: 290,
             transition: 'opacity 0.3s'
           }}
         />
@@ -150,7 +150,7 @@ export default function AdminFeedbackDrawer({ isOpen, onClose, onUnreadDelta }: 
           width: '100%', maxWidth: '900px',
           backgroundColor: 'var(--bg-primary)',
           borderLeft: '1px solid var(--border-color)',
-          zIndex: 100,
+          zIndex: 300,
           boxShadow: '-8px 0 30px rgba(0,0,0,0.5)',
           transform: isOpen ? 'translateX(0)' : 'translateX(100%)',
           transition: 'transform 0.4s cubic-bezier(0.22, 1, 0.36, 1)',
