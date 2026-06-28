@@ -151,7 +151,7 @@ const NAV_GROUPS: NavGroup[] = [
     label: 'Analytics',
     icon: 'BarChart3',
     items: [
-      { href: '/admin/dashboard#analytics', label: 'Overview', icon: 'BarChart3' }
+      { href: '/admin/analytics', label: 'Revenue Intel', icon: 'BarChart3' }
     ]
   },
   {
