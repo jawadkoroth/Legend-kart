@@ -4,6 +4,8 @@ import { useEffect, useState, useMemo, useCallback, useRef, Suspense } from 'rea
 import Link from 'next/link';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { ADMIN_ORDER_CREATED_EVENT } from '@/components/admin/AdminRealtimeProvider';
+import AdminTable, { type AdminTableColumn } from '@/components/admin/AdminTable';
+import { Search } from 'lucide-react';
 
 /**
  * Admin Orders list — server-driven filters, search, pagination,
@@ -69,8 +71,6 @@ function OrdersList() {
   const [bulkBusy, setBulkBusy] = useState<boolean>(false);
   const [error, setError] = useState<string>('');
 
-  const [selected, setSelected] = useState<Set<string>>(new Set());
-
   // Debounce search input (250 ms).
   useEffect(() => {
     const t = setTimeout(() => setDebouncedQ(q.trim()), 250);
@@ -124,16 +124,6 @@ function OrdersList() {
       }
       setRows(json.orders ?? []);
       setTotal(json.total ?? 0);
-      // Drop selections that are no longer visible.
-      setSelected((prev) => {
-        if (prev.size === 0) return prev;
-        const visible = new Set((json.orders ?? []).map((r: OrderRow) => r.id));
-        const next = new Set<string>();
-        prev.forEach((id) => {
-          if (visible.has(id)) next.add(id);
-        });
-        return next;
-      });
     } catch (err) {
       if ((err as { name?: string }).name === 'AbortError') return;
       console.error('[ADMIN_ORDERS_FETCH]', err);
@@ -165,36 +155,14 @@ function OrdersList() {
     };
   }, [fetchOrders]);
 
-  const totalPages = useMemo(
-    () => Math.max(1, Math.ceil(total / pageSize)),
-    [total, pageSize],
-  );
-
-  function toggleSelect(id: string) {
-    setSelected((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  }
-
-  function toggleSelectAll() {
-    if (selected.size === rows.length && rows.length > 0) {
-      setSelected(new Set());
-    } else {
-      setSelected(new Set(rows.map((r) => r.id)));
-    }
-  }
-
-  async function runBulk(action: 'cancel' | 'mark_shipped' | 'mark_delivered') {
-    if (selected.size === 0 || bulkBusy) return;
+  async function runBulkWithIds(action: 'cancel' | 'mark_shipped' | 'mark_delivered', ids: string[]) {
+    if (ids.length === 0 || bulkBusy) return;
     const verbs: Record<typeof action, string> = {
       cancel: 'cancel',
       mark_shipped: 'mark as shipped',
       mark_delivered: 'mark as delivered',
     };
-    if (!confirm(`${selected.size === 1 ? '1 order' : `${selected.size} orders`} will be ${verbs[action]}d. Proceed?`)) {
+    if (!confirm(`${ids.length === 1 ? '1 order' : `${ids.length} orders`} will be ${verbs[action]}d. Proceed?`)) {
       return;
     }
     setBulkBusy(true);
@@ -202,13 +170,12 @@ function OrdersList() {
       const res = await fetch('/api/admin/orders', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action, order_ids: Array.from(selected) }),
+        body: JSON.stringify({ action, order_ids: ids }),
       });
       const json = await res.json();
       if (!json.success) {
         setError(json.error || 'Bulk action failed');
       } else {
-        setSelected(new Set());
         fetchOrders();
       }
     } catch (err) {
@@ -219,308 +186,216 @@ function OrdersList() {
     }
   }
 
-  const allOnPageSelected =
-    rows.length > 0 && rows.every((r) => selected.has(r.id));
+  const columns: AdminTableColumn<OrderRow>[] = [
+    {
+      key: 'order_number',
+      label: 'Order Number',
+      sortable: true,
+      width: 140,
+      render: (row) => (
+        <Link href={`/admin/orders/${row.id}`} style={{ fontWeight: 600, fontFamily: 'monospace', textDecoration: 'underline', color: 'var(--accent-gold)' }}>
+          {row.order_number}
+        </Link>
+      )
+    },
+    {
+      key: 'customer_name',
+      label: 'Customer',
+      sortable: true,
+      width: 180,
+      render: (row) => (
+        <div style={{ display: 'flex', flexDirection: 'column' }}>
+          <span>{row.customer_name || 'Guest'}</span>
+          <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{row.customer_phone}</span>
+        </div>
+      )
+    },
+    {
+      key: 'payment_method',
+      label: 'Payment Method',
+      sortable: true,
+      width: 120,
+      render: (row) => <span style={{ textTransform: 'uppercase' }}>{row.payment_method}</span>
+    },
+    {
+      key: 'total_paise',
+      label: 'Total Amount',
+      sortable: true,
+      width: 130,
+      render: (row) => <strong>{formatPrice(row.total_paise)}</strong>
+    },
+    {
+      key: 'order_status',
+      label: 'Order Status',
+      sortable: true,
+      width: 130,
+      render: (row) => <span className={`badge badge-${row.order_status}`}>{row.order_status}</span>
+    },
+    {
+      key: 'payment_status',
+      label: 'Payment Status',
+      sortable: true,
+      width: 130,
+      render: (row) => (
+        <span className={`badge badge-${row.payment_status === 'paid' ? 'paid' : 'cancelled'}`}>
+          {row.payment_status}
+        </span>
+      )
+    },
+    {
+      key: 'created_at',
+      label: 'Date Placed',
+      sortable: true,
+      width: 180,
+      render: (row) => <span>{formatDate(row.created_at)}</span>
+    }
+  ];
+
+  const bulkActions = [
+    {
+      label: 'Mark Shipped',
+      onClick: (selectedRows: OrderRow[]) => {
+        runBulkWithIds('mark_shipped', selectedRows.map(r => r.id));
+      }
+    },
+    {
+      label: 'Mark Delivered',
+      onClick: (selectedRows: OrderRow[]) => {
+        runBulkWithIds('mark_delivered', selectedRows.map(r => r.id));
+      }
+    },
+    {
+      label: 'Cancel Orders',
+      onClick: (selectedRows: OrderRow[]) => {
+        runBulkWithIds('cancel', selectedRows.map(r => r.id));
+      }
+    }
+  ];
 
   return (
-    <div>
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'baseline',
-          justifyContent: 'space-between',
-          marginBottom: 'var(--space-4)',
-          gap: 'var(--space-2)',
-          flexWrap: 'wrap',
-        }}
-      >
-        <h1 style={{ fontSize: '1.25rem', fontWeight: 600 }}>Orders</h1>
-        <span className="text-xs text-muted">
-          {loading ? 'Loading…' : `${total.toLocaleString('en-IN')} match${total === 1 ? '' : 'es'}`}
-        </span>
+    <div className="admin-page-container">
+      <div className="admin-header-row">
+        <div className="admin-title-area">
+          <div>
+            <h1 className="admin-page-title">Orders</h1>
+            <p className="admin-page-desc">Manage customer payments, shipping details, and logistics pipelines.</p>
+          </div>
+          <span className="text-xs text-muted">
+            {loading ? 'Loading…' : `${total.toLocaleString('en-IN')} matches`}
+          </span>
+        </div>
       </div>
 
-      {/* Status pills */}
-      <div
-        role="tablist"
-        aria-label="Filter by status"
-        style={{
-          display: 'flex',
-          gap: 6,
-          flexWrap: 'wrap',
-          marginBottom: 'var(--space-3)',
-        }}
-      >
-        {STATUS_FILTERS.map((f) => {
-          const active = status === f.key;
-          return (
-            <button
-              key={f.key || 'all'}
-              type="button"
-              role="tab"
-              aria-selected={active}
-              onClick={() => setStatus(f.key)}
-              style={{
-                border: '1px solid',
-                borderColor: active ? 'rgba(212,175,55,0.55)' : 'var(--border-color)',
-                background: active ? 'rgba(212,175,55,0.10)' : 'transparent',
-                color: active ? 'var(--gold, #D4AF37)' : 'var(--text-primary)',
-                padding: '4px 10px',
-                borderRadius: 999,
-                fontSize: '0.75rem',
-                fontWeight: 600,
-                letterSpacing: '0.04em',
-                cursor: 'pointer',
-              }}
-            >
-              {f.label}
-            </button>
-          );
-        })}
-      </div>
-
-      {/* Other filters */}
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
-          gap: 'var(--space-2)',
-          marginBottom: 'var(--space-4)',
-        }}
-      >
-        <input
-          type="search"
-          placeholder="Search order # or customer"
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          className="input-field"
-          style={{ minHeight: 38 }}
-        />
-        <select
-          value={payment}
-          onChange={(e) => setPayment(e.target.value)}
-          className="input-field"
-          aria-label="Payment method"
-          style={{ minHeight: 38 }}
+      {/* Filters Area */}
+      <div className="admin-filters-bar" style={{ display: 'flex', flexDirection: 'column', gap: '12px', alignItems: 'stretch' }}>
+        
+        {/* Status Tab Pills */}
+        <div
+          role="tablist"
+          aria-label="Filter by status"
+          style={{
+            display: 'flex',
+            gap: 6,
+            flexWrap: 'wrap',
+          }}
         >
-          {PAYMENT_FILTERS.map((p) => (
-            <option key={p.key || 'any'} value={p.key}>
-              Payment: {p.label}
-            </option>
-          ))}
-        </select>
-        <input
-          type="date"
-          aria-label="From date"
-          value={from}
-          onChange={(e) => setFrom(e.target.value)}
-          className="input-field"
-          style={{ minHeight: 38, colorScheme: 'dark' }}
-        />
-        <input
-          type="date"
-          aria-label="To date"
-          value={to}
-          onChange={(e) => setTo(e.target.value)}
-          className="input-field"
-          style={{ minHeight: 38, colorScheme: 'dark' }}
-        />
+          {STATUS_FILTERS.map((f) => {
+            const active = status === f.key;
+            return (
+              <button
+                key={f.key || 'all'}
+                type="button"
+                role="tab"
+                aria-selected={active}
+                onClick={() => setStatus(f.key)}
+                style={{
+                  border: '1px solid',
+                  borderColor: active ? 'rgba(201,168,106,0.55)' : 'var(--border-color)',
+                  background: active ? 'rgba(201,168,106,0.1)' : 'transparent',
+                  color: active ? 'var(--accent-gold)' : 'var(--text-secondary)',
+                  padding: '6px 12px',
+                  borderRadius: 20,
+                  fontSize: '0.75rem',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                }}
+              >
+                {f.label}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Secondary filters inputs row */}
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+            gap: 'var(--space-3)',
+          }}
+        >
+          <div className="admin-search-input-wrapper" style={{ position: 'relative' }}>
+            <Search size={16} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+            <input
+              type="search"
+              placeholder="Search by order # or customer"
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              className="admin-search-input"
+              style={{ paddingLeft: '36px', height: '38px' }}
+            />
+          </div>
+          
+          <select
+            value={payment}
+            onChange={(e) => setPayment(e.target.value)}
+            className="admin-form-input"
+            aria-label="Payment method"
+            style={{ height: '38px', padding: '0 12px' }}
+          >
+            {PAYMENT_FILTERS.map((p) => (
+              <option key={p.key || 'any'} value={p.key}>
+                Payment: {p.label}
+              </option>
+            ))}
+          </select>
+          <input
+            type="date"
+            aria-label="From date"
+            value={from}
+            onChange={(e) => setFrom(e.target.value)}
+            className="admin-form-input"
+            style={{ height: '38px', colorScheme: 'dark' }}
+          />
+          <input
+            type="date"
+            aria-label="To date"
+            value={to}
+            onChange={(e) => setTo(e.target.value)}
+            className="admin-form-input"
+            style={{ height: '38px', colorScheme: 'dark' }}
+          />
+        </div>
       </div>
 
       {error && (
-        <div className="warning-banner" style={{ marginBottom: 'var(--space-3)' }}>
+        <div className="warning-banner">
           ⚠ {error}
         </div>
       )}
 
-      {/* Bulk action bar */}
-      {selected.size > 0 && (
-        <div
-          role="region"
-          aria-label="Bulk actions"
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 'var(--space-2)',
-            padding: 'var(--space-3)',
-            border: '1px solid rgba(212,175,55,0.40)',
-            background: 'rgba(212,175,55,0.06)',
-            borderRadius: 'var(--radius-md)',
-            marginBottom: 'var(--space-3)',
-            flexWrap: 'wrap',
-          }}
-        >
-          <span style={{ fontSize: '0.8125rem', fontWeight: 600 }}>
-            {selected.size} selected
-          </span>
-          <span style={{ flex: 1 }} />
-          <button
-            type="button"
-            className="btn btn-secondary btn-sm"
-            disabled={bulkBusy}
-            onClick={() => runBulk('mark_shipped')}
-          >
-            Mark shipped
-          </button>
-          <button
-            type="button"
-            className="btn btn-secondary btn-sm"
-            disabled={bulkBusy}
-            onClick={() => runBulk('mark_delivered')}
-          >
-            Mark delivered
-          </button>
-          <button
-            type="button"
-            className="btn btn-danger btn-sm"
-            disabled={bulkBusy}
-            onClick={() => runBulk('cancel')}
-          >
-            Cancel
-          </button>
-          <button
-            type="button"
-            className="btn btn-ghost btn-sm"
-            onClick={() => setSelected(new Set())}
-            disabled={bulkBusy}
-          >
-            Clear
-          </button>
-        </div>
-      )}
-
-      {/* Select-all helper */}
-      {rows.length > 0 && (
-        <label
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 8,
-            fontSize: '0.75rem',
-            color: 'var(--text-muted)',
-            marginBottom: 'var(--space-2)',
-            cursor: 'pointer',
-            userSelect: 'none',
-          }}
-        >
-          <input
-            type="checkbox"
-            checked={allOnPageSelected}
-            onChange={toggleSelectAll}
-            aria-label="Select all on this page"
-          />
-          Select all on this page
-        </label>
-      )}
-
-      {loading && rows.length === 0 ? (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
-          {Array.from({ length: 5 }).map((_, i) => (
-            <div key={i} className="skeleton" style={{ height: 76, borderRadius: 'var(--radius-md)' }} />
-          ))}
-        </div>
-      ) : rows.length === 0 ? (
-        <p className="text-muted" style={{ textAlign: 'center', padding: 'var(--space-8) 0' }}>
-          {status === 'stuck' ? 'No stuck orders 👍' : 'No orders match these filters'}
-        </p>
-      ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
-          {rows.map((order) => {
-            const checked = selected.has(order.id);
-            return (
-              <div
-                key={order.id}
-                className="order-card"
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: 'auto 1fr',
-                  gap: 'var(--space-3)',
-                  alignItems: 'center',
-                  padding: 'var(--space-4)',
-                }}
-              >
-                <input
-                  type="checkbox"
-                  checked={checked}
-                  onChange={() => toggleSelect(order.id)}
-                  onClick={(e) => e.stopPropagation()}
-                  aria-label={`Select ${order.order_number}`}
-                  style={{ marginTop: 4 }}
-                />
-                <Link
-                  href={`/admin/orders/${order.id}`}
-                  style={{
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: 4,
-                    color: 'inherit',
-                    textDecoration: 'none',
-                  }}
-                >
-                  <div className="order-card-header">
-                    <span style={{ fontWeight: 600, fontSize: '0.8125rem', fontFamily: 'monospace' }}>
-                      {order.order_number}
-                    </span>
-                    <span className={`badge badge-${order.order_status}`}>{order.order_status}</span>
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8125rem', color: 'var(--text-muted)' }}>
-                    <span>
-                      {order.customer_name || '—'} · {order.payment_method.toUpperCase()}
-                    </span>
-                    <span>{formatPrice(order.total_paise)}</span>
-                  </div>
-                  <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                    {formatDate(order.created_at)}
-                    {order.payment_status === 'paid' && (
-                      <span className="badge badge-paid" style={{ marginLeft: 'var(--space-2)' }}>
-                        Paid
-                      </span>
-                    )}
-                    {order.payment_status === 'failed' && (
-                      <span className="badge badge-cancelled" style={{ marginLeft: 'var(--space-2)' }}>
-                        Failed
-                      </span>
-                    )}
-                  </div>
-                </Link>
-              </div>
-            );
-          })}
-        </div>
-      )}
-
-      {/* Pagination */}
-      {totalPages > 1 && (
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            marginTop: 'var(--space-4)',
-            gap: 'var(--space-2)',
-          }}
-        >
-          <button
-            type="button"
-            className="btn btn-secondary btn-sm"
-            disabled={page <= 1 || loading}
-            onClick={() => setPage((p) => Math.max(1, p - 1))}
-          >
-            ← Prev
-          </button>
-          <span className="text-xs text-muted">
-            Page {page} of {totalPages}
-          </span>
-          <button
-            type="button"
-            className="btn btn-secondary btn-sm"
-            disabled={page >= totalPages || loading}
-            onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-          >
-            Next →
-          </button>
-        </div>
-      )}
+      {/* Main Standardized Table Component */}
+      <AdminTable
+        columns={columns}
+        data={rows}
+        loading={loading}
+        emptyMessage={status === 'stuck' ? 'No stuck orders 👍' : 'No orders match these filters'}
+        bulkActions={bulkActions}
+        total={total}
+        limit={pageSize}
+        offset={(page - 1) * pageSize}
+        onPageChange={(newOffset) => setPage(Math.floor(newOffset / pageSize) + 1)}
+      />
     </div>
   );
 }

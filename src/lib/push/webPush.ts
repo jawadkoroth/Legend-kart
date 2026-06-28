@@ -184,6 +184,32 @@ export async function notifyAdmins(
   supabase: SupabaseClient,
   payload: AdminPushPayload,
 ): Promise<{ sent: number; pruned: number; errored: number }> {
+  // Save to unified admin_notifications table
+  try {
+    let typeVal = payload.type || 'system_alert';
+    if (typeVal === 'new_order') typeVal = 'order';
+    if (typeVal === 'delivery') typeVal = 'shipping_issue';
+    if (typeVal === 'dead_job') typeVal = 'workflow_failure';
+    if (typeVal === 'note') typeVal = 'note';
+    
+    const allowedTypes = ['order', 'return', 'exchange', 'workflow_failure', 'marketing_failure', 'shipping_issue', 'system_alert', 'feedback', 'low_stock', 'note'];
+    if (!allowedTypes.includes(typeVal)) {
+      typeVal = 'system_alert';
+    }
+
+    const priority = typeVal === 'workflow_failure' ? 'critical' : (typeVal === 'low_stock' ? 'warning' : 'info');
+    
+    await supabase.from('admin_notifications').insert({
+      title: payload.title,
+      body: payload.body,
+      type: typeVal,
+      priority: priority,
+      metadata: { orderId: payload.orderId || null }
+    });
+  } catch (err) {
+    console.error('[NOTIFY_ADMINS_SAVE_NOTIFICATION_ERROR]', err);
+  }
+
   // 1. Send via FCM
   const fcmResult = await notifyFCMAdmins(supabase, payload);
 

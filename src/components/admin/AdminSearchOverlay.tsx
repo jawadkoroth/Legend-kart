@@ -29,6 +29,7 @@ const ADMIN_PAGES: SearchPageResult[] = [
   { title: 'Returns Center', category: 'Page', href: '/admin/orders#returns', description: 'Handle product returns and processing' },
   { title: 'Exchanges Center', category: 'Page', href: '/admin/orders#exchanges', description: 'Handle size/product exchanges' },
   { title: 'Products Catalogue', category: 'Page', href: '/admin/products', description: 'Inventory management and items list' },
+  { title: 'Create New Product', category: 'Page', href: '/admin/products/new', description: 'Shortcut: Add a new apparel product to the catalog' },
   { title: 'Catalog Quality Diagnostics', category: 'Page', href: '/admin/marketing/catalog-health', description: 'Audit product feeds, missing descriptions, or brand data' },
   { title: 'Customer Directory', category: 'Page', href: '/admin/customers', description: 'Customer profiles and lifetimes values' },
   { title: 'Customer Segments', category: 'Page', href: '/admin/marketing/audiences', description: 'Target segments, VIP lists, and filter rules' },
@@ -40,7 +41,9 @@ const ADMIN_PAGES: SearchPageResult[] = [
   { title: 'Automation Settings', category: 'Page', href: '/admin/automation/settings', description: 'Runner worker options' },
   { title: 'Shipping Configurations', category: 'Page', href: '/admin/shipping', description: 'Delhivery provider rules and parameters' },
   { title: 'Coupons Manager', category: 'Page', href: '/admin/coupons', description: 'Discount codes and usage campaigns' },
-  { title: 'System Settings', category: 'Page', href: '/admin/settings', description: 'Store configs, users & roles, payments, integrations' }
+  { title: 'Create New Coupon', category: 'Page', href: '/admin/coupons', description: 'Shortcut: Set up a new discount promo campaign code' },
+  { title: 'System Settings', category: 'Page', href: '/admin/settings', description: 'Store configs, users & roles, payments, integrations' },
+  { title: 'Database Health Diagnostics', category: 'Page', href: '/admin/settings/developer/database-health', description: 'Developer DB diagnostics & health logs' }
 ];
 
 interface AdminSearchOverlayProps {

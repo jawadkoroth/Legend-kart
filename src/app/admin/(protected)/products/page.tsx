@@ -6,6 +6,7 @@ import Image from 'next/image';
 import { useSearchParams } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { useToast } from '@/hooks/useToast';
+import AdminTable, { type AdminTableColumn } from '@/components/admin/AdminTable';
 import styles from './products.module.css';
 
 /**
@@ -285,6 +286,103 @@ export default function AdminProducts() {
 
 
   // -------- Render -----------------------------------------------
+  const columns: AdminTableColumn<Product>[] = [
+    {
+      key: 'images',
+      label: 'Image',
+      sortable: false,
+      width: 80,
+      render: (row) => {
+        const firstImage = row.images && row.images.length > 0 ? row.images[0] : null;
+        return (
+          <div style={{ position: 'relative', width: '40px', height: '40px', borderRadius: '4px', overflow: 'hidden', background: 'var(--bg-tertiary)' }}>
+            {firstImage ? (
+              <Image src={firstImage} alt={row.name} fill sizes="40px" style={{ objectFit: 'cover' }} />
+            ) : (
+              <div style={{ display: 'grid', placeItems: 'center', width: '100%', height: '100%', fontSize: '8px', color: 'var(--text-muted)' }}>NO IMG</div>
+            )}
+          </div>
+        );
+      }
+    },
+    {
+      key: 'name',
+      label: 'Product Details',
+      sortable: true,
+      width: 220,
+      render: (row) => (
+        <div style={{ display: 'flex', flexDirection: 'column' }}>
+          <Link href={`/admin/products/${row.id}/edit`} style={{ fontWeight: 600, textDecoration: 'underline', color: 'var(--accent-gold)' }}>
+            {row.name}
+          </Link>
+          <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>/{row.slug}</span>
+          {row.category && <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', background: 'var(--bg-tertiary)', padding: '1px 4px', borderRadius: '4px', width: 'fit-content', marginTop: '2px' }}>{row.category}</span>}
+        </div>
+      )
+    },
+    {
+      key: 'price_paise',
+      label: 'Pricing',
+      sortable: true,
+      width: 140,
+      render: (row) => (
+        <div style={{ display: 'flex', flexDirection: 'column' }}>
+          {row.sale_price_paise ? (
+            <>
+              <span style={{ color: 'var(--accent-gold)', fontWeight: 'bold' }}>{formatPrice(row.sale_price_paise)}</span>
+              <span style={{ textDecoration: 'line-through', fontSize: '0.75rem', color: 'var(--text-muted)' }}>{formatPrice(row.price_paise)}</span>
+            </>
+          ) : (
+            <span>{formatPrice(row.price_paise)}</span>
+          )}
+        </div>
+      )
+    },
+    {
+      key: 'inventory',
+      label: 'Inventory & Sizes',
+      sortable: false,
+      width: 240,
+      render: (row) => (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+          {(row.inventory ?? []).map((inv) => (
+            <div
+              key={inv.size}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                background: 'var(--bg-tertiary)',
+                border: '1px solid var(--border-color)',
+                padding: '2px 6px',
+                borderRadius: '6px',
+                fontSize: '0.7rem',
+                gap: '4px'
+              }}
+            >
+              <span style={{ fontWeight: 600 }}>{inv.size}</span>:
+              <button
+                onClick={() => updateStock(row.id, inv.size, inv.stock - 1)}
+                disabled={inv.stock === 0}
+                style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: '0 2px' }}
+              >
+                -
+              </button>
+              <span style={{ color: inv.stock === 0 ? 'var(--error)' : 'var(--text-primary)', fontWeight: 'bold' }}>
+                {inv.stock}
+              </span>
+              <button
+                onClick={() => updateStock(row.id, inv.size, inv.stock + 1)}
+                style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: '0 2px' }}
+              >
+                +
+              </button>
+            </div>
+          ))}
+        </div>
+      )
+    }
+  ];
+
   return (
     <div className={styles.page}>
       <header className={styles.header}>
@@ -393,259 +491,18 @@ export default function AdminProducts() {
           )}
         </div>
       ) : (
-        <>
-          <div className={styles.list}>
-            {products.map((product) => {
-              const isOpen = expanded.has(product.id);
-              const stock = totalStock(product.inventory);
-              const firstImage =
-                product.images && product.images.length > 0
-                  ? product.images[0]
-                  : null;
-              const archived = product.archived_at !== null;
-              return (
-                <div
-                  key={product.id}
-                  className={`${styles.row} ${archived ? styles.rowArchived : ''}`}
-                >
-                  {/* Thumb */}
-                  <div className={styles.thumb}>
-                    {firstImage ? (
-                      <Image
-                        src={firstImage}
-                        alt={product.name}
-                        fill
-                        sizes="64px"
-                        style={{ objectFit: 'cover' }}
-                      />
-                    ) : (
-                      <div className={styles.thumbPlaceholder}>NO IMG</div>
-                    )}
-                  </div>
-
-                  {/* Identity */}
-                  <div className={styles.identity}>
-                    <Link
-                      href={`/admin/products/${product.id}/edit`}
-                      className={styles.name}
-                    >
-                      {product.name}
-                    </Link>
-                    <div className={styles.metaLine}>
-                      <span className={styles.slug}>/{product.slug}</span>
-                      {product.category && (
-                        <span className={styles.category}>{product.category}</span>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Price */}
-                  <div className={styles.priceBlock}>
-                    {product.sale_price_paise ? (
-                      <>
-                        <span className={styles.priceLive}>
-                          {formatPrice(product.sale_price_paise)}
-                        </span>
-                        <span className={styles.priceStrike}>
-                          {formatPrice(product.price_paise)}
-                        </span>
-                        <span className={styles.priceSaleHint}>On sale</span>
-                      </>
-                    ) : (
-                      <span className={styles.priceLive}>
-                        {formatPrice(product.price_paise)}
-                      </span>
-                    )}
-                  </div>
-
-                  {/* Stock chip */}
-                  <span className={`${styles.stockChip} ${stockClass(stock)}`}>
-                    <span className={styles.stockDot} />
-                    {stock} in stock
-                  </span>
-
-                  {/* Status pill */}
-                  <span
-                    className={`${styles.statusPill} ${
-                      archived
-                        ? styles.statusArchived
-                        : product.is_active
-                          ? styles.statusActive
-                          : styles.statusInactive
-                    }`}
-                  >
-                    {archived ? 'Archived' : product.is_active ? 'Live' : 'Inactive'}
-                  </span>
-
-                  {/* Actions */}
-                  <div className={styles.actions}>
-                    {archived ? (
-                      <button
-                        type="button"
-                        onClick={() => restoreProduct(product)}
-                        className={styles.iconBtn}
-                      >
-                        Restore
-                      </button>
-                    ) : (
-                      <>
-                        <label
-                          className={styles.toggle}
-                          title={product.is_active ? 'Deactivate' : 'Activate'}
-                        >
-                          <input
-                            type="checkbox"
-                            checked={product.is_active}
-                            onChange={() =>
-                              toggleActive(product.id, product.is_active)
-                            }
-                            aria-label={`Toggle active for ${product.name}`}
-                          />
-                        </label>
-                        <Link
-                          href={`/admin/products/${product.id}/edit`}
-                          className={styles.iconBtn}
-                        >
-                          Edit
-                        </Link>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setArchiving(product);
-                            setArchiveError('');
-                          }}
-                          className={`${styles.iconBtn} ${styles.iconBtnDanger}`}
-                          aria-label={`Archive ${product.name}`}
-                        >
-                          Archive
-                        </button>
-                      </>
-                    )}
-                    <button
-                      type="button"
-                      className={`${styles.expandBtn} ${
-                        isOpen ? styles.expandBtnOpen : ''
-                      }`}
-                      onClick={() => toggleExpand(product.id)}
-                      aria-expanded={isOpen}
-                      aria-label={
-                        isOpen ? 'Collapse stock detail' : 'Expand stock detail'
-                      }
-                    >
-                      ⌄
-                    </button>
-                  </div>
-
-                  {/* Expanded stock grid */}
-                  {isOpen && (
-                    <div className={styles.expand}>
-                      {(product.inventory ?? []).length === 0 ? (
-                        <p className="text-xs text-muted">
-                          No size inventory rows. Add sizes in the edit screen.
-                        </p>
-                      ) : (
-                        (product.inventory ?? []).map((inv) => (
-                          <div key={inv.size} className={styles.sizeCell}>
-                            <span className={styles.sizeLabel}>{inv.size}</span>
-                            <div className={styles.stepper}>
-                              <button
-                                type="button"
-                                className={styles.stepperBtn}
-                                onClick={() =>
-                                  updateStock(product.id, inv.size, inv.stock - 1)
-                                }
-                                aria-label={`Decrease ${inv.size} stock`}
-                                disabled={inv.stock === 0}
-                              >
-                                −
-                              </button>
-                              <span
-                                className={`${styles.stepperVal} ${
-                                  inv.stock === 0 ? styles.stepperValZero : ''
-                                }`}
-                              >
-                                {inv.stock}
-                              </span>
-                              <button
-                                type="button"
-                                className={styles.stepperBtn}
-                                onClick={() =>
-                                  updateStock(product.id, inv.size, inv.stock + 1)
-                                }
-                                aria-label={`Increase ${inv.size} stock`}
-                              >
-                                +
-                              </button>
-                            </div>
-                          </div>
-                        ))
-                      )}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-
-          {/* Pagination Navigation */}
-          {totalPages > 1 && (
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                marginTop: 'var(--space-5, 24px)',
-                padding: '16px 24px',
-                background: 'var(--bg-secondary)',
-                border: '1px solid var(--border-color)',
-                borderRadius: 'var(--radius-lg, 12px)',
-                gap: 'var(--space-2)'
-              }}
-            >
-              {page > 1 ? (
-                <button
-                  type="button"
-                  className="btn btn-secondary btn-sm"
-                  style={{ width: 'auto' }}
-                  onClick={() => setPage((p) => Math.max(1, p - 1))}
-                >
-                  ← Prev
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  className="btn btn-secondary btn-sm"
-                  style={{ width: 'auto', opacity: 0.4, cursor: 'not-allowed' }}
-                  disabled
-                >
-                  ← Prev
-                </button>
-              )}
-              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                Page {page} of {totalPages}
-              </span>
-              {page < totalPages ? (
-                <button
-                  type="button"
-                  className="btn btn-secondary btn-sm"
-                  style={{ width: 'auto' }}
-                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                >
-                  Next →
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  className="btn btn-secondary btn-sm"
-                  style={{ width: 'auto', opacity: 0.4, cursor: 'not-allowed' }}
-                  disabled
-                >
-                  Next →
-                </button>
-              )}
-            </div>
-          )}
-        </>
+        <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '20px' }}>
+        <AdminTable
+          columns={columns}
+          data={products}
+          total={totalCount}
+          limit={pageSize}
+          offset={(page - 1) * pageSize}
+          onPageChange={(newOffset) => setPage(Math.floor(newOffset / pageSize) + 1)}
+          loading={loading}
+          emptyMessage={search ? 'No matches found.' : status === 'archived' ? 'No archived products.' : 'No products catalogued.'}
+        />
+      </div>
       )}
 
       {archiving && (

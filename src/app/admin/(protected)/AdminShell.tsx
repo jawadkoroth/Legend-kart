@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import AdminFeedbackDrawer from '@/components/AdminFeedbackDrawer';
+import AdminNotificationCenter from '@/components/admin/AdminNotificationCenter';
 import AdminRealtimeProvider from '@/components/admin/AdminRealtimeProvider';
 import AdminPushPrompt from '@/components/admin/AdminPushPrompt';
 import AdminReturnsBadge from '@/components/admin/AdminReturnsBadge';
@@ -741,12 +741,10 @@ export default function AdminShell({
         </div>
       </div>
 
-      <AdminFeedbackDrawer
+      <AdminNotificationCenter
         isOpen={isFeedbackOpen}
         onClose={() => setIsFeedbackOpen(false)}
-        onUnreadDelta={delta =>
-          setUnreadCount(prev => Math.max(0, prev + delta))
-        }
+        onUnreadCountChange={count => setUnreadCount(count)}
       />
 
       {/* Ctrl+K Search Overlay */}
