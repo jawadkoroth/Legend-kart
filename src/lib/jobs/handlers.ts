@@ -66,12 +66,19 @@ const handlers: Record<string, JobHandler> = {
     if (!push || !push.title) {
       throw new Error('push job payload missing `push`');
     }
-    const result = await notifyAdmins(supabase, push);
-    // If every delivery errored (and none were pruned) we want the
-    // runner to retry — likely a transient VAPID / network issue.
-    if (result.sent === 0 && result.errored > 0 && result.pruned === 0) {
-      throw new Error(`push fan-out errored: ${result.errored} subs`);
-    }
+    const { sendCommunication } = await import('@/lib/communication/engine');
+    await sendCommunication({
+      channel: 'push',
+      subject: push.title,
+      body: push.body,
+      metadata: { orderId: push.orderId, type: push.type }
+    });
+  },
+
+  // ---- communication.* --------------------------------------------
+  'communication.send': async (payload) => {
+    const { sendCommunication } = await import('@/lib/communication/engine');
+    await sendCommunication(payload as any);
   },
 
   // ---- workflow.* --------------------------------------------------

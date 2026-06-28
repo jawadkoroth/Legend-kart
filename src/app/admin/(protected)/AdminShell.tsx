@@ -113,6 +113,14 @@ const NAV_GROUPS: NavGroup[] = [
     ]
   },
   {
+    id: 'communication',
+    label: 'CRM & Inbox',
+    icon: 'Megaphone',
+    items: [
+      { href: '/admin/communication', label: 'Comm Hub', icon: 'Megaphone' }
+    ]
+  },
+  {
     id: 'automation',
     label: 'Automation',
     icon: 'Zap',

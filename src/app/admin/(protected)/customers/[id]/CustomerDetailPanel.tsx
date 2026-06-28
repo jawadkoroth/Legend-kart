@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
 import {
@@ -52,7 +52,39 @@ export default function CustomerDetailPanel({
   const [savingNotes, setSavingNotes] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
 
+  // CRM States
+  const [commMessages, setCommMessages] = useState<any[]>([]);
+  const [commPreferences, setCommPreferences] = useState<any>(null);
+  const [loadingComm, setLoadingComm] = useState(false);
+
   const supabase = createClient();
+
+  useEffect(() => {
+    if (!customer.id) return;
+    async function loadCommunicationDetails() {
+      setLoadingComm(true);
+      try {
+        const { data: msgs } = await supabase
+          .from('communication_messages')
+          .select('*')
+          .eq('customer_id', customer.id)
+          .order('created_at', { ascending: false });
+        setCommMessages(msgs || []);
+
+        const { data: prefs } = await supabase
+          .from('communication_preferences')
+          .select('*')
+          .eq('customer_id', customer.id)
+          .maybeSingle();
+        setCommPreferences(prefs);
+      } catch (err) {
+        console.error('Error loading communication details:', err);
+      } finally {
+        setLoadingComm(false);
+      }
+    }
+    loadCommunicationDetails();
+  }, [customer.id]);
 
   const handleSaveNotes = async () => {
     setSavingNotes(true);
@@ -148,6 +180,18 @@ export default function CustomerDetailPanel({
     });
   });
 
+  // 4. Communication outreach messages
+  commMessages.forEach((m) => {
+    timelineItems.push({
+      id: `comm-${m.id}`,
+      name: `Sent ${m.channel.toUpperCase()} Outreach`,
+      type: 'communication',
+      date: m.created_at,
+      icon: Mail,
+      detail: `${m.subject || m.body.slice(0, 50)}... (Status: ${m.status})`
+    });
+  });
+
   // Sort chronologically (newest first)
   timelineItems.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
@@ -229,7 +273,8 @@ export default function CustomerDetailPanel({
           { id: 'overview', label: 'Overview Profile', icon: User },
           { id: 'timeline', label: 'Attribution & Timeline', icon: Clock },
           { id: 'orders', label: 'Order History', icon: ShoppingCart },
-          { id: 'wishlist', label: 'Wishlist & Views', icon: Heart }
+          { id: 'wishlist', label: 'Wishlist & Views', icon: Heart },
+          { id: 'communication', label: 'Communication Hub', icon: Mail }
         ].map((tab) => {
           const Icon = tab.icon;
           return (
@@ -556,6 +601,72 @@ export default function CustomerDetailPanel({
               )}
             </div>
 
+          </div>
+        )}
+
+        {/* Tab 5: Communication Outreach */}
+        {activeTab === 'communication' && (
+          <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '20px' }}>
+            {/* Outreach Ledger */}
+            <div className="card" style={{ padding: '20px' }}>
+              <h3 style={{ fontSize: '0.95rem', fontWeight: 600, marginBottom: '14px' }}>Customer Outreach Ledger ({commMessages.length})</h3>
+              
+              {loadingComm ? (
+                <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Loading outreach logs...</div>
+              ) : commMessages.length === 0 ? (
+                <p style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>No outreach messages dispatched to this customer.</p>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                  {commMessages.map((msg) => (
+                    <div key={msg.id} style={{ border: '1px solid var(--border-color)', borderRadius: '8px', padding: '12px', background: 'var(--bg-tertiary)' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                        <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--accent-gold)', textTransform: 'uppercase' }}>{msg.channel} message</span>
+                        <span className={`badge badge-${msg.status === 'sent' || msg.status === 'delivered' ? 'paid' : (msg.status === 'queued' ? 'pending' : 'failed')}`} style={{ fontSize: '9px' }}>{msg.status}</span>
+                      </div>
+                      {msg.subject && <div style={{ fontSize: '0.8rem', fontWeight: 'bold', marginBottom: '4px', color: 'var(--text-primary)' }}>{msg.subject}</div>}
+                      <p style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', margin: 0, whiteSpace: 'pre-wrap' }}>{msg.body}</p>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '8px', fontSize: '0.65rem', color: 'var(--text-muted)' }}>
+                        <span>Provider: {msg.provider}</span>
+                        <span>{formatDate(msg.created_at)}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Preference Choices */}
+            <div className="card" style={{ padding: '20px' }}>
+              <h3 style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '16px' }}>Opt-in Choices</h3>
+              
+              {commPreferences ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', fontSize: '0.8rem' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span>Email Outreach</span>
+                    <span className={`badge badge-${commPreferences.email_opt_in ? 'paid' : 'cancelled'}`} style={{ fontSize: '9px' }}>{commPreferences.email_opt_in ? 'OPT-IN' : 'OPT-OUT'}</span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span>WhatsApp Outreach</span>
+                    <span className={`badge badge-${commPreferences.whatsapp_opt_in ? 'paid' : 'cancelled'}`} style={{ fontSize: '9px' }}>{commPreferences.whatsapp_opt_in ? 'OPT-IN' : 'OPT-OUT'}</span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span>Push Alerts</span>
+                    <span className={`badge badge-${commPreferences.push_opt_in ? 'paid' : 'cancelled'}`} style={{ fontSize: '9px' }}>{commPreferences.push_opt_in ? 'OPT-IN' : 'OPT-OUT'}</span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span>SMS Outreach</span>
+                    <span className={`badge badge-${commPreferences.sms_opt_in ? 'paid' : 'cancelled'}`} style={{ fontSize: '9px' }}>{commPreferences.sms_opt_in ? 'OPT-IN' : 'OPT-OUT'}</span>
+                  </div>
+                  <hr style={{ border: 'none', borderBottom: '1px solid var(--border-color)', margin: '4px 0' }} />
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span>Transactional Only</span>
+                    <span className="badge badge-secondary" style={{ fontSize: '9px' }}>{commPreferences.transactional_only ? 'YES' : 'NO'}</span>
+                  </div>
+                </div>
+              ) : (
+                <p style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>No preferences recorded.</p>
+              )}
+            </div>
           </div>
         )}
 

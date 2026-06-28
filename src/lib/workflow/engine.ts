@@ -287,18 +287,49 @@ export async function runExecution(
             const title = interpolate(params.title || 'Internal Notification', customer, payload, state);
             const body = interpolate(params.body || '', customer, payload, state);
             
-            await enqueue({
-              kind: 'push.admin_notify',
-              payload: {
-                push: {
-                  title,
-                  body,
-                  type: 'custom_workflow'
-                }
-              }
-            }, supabase);
-            addLog(node.id, node.name, 'action', 'success', `Dispatched admin notification: "${title}"`);
+            const { sendCommunication } = await import('@/lib/communication/engine');
+            await sendCommunication({
+              customerId: customer?.id || null,
+              channel: 'push',
+              subject: title,
+              body: body,
+              metadata: { type: 'admin_notify' }
+            });
+            addLog(node.id, node.name, 'action', 'success', `Dispatched admin notification via Comm Hub: "${title}"`);
           } 
+          else if (actionType === 'send_email') {
+            const subject = interpolate(params.subject || 'PANTHER Update', customer, payload, state);
+            const content = interpolate(params.content || params.body || '', customer, payload, state);
+            const templateId = params.templateId || null;
+            
+            const { sendCommunication } = await import('@/lib/communication/engine');
+            await sendCommunication({
+              customerId: customer?.id || null,
+              contactValue: customer?.email || params.email || '',
+              channel: 'email',
+              templateId,
+              subject,
+              body: content,
+              variables: { ...state, ...payload.properties }
+            });
+            addLog(node.id, node.name, 'action', 'success', `Dispatched email via Comm Hub to ${customer?.email || params.email}`);
+          }
+          else if (actionType === 'send_whatsapp') {
+            const content = interpolate(params.content || params.body || '', customer, payload, state);
+            const templateId = params.templateId || null;
+            
+            const { sendCommunication } = await import('@/lib/communication/engine');
+            await sendCommunication({
+              customerId: customer?.id || null,
+              contactValue: customer?.phone || params.phone || '',
+              channel: 'whatsapp',
+              templateId,
+              body: content,
+              variables: { ...state, ...payload.properties },
+              metadata: params.templateName ? { templateName: params.templateName } : undefined
+            });
+            addLog(node.id, node.name, 'action', 'success', `Dispatched WhatsApp via Comm Hub to ${customer?.phone || params.phone}`);
+          }
           else if (actionType === 'add_tag') {
             if (!customer) {
               throw new Error('No customer profile associated with execution to tag');
